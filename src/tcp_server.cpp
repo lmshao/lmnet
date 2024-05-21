@@ -28,14 +28,14 @@ bool TcpServer::Init()
 {
     socket_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
-        LOGE("socket error: %s", strerror(errno));
+        NETWORK_LOGE("socket error: %s", strerror(errno));
         return false;
     }
-    LOGD("... fd:%d", socket_);
+    NETWORK_LOGD("... fd:%d", socket_);
 
     int optval = 1;
     if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-        LOGE("setsockopt error: %s", strerror(errno));
+        NETWORK_LOGE("setsockopt error: %s", strerror(errno));
         return false;
     }
 
@@ -45,12 +45,12 @@ bool TcpServer::Init()
     inet_aton(localIp_.c_str(), &serverAddr_.sin_addr);
 
     if (bind(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
-        LOGE("bind error: %s", strerror(errno));
+        NETWORK_LOGE("bind error: %s", strerror(errno));
         return false;
     }
 
     if (listen(socket_, TCP_BACKLOG) < 0) {
-        LOGE("listen error: %s", strerror(errno));
+        NETWORK_LOGE("listen error: %s", strerror(errno));
         return false;
     }
 
@@ -60,7 +60,7 @@ bool TcpServer::Init()
 bool TcpServer::Start()
 {
     if (socket_ == INVALID_SOCKET) {
-        LOGE("socket not initialized");
+        NETWORK_LOGE("socket not initialized");
         return false;
     }
 
@@ -88,14 +88,14 @@ bool TcpServer::Stop()
 bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
 {
     if (sessions_.find(fd) == sessions_.end()) {
-        LOGE("invalid session fd");
+        NETWORK_LOGE("invalid session fd");
         return false;
     }
 
     ssize_t bytes = send(fd, buffer->Data(), buffer->Size(), 0);
     if (bytes != buffer->Size()) {
         printf("Send scuccess, length:%zd\n\n", bytes);
-        LOGE("send failed with error: %s, %zd/%zu", strerror(errno), bytes, buffer->Size());
+        NETWORK_LOGE("send failed with error: %s, %zd/%zu", strerror(errno), bytes, buffer->Size());
         return false;
     }
 
@@ -104,12 +104,12 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
 
 void TcpServer::HandleAccept(int fd)
 {
-    LOGD("enter");
+    NETWORK_LOGD("enter");
     struct sockaddr_in clientAddr = {};
     socklen_t addrLen = sizeof(struct sockaddr_in);
     int clientSocket = accept(fd, (struct sockaddr *)&clientAddr, &addrLen);
     if (clientSocket < 0) {
-        LOGE("accept error: %s", strerror(errno));
+        NETWORK_LOGE("accept error: %s", strerror(errno));
         return;
     }
 
@@ -118,7 +118,7 @@ void TcpServer::HandleAccept(int fd)
     std::string host = inet_ntoa(clientAddr.sin_addr);
     uint16_t port = ntohs(clientAddr.sin_port);
 
-    LOGD("New client connections client[%d] %s:%d\n", clientSocket, inet_ntoa(clientAddr.sin_addr),
+    NETWORK_LOGD("New client connections client[%d] %s:%d\n", clientSocket, inet_ntoa(clientAddr.sin_addr),
          ntohs(clientAddr.sin_port));
 
     auto session = std::make_shared<SessionImpl>(clientSocket, host, port, shared_from_this());
@@ -127,23 +127,23 @@ void TcpServer::HandleAccept(int fd)
     if (!listener_.expired()) {
         callbackThreads_->AddTask(
             [=](void *) {
-                LOGD("invoke OnAccept callback");
+                NETWORK_LOGD("invoke OnAccept callback");
                 auto listener = listener_.lock();
                 if (listener) {
                     listener->OnAccept(sessions_[clientSocket]);
                 } else {
-                    LOGE("not found listener!");
+                    NETWORK_LOGE("not found listener!");
                 }
             },
             std::to_string(fd));
     } else {
-        LOGE("listener is null");
+        NETWORK_LOGE("listener is null");
     }
 }
 
 void TcpServer::HandleReceive(int fd)
 {
-    LOGD("fd: %d", fd);
+    NETWORK_LOGD("fd: %d", fd);
     static char buffer[RECV_BUFFER_MAX_SIZE] = {};
     memset(buffer, 0, RECV_BUFFER_MAX_SIZE);
 
@@ -166,7 +166,7 @@ void TcpServer::HandleReceive(int fd)
         }
 
         if (nbytes == 0) {
-            LOGW("Disconnect fd[%d]", fd);
+            NETWORK_LOGW("Disconnect fd[%d]", fd);
             EventProcessor::GetInstance()->RemoveConnectionFd(fd);
             close(fd);
 
@@ -178,7 +178,7 @@ void TcpServer::HandleReceive(int fd)
                             listener->OnClose(sessions_[fd]);
                             sessions_.erase(fd);
                         } else {
-                            LOGE("not found listener!");
+                            NETWORK_LOGE("not found listener!");
                         }
                     },
                     std::to_string(fd));
@@ -190,7 +190,7 @@ void TcpServer::HandleReceive(int fd)
             }
 
             std::string info = strerror(errno);
-            LOGE("recv error: %s", info.c_str());
+            NETWORK_LOGE("recv error: %s", info.c_str());
             EventProcessor::GetInstance()->RemoveConnectionFd(fd);
             close(fd);
 
@@ -202,7 +202,7 @@ void TcpServer::HandleReceive(int fd)
                             listener->OnError(sessions_[fd], info);
                             sessions_.erase(fd);
                         } else {
-                            LOGE("not found listener!");
+                            NETWORK_LOGE("not found listener!");
                         }
                     },
                     std::to_string(fd));

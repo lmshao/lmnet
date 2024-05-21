@@ -24,7 +24,7 @@ public:
         if (server) {
             return server->Send(fd, host, port, buffer);
         }
-        LOGE("server is invalid");
+        NETWORK_LOGE("server is invalid");
         return false;
     }
 

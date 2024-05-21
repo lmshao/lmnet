@@ -6,6 +6,7 @@
 
 #include <chrono>
 
+namespace Network {
 std::string Time()
 {
     auto now = std::chrono::system_clock::now();
@@ -18,3 +19,4 @@ std::string Time()
              ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec, (int)ms);
     return date;
 }
+} // namespace Network

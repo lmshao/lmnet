@@ -122,7 +122,7 @@ void ThreadPool::AddTask(const Task &task, void *userData, size_t dataSize)
 void ThreadPool::AddTask(const Task &task, void *userData, size_t dataSize, const std::string &serialTag)
 {
     if (task == nullptr) {
-        LOGE("task is nullptr");
+        NETWORK_LOGE("task is nullptr");
         return;
     }
 
@@ -136,7 +136,7 @@ void ThreadPool::AddTask(const Task &task, void *userData, size_t dataSize, cons
         return;
     }
 
-    LOGD("idle:%d, thread num: %zu/%d", idle_.load(), threads_.size(), threadsMax_);
+    NETWORK_LOGD("idle:%d, thread num: %zu/%d", idle_.load(), threads_.size(), threadsMax_);
     if (threads_.size() < threadsMax_) {
         auto p = std::make_unique<std::thread>(&ThreadPool::Worker, this);
         std::string threadName = threadName_ + "-" + std::to_string(threads_.size());

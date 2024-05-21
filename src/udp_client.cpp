@@ -32,7 +32,7 @@ bool UdpClient::Init()
 {
     socket_ = socket(AF_INET, SOCK_DGRAM, 0);
     if (socket_ == INVALID_SOCKET) {
-        LOGE("socket error: %s", strerror(errno));
+        NETWORK_LOGE("socket error: %s", strerror(errno));
         return false;
     }
 
@@ -53,7 +53,7 @@ bool UdpClient::Init()
 
         int ret = bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr));
         if (ret != 0) {
-            LOGE("bind error: %s", strerror(errno));
+            NETWORK_LOGE("bind error: %s", strerror(errno));
             return false;
         }
     }
@@ -74,7 +74,7 @@ void UdpClient::Close()
 bool UdpClient::Send(const void *data, size_t len)
 {
     if (socket_ == INVALID_SOCKET) {
-        LOGE("socket not initialized");
+        NETWORK_LOGE("socket not initialized");
         return false;
     }
 
@@ -85,7 +85,7 @@ bool UdpClient::Send(const void *data, size_t len)
 
     size_t nbytes = sendto(socket_, data, len, 0, (struct sockaddr *)&serverAddr_, (socklen_t)(sizeof(serverAddr_)));
     if (nbytes == -1) {
-        LOGE("sendto error: %s", strerror(errno));
+        NETWORK_LOGE("sendto error: %s", strerror(errno));
         return false;
     }
 
@@ -104,7 +104,7 @@ bool UdpClient::Send(std::shared_ptr<DataBuffer> data)
 
 void UdpClient::HandleReceive(int fd)
 {
-    LOGD("fd: %d", fd);
+    NETWORK_LOGD("fd: %d", fd);
     static char buffer[RECV_BUFFER_MAX_SIZE] = {};
     memset(buffer, 0, RECV_BUFFER_MAX_SIZE);
 
@@ -123,7 +123,7 @@ void UdpClient::HandleReceive(int fd)
         }
     } else if (nbytes < 0) {
         std::string info = strerror(errno);
-        LOGE("recv error: %s", info.c_str());
+        NETWORK_LOGE("recv error: %s", info.c_str());
         EventProcessor::GetInstance()->RemoveConnectionFd(fd);
         close(fd);
 
@@ -134,13 +134,13 @@ void UdpClient::HandleReceive(int fd)
                     listener->OnError(info);
                     Close();
                 } else {
-                    LOGE("not found listener!");
+                    NETWORK_LOGE("not found listener!");
                 }
             });
         }
 
     } else if (nbytes == 0) {
-        LOGW("Disconnect fd[%d]", fd);
+        NETWORK_LOGW("Disconnect fd[%d]", fd);
         EventProcessor::GetInstance()->RemoveConnectionFd(fd);
         close(fd);
 
@@ -151,7 +151,7 @@ void UdpClient::HandleReceive(int fd)
                     listener->OnClose();
                     Close();
                 } else {
-                    LOGE("not found listener!");
+                    NETWORK_LOGE("not found listener!");
                 }
             });
         }

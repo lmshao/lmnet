@@ -21,7 +21,7 @@ static uint16_t idlePort_ = UDP_SERVER_DEFAULT_PORT_START;
 
 UdpServer::~UdpServer()
 {
-    LOGD("destructor");
+    NETWORK_LOGD("destructor");
     Stop();
 }
 
@@ -29,20 +29,20 @@ bool UdpServer::Init()
 {
     socket_ = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
-        LOGE("socket error: %s", strerror(errno));
+        NETWORK_LOGE("socket error: %s", strerror(errno));
         return false;
     }
-    LOGD("fd:%d", socket_);
+    NETWORK_LOGD("fd:%d", socket_);
 
     int optval = 1;
     if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-        LOGE("setsockopt error: %s", strerror(errno));
+        NETWORK_LOGE("setsockopt error: %s", strerror(errno));
         return false;
     }
 
     // int bufferSize = 819200;
     // if (setsockopt(socket_, SOL_SOCKET, SO_RCVBUF, &bufferSize, sizeof(bufferSize)) < 0) {
-    //     LOGE("setsockopt error: %s", strerror(errno));
+    //     NETWORK_LOGE("setsockopt error: %s", strerror(errno));
     //     return false;
     // }
 
@@ -52,7 +52,7 @@ bool UdpServer::Init()
     inet_aton(localIp_.c_str(), &serverAddr_.sin_addr);
 
     if (bind(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
-        LOGE("bind error: %s", strerror(errno));
+        NETWORK_LOGE("bind error: %s", strerror(errno));
         return false;
     }
 
@@ -62,7 +62,7 @@ bool UdpServer::Init()
 bool UdpServer::Start()
 {
     if (socket_ == INVALID_SOCKET) {
-        LOGE("socket not initialized");
+        NETWORK_LOGE("socket not initialized");
         return false;
     }
 
@@ -90,7 +90,7 @@ bool UdpServer::Stop()
 bool UdpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
 {
     if (socket_ == INVALID_SOCKET) {
-        LOGE("socket not initialized");
+        NETWORK_LOGE("socket not initialized");
         return false;
     }
 
@@ -102,7 +102,7 @@ bool UdpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
     ssize_t nbytes =
         sendto(socket_, buffer->Data(), buffer->Size(), 0, (struct sockaddr *)&remoteAddr, sizeof(remoteAddr));
     if (nbytes != buffer->Size()) {
-        LOGE("send error: %s %zd/%zu", strerror(errno), nbytes, buffer->Size());
+        NETWORK_LOGE("send error: %s %zd/%zu", strerror(errno), nbytes, buffer->Size());
         return false;
     }
 
@@ -120,7 +120,7 @@ void UdpServer::HandleReceive(int fd)
         ssize_t nbytes = recvfrom(socket_, buffer, sizeof(buffer), 0, (struct sockaddr *)&clientAddr, &addrLen);
         std::string host = inet_ntoa(clientAddr.sin_addr);
         uint16_t port = ntohs(clientAddr.sin_port);
-        // LOGD("recvfrom %s:%d", host.c_str(), port);
+        // NETWORK_LOGD("recvfrom %s:%d", host.c_str(), port);
 
         if (nbytes > 0) {
             if (!listener_.expired()) {
@@ -144,7 +144,7 @@ void UdpServer::HandleReceive(int fd)
         }
 
         std::string info = strerror(errno);
-        LOGE("recvfrom() failed: %s", info.c_str());
+        NETWORK_LOGE("recvfrom() failed: %s", info.c_str());
         if (!listener_.expired()) {
             callbackThreads_->AddTask(
                 [=](void *) {
@@ -153,7 +153,7 @@ void UdpServer::HandleReceive(int fd)
                         listener->OnError(std::make_shared<SessionImpl>(fd, host, port, shared_from_this()), info);
                         sessions_.erase(fd);
                     } else {
-                        LOGE("not found listener!");
+                        NETWORK_LOGE("not found listener!");
                     }
                 },
                 host + std::to_string(port));
@@ -189,7 +189,7 @@ uint16_t UdpServer::GetIdlePort()
     }
 
     if (i == idlePort_ + 100) {
-        LOGE("Can't find idle port");
+        NETWORK_LOGE("Can't find idle port");
         return 0;
     }
 

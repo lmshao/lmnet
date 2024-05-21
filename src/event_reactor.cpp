@@ -22,7 +22,7 @@ EventReactor::EventReactor()
 
 EventReactor::~EventReactor()
 {
-    LOGD("enter");
+    NETWORK_LOGD("enter");
     running_ = false;
     if (epollThread_ && epollThread_->joinable()) {
         epollThread_->join();
@@ -31,13 +31,13 @@ EventReactor::~EventReactor()
 
 void EventReactor::AddListeningFd(int fd, std::function<void(int)> callback)
 {
-    LOGD("[%p] ... fd:%d", this, fd);
+    NETWORK_LOGD("[%p] ... fd:%d", this, fd);
     std::unique_lock<std::mutex> lock(mutex_);
     fds_.emplace(fd, callback);
     lock.unlock();
 
     if (!running_) {
-        LOGE("Reactor has exited");
+        NETWORK_LOGE("Reactor has exited");
         return;
     }
 
@@ -45,15 +45,15 @@ void EventReactor::AddListeningFd(int fd, std::function<void(int)> callback)
     ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = fd;
     if (epoll_ctl(epollFd_, EPOLL_CTL_ADD, fd, &ev) == -1) {
-        LOGE("epoll_ctl error: %s", strerror(errno));
+        NETWORK_LOGE("epoll_ctl error: %s", strerror(errno));
         return;
     }
-    // LOGD("epoll_ctl ok");
+    // NETWORK_LOGD("epoll_ctl ok");
 }
 
 void EventReactor::RemoveListeningFd(int fd)
 {
-    LOGD("remove fd(%d)", fd);
+    NETWORK_LOGD("remove fd(%d)", fd);
     std::unique_lock<std::mutex> lock(mutex_);
     if (fds_.find(fd) == fds_.end()) {
         return;
@@ -62,7 +62,7 @@ void EventReactor::RemoveListeningFd(int fd)
     lock.unlock();
 
     if (running_ == false) {
-        LOGE("Reactor has exited");
+        NETWORK_LOGE("Reactor has exited");
         return;
     }
 
@@ -70,18 +70,18 @@ void EventReactor::RemoveListeningFd(int fd)
     ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = fd;
     if (epoll_ctl(epollFd_, EPOLL_CTL_DEL, fd, &ev) == -1) {
-        LOGE("epoll_ctl error: %s", strerror(errno));
+        NETWORK_LOGE("epoll_ctl error: %s", strerror(errno));
         return;
     }
 }
 
 void EventReactor::Run()
 {
-    LOGD("enter");
+    NETWORK_LOGD("enter");
     epollFd_ = epoll_create1(0);
     if (epollFd_ == -1) {
         perror("epoll_create");
-        LOGE("epoll_create %s", strerror(errno));
+        NETWORK_LOGE("epoll_create %s", strerror(errno));
         return;
     }
 
@@ -93,7 +93,7 @@ void EventReactor::Run()
     while (running_) {
         nfds = epoll_wait(epollFd_, readyEvents, EPOLL_WAIT_EVENT_NUMS_MAX, 100);
         if (nfds == -1) {
-            LOGE("epoll_wait error: %s", strerror(errno));
+            NETWORK_LOGE("epoll_wait error: %s", strerror(errno));
             return;
         } else if (nfds == 0) {
             continue;

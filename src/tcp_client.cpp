@@ -29,7 +29,7 @@ bool TcpClient::Init()
 {
     socket_ = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_ == INVALID_SOCKET) {
-        LOGE("Socket error: %s", strerror(errno));
+        NETWORK_LOGE("Socket error: %s", strerror(errno));
         return false;
     }
 
@@ -45,13 +45,13 @@ bool TcpClient::Init()
 
         int optval = 1;
         if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-            LOGE("setsockopt error: %s", strerror(errno));
+            NETWORK_LOGE("setsockopt error: %s", strerror(errno));
             return false;
         }
 
         int ret = bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr));
         if (ret != 0) {
-            LOGE("bind error: %s", strerror(errno));
+            NETWORK_LOGE("bind error: %s", strerror(errno));
             return false;
         }
     }
@@ -62,7 +62,7 @@ bool TcpClient::Init()
 bool TcpClient::Connect()
 {
     if (socket_ == INVALID_SOCKET) {
-        LOGE("socket not initialized");
+        NETWORK_LOGE("socket not initialized");
         return false;
     }
 
@@ -74,7 +74,7 @@ bool TcpClient::Connect()
     inet_aton(remoteIp_.c_str(), &serverAddr_.sin_addr);
 
     if (connect(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
-        LOGE("connect(%s:%d) failed: %s", remoteIp_.c_str(), remotePort_, strerror(errno));
+        NETWORK_LOGE("connect(%s:%d) failed: %s", remoteIp_.c_str(), remotePort_, strerror(errno));
         return false;
     }
 
@@ -83,7 +83,7 @@ bool TcpClient::Connect()
         EventProcessor::GetInstance()->AddConnectionFd(socket_, [&](int fd) { this->HandleReceive(fd); });
     }
 
-    LOGD("Connect (%s:%d) success.", remoteIp_.c_str(), remotePort_);
+    NETWORK_LOGD("Connect (%s:%d) success.", remoteIp_.c_str(), remotePort_);
     return true;
 }
 
@@ -95,13 +95,13 @@ bool TcpClient::Send(const std::string &str)
 bool TcpClient::Send(const char *data, size_t len)
 {
     if (socket_ == INVALID_SOCKET) {
-        LOGE("socket not initialized");
+        NETWORK_LOGE("socket not initialized");
         return false;
     }
 
     ssize_t bytes = ::send(socket_, data, len, 0);
     if (bytes != len) {
-        LOGE("send failed: %s", strerror(errno));
+        NETWORK_LOGE("send failed: %s", strerror(errno));
         return false;
     }
 
@@ -124,7 +124,7 @@ void TcpClient::Close()
 
 void TcpClient::HandleReceive(int fd)
 {
-    LOGD("fd: %d", fd);
+    NETWORK_LOGD("fd: %d", fd);
     static char buffer[RECV_BUFFER_MAX_SIZE] = {};
     memset(buffer, 0, RECV_BUFFER_MAX_SIZE);
 
@@ -142,7 +142,7 @@ void TcpClient::HandleReceive(int fd)
         }
     } else if (nbytes < 0) {
         std::string info = strerror(errno);
-        LOGE("recv error: %s", info.c_str());
+        NETWORK_LOGE("recv error: %s", info.c_str());
         EventProcessor::GetInstance()->RemoveConnectionFd(fd);
         close(fd);
 
@@ -153,13 +153,13 @@ void TcpClient::HandleReceive(int fd)
                     listener->OnError(info);
                     Close();
                 } else {
-                    LOGE("not found listener!");
+                    NETWORK_LOGE("not found listener!");
                 }
             });
         }
 
     } else if (nbytes == 0) {
-        LOGW("Disconnect fd[%d]", fd);
+        NETWORK_LOGW("Disconnect fd[%d]", fd);
         EventProcessor::GetInstance()->RemoveConnectionFd(fd);
         close(fd);
 
@@ -170,7 +170,7 @@ void TcpClient::HandleReceive(int fd)
                     listener->OnClose();
                     Close();
                 } else {
-                    LOGE("not found listener!");
+                    NETWORK_LOGE("not found listener!");
                 }
             });
         }

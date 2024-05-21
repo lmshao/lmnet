@@ -26,7 +26,7 @@ EventProcessor::~EventProcessor() {}
 
 void EventProcessor::AddServiceFd(int fd, std::function<void(int)> callback)
 {
-    LOGD("fd: %d", fd);
+    NETWORK_LOGD("fd: %d", fd);
     std::unique_lock<std::mutex> lock(callbackMutex_);
     fdCallbacks_.emplace(fd, callback);
     lock.unlock();
@@ -37,7 +37,7 @@ void EventProcessor::AddServiceFd(int fd, std::function<void(int)> callback)
     }
 
     mainReactor_->AddListeningFd(fd, callback);
-    // LOGD("leave");
+    // NETWORK_LOGD("leave");
 }
 
 void EventProcessor::RemoveServiceFd(int fd)
