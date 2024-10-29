@@ -67,7 +67,7 @@ bool UdpServer::Start()
     }
 
     if (!listener_.expired()) {
-        callbackThreads_ = std::make_unique<ThreadPool>(1, 2, "UdpServer-cb");
+        callbackThreads_ = std::make_unique<ThreadPool>(1, 1, "UdpServer-cb");
     }
 
     EventProcessor::GetInstance()->AddServiceFd(socket_, [&](int fd) { this->HandleReceive(fd); });
@@ -127,7 +127,7 @@ void UdpServer::HandleReceive(int fd)
                 auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
                 dataBuffer->Assign(buffer, nbytes);
                 callbackThreads_->AddTask(
-                    [=](void *) {
+                    [=]() {
                         auto listener = listener_.lock();
                         if (listener) {
                             listener->OnReceive(std::make_shared<SessionImpl>(fd, host, port, shared_from_this()),
@@ -147,7 +147,7 @@ void UdpServer::HandleReceive(int fd)
         NETWORK_LOGE("recvfrom() failed: %s", info.c_str());
         if (!listener_.expired()) {
             callbackThreads_->AddTask(
-                [=](void *) {
+                [=]() {
                     auto listener = listener_.lock();
                     if (listener) {
                         listener->OnError(std::make_shared<SessionImpl>(fd, host, port, shared_from_this()), info);

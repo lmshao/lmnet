@@ -126,7 +126,7 @@ void TcpServer::HandleAccept(int fd)
 
     if (!listener_.expired()) {
         callbackThreads_->AddTask(
-            [=](void *) {
+            [=]() {
                 NETWORK_LOGD("invoke OnAccept callback");
                 auto listener = listener_.lock();
                 if (listener) {
@@ -154,7 +154,7 @@ void TcpServer::HandleReceive(int fd)
                 auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
                 dataBuffer->Assign(buffer, nbytes);
                 callbackThreads_->AddTask(
-                    [=](void *) {
+                    [=]() {
                         auto listener = listener_.lock();
                         if (listener) {
                             listener->OnReceive(sessions_[fd], dataBuffer);
@@ -172,7 +172,7 @@ void TcpServer::HandleReceive(int fd)
 
             if (!listener_.expired()) {
                 callbackThreads_->AddTask(
-                    [=](void *) {
+                    [=]() {
                         auto listener = listener_.lock();
                         if (listener) {
                             listener->OnClose(sessions_[fd]);
@@ -196,7 +196,7 @@ void TcpServer::HandleReceive(int fd)
 
             if (!listener_.expired()) {
                 callbackThreads_->AddTask(
-                    [=](void *) {
+                    [=]() {
                         auto listener = listener_.lock();
                         if (listener) {
                             listener->OnError(sessions_[fd], info);

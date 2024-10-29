@@ -114,7 +114,7 @@ void UdpClient::HandleReceive(int fd)
         if (!listener_.expired()) {
             auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
             dataBuffer->Assign(buffer, nbytes);
-            callbackThreads_->AddTask([=](void *) {
+            callbackThreads_->AddTask([=]() {
                 auto listener = listener_.lock();
                 if (listener) {
                     listener->OnReceive(dataBuffer);
@@ -128,7 +128,7 @@ void UdpClient::HandleReceive(int fd)
         close(fd);
 
         if (!listener_.expired()) {
-            callbackThreads_->AddTask([=](void *) {
+            callbackThreads_->AddTask([=]() {
                 auto listener = listener_.lock();
                 if (listener) {
                     listener->OnError(info);
@@ -145,7 +145,7 @@ void UdpClient::HandleReceive(int fd)
         close(fd);
 
         if (!listener_.expired()) {
-            callbackThreads_->AddTask([=](void *) {
+            callbackThreads_->AddTask([=]() {
                 auto listener = listener_.lock();
                 if (listener) {
                     listener->OnClose();
