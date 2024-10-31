@@ -16,6 +16,7 @@ constexpr int EPOLL_WAIT_EVENT_NUMS_MAX = 1024;
 EventReactor::EventReactor()
 {
     epollThread_ = std::make_unique<std::thread>([&]() { this->Run(); });
+    SetThreadName("EventReactor");
     std::unique_lock<std::mutex> taskLock(signalMutex_);
     runningSignal_.wait_for(taskLock, std::chrono::milliseconds(5), [this] { return this->running_ == true; });
 }
@@ -29,7 +30,7 @@ EventReactor::~EventReactor()
     }
 }
 
-void EventReactor::AddListeningFd(int fd, std::function<void(int)> callback)
+void EventReactor::AddDescriptor(int fd, std::function<void(int)> callback)
 {
     NETWORK_LOGD("[%p] ... fd:%d", this, fd);
     std::unique_lock<std::mutex> lock(mutex_);
@@ -51,7 +52,7 @@ void EventReactor::AddListeningFd(int fd, std::function<void(int)> callback)
     // NETWORK_LOGD("epoll_ctl ok");
 }
 
-void EventReactor::RemoveListeningFd(int fd)
+void EventReactor::RemoveDescriptor(int fd)
 {
     NETWORK_LOGD("remove fd(%d)", fd);
     std::unique_lock<std::mutex> lock(mutex_);

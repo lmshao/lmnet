@@ -10,7 +10,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "event_processor.h"
+#include "event_reactor.h"
 #include "log.h"
 #include "thread_pool.h"
 
@@ -70,7 +70,7 @@ bool UdpServer::Start()
         callbackThreads_ = std::make_unique<ThreadPool>(1, 1, "UdpServer-cb");
     }
 
-    EventProcessor::GetInstance()->AddServiceFd(socket_, [&](int fd) { this->HandleReceive(fd); });
+    EventReactor::GetInstance()->AddDescriptor(socket_, [&](int fd) { this->HandleReceive(fd); });
 
     return true;
 }
@@ -78,7 +78,7 @@ bool UdpServer::Start()
 bool UdpServer::Stop()
 {
     if (socket_ != INVALID_SOCKET) {
-        EventProcessor::GetInstance()->RemoveServiceFd(socket_);
+        EventReactor::GetInstance()->RemoveDescriptor(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
         callbackThreads_.reset();

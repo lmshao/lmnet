@@ -12,7 +12,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "event_processor.h"
+#include "event_reactor.h"
 #include "log.h"
 #include "thread_pool.h"
 
@@ -65,10 +65,10 @@ bool TcpServer::Start()
     }
 
     if (!listener_.expired()) {
-        callbackThreads_ = std::make_unique<ThreadPool>(1, 4, "TcpServer-cb");
+        callbackThreads_ = std::make_unique<ThreadPool>(1, 1, "TcpServer-cb");
     }
 
-    EventProcessor::GetInstance()->AddServiceFd(socket_, [&](int fd) { this->HandleAccept(fd); });
+    EventReactor::GetInstance()->AddDescriptor(socket_, [&](int fd) { this->HandleAccept(fd); });
 
     return true;
 }
@@ -77,7 +77,7 @@ bool TcpServer::Stop()
 {
     if (socket_ != INVALID_SOCKET) {
         callbackThreads_.reset();
-        EventProcessor::GetInstance()->RemoveServiceFd(socket_);
+        EventReactor::GetInstance()->RemoveDescriptor(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
     }
@@ -113,13 +113,13 @@ void TcpServer::HandleAccept(int fd)
         return;
     }
 
-    EventProcessor::GetInstance()->AddConnectionFd(clientSocket, [&](int fd) { this->HandleReceive(fd); });
+    EventReactor::GetInstance()->AddDescriptor(clientSocket, [&](int fd) { this->HandleReceive(fd); });
 
     std::string host = inet_ntoa(clientAddr.sin_addr);
     uint16_t port = ntohs(clientAddr.sin_port);
 
     NETWORK_LOGD("New client connections client[%d] %s:%d\n", clientSocket, inet_ntoa(clientAddr.sin_addr),
-         ntohs(clientAddr.sin_port));
+                 ntohs(clientAddr.sin_port));
 
     auto session = std::make_shared<SessionImpl>(clientSocket, host, port, shared_from_this());
     sessions_.emplace(clientSocket, session);
@@ -167,7 +167,7 @@ void TcpServer::HandleReceive(int fd)
 
         if (nbytes == 0) {
             NETWORK_LOGW("Disconnect fd[%d]", fd);
-            EventProcessor::GetInstance()->RemoveConnectionFd(fd);
+            EventReactor::GetInstance()->RemoveDescriptor(fd);
             close(fd);
 
             if (!listener_.expired()) {
@@ -191,7 +191,7 @@ void TcpServer::HandleReceive(int fd)
 
             std::string info = strerror(errno);
             NETWORK_LOGE("recv error: %s", info.c_str());
-            EventProcessor::GetInstance()->RemoveConnectionFd(fd);
+            EventReactor::GetInstance()->RemoveDescriptor(fd);
             close(fd);
 
             if (!listener_.expired()) {

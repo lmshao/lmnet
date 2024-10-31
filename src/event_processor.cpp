@@ -36,7 +36,7 @@ void EventProcessor::AddServiceFd(int fd, std::function<void(int)> callback)
         mainReactor_->SetThreadName("MainReactor");
     }
 
-    mainReactor_->AddListeningFd(fd, callback);
+    mainReactor_->AddDescriptor(fd, callback);
     // NETWORK_LOGD("leave");
 }
 
@@ -46,7 +46,7 @@ void EventProcessor::RemoveServiceFd(int fd)
     fdCallbacks_.erase(fd);
     lock.unlock();
     if (mainReactor_) {
-        mainReactor_->RemoveListeningFd(fd);
+        mainReactor_->RemoveDescriptor(fd);
     }
 }
 
@@ -74,7 +74,7 @@ void EventProcessor::AddConnectionFd(int fd, std::function<void(int)> callback)
         subReactorsMap_[subReactor].emplace(fd);
     }
     reactorLock.unlock();
-    subReactor->AddListeningFd(fd, callback);
+    subReactor->AddDescriptor(fd, callback);
 }
 
 void EventProcessor::RemoveConnectionFd(int fd)
@@ -90,7 +90,7 @@ void EventProcessor::RemoveConnectionFd(int fd)
     for (auto &item : subReactorsMap_) {
         if (item.second.find(fd) != item.second.end()) {
             auto subReactor = item.first;
-            subReactor->RemoveListeningFd(fd);
+            subReactor->RemoveDescriptor(fd);
             item.second.erase(fd);
             break;
         }

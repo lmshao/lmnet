@@ -11,14 +11,17 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include "singleton.h"
 
-class EventReactor {
+class EventReactor : public Singleton<EventReactor> {
 public:
+    friend class Singleton<EventReactor>;
+
     EventReactor();
     ~EventReactor();
 
-    void AddListeningFd(int fd, std::function<void(int)> callback);
-    void RemoveListeningFd(int fd);
+    void AddDescriptor(int fd, std::function<void(int)> callback);
+    void RemoveDescriptor(int fd);
 
     void SetThreadName(std::string name);
 

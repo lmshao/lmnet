@@ -7,7 +7,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include "event_processor.h"
+#include "event_reactor.h"
 #include "log.h"
 
 const int RECV_BUFFER_MAX_SIZE = 4096;
@@ -80,7 +80,7 @@ bool TcpClient::Connect()
 
     if (!listener_.expired()) {
         callbackThreads_ = std::make_unique<ThreadPool>(1, 1, "TcpClient-cb");
-        EventProcessor::GetInstance()->AddConnectionFd(socket_, [&](int fd) { this->HandleReceive(fd); });
+        EventReactor::GetInstance()->AddDescriptor(socket_, [&](int fd) { this->HandleReceive(fd); });
     }
 
     NETWORK_LOGD("Connect (%s:%d) success.", remoteIp_.c_str(), remotePort_);
@@ -116,7 +116,7 @@ bool TcpClient::Send(std::shared_ptr<DataBuffer> data)
 void TcpClient::Close()
 {
     if (socket_ != INVALID_SOCKET) {
-        EventProcessor::GetInstance()->RemoveConnectionFd(socket_);
+        EventReactor::GetInstance()->RemoveDescriptor(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
     }
@@ -143,7 +143,7 @@ void TcpClient::HandleReceive(int fd)
     } else if (nbytes < 0) {
         std::string info = strerror(errno);
         NETWORK_LOGE("recv error: %s", info.c_str());
-        EventProcessor::GetInstance()->RemoveConnectionFd(fd);
+        EventReactor::GetInstance()->RemoveDescriptor(fd);
         close(fd);
 
         if (!listener_.expired()) {
@@ -160,7 +160,7 @@ void TcpClient::HandleReceive(int fd)
 
     } else if (nbytes == 0) {
         NETWORK_LOGW("Disconnect fd[%d]", fd);
-        EventProcessor::GetInstance()->RemoveConnectionFd(fd);
+        EventReactor::GetInstance()->RemoveDescriptor(fd);
         close(fd);
 
         if (!listener_.expired()) {

@@ -10,7 +10,7 @@
 #include <memory>
 #include <sys/socket.h>
 #include <unistd.h>
-#include "event_processor.h"
+#include "event_reactor.h"
 #include "log.h"
 
 #define RECV_BUFFER_MAX_SIZE 4096
@@ -65,7 +65,7 @@ void UdpClient::Close()
 {
 
     if (socket_ != INVALID_SOCKET) {
-        EventProcessor::GetInstance()->RemoveConnectionFd(socket_);
+        EventReactor::GetInstance()->RemoveDescriptor(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
     }
@@ -80,7 +80,7 @@ bool UdpClient::Send(const void *data, size_t len)
 
     if (!listener_.expired() && callbackThreads_ == nullptr) {
         callbackThreads_ = std::make_unique<ThreadPool>(1, 1, "UdpClient-cb");
-        EventProcessor::GetInstance()->AddConnectionFd(socket_, [&](int fd) { this->HandleReceive(fd); });
+        EventReactor::GetInstance()->AddDescriptor(socket_, [&](int fd) { this->HandleReceive(fd); });
     }
 
     size_t nbytes = sendto(socket_, data, len, 0, (struct sockaddr *)&serverAddr_, (socklen_t)(sizeof(serverAddr_)));
@@ -124,7 +124,7 @@ void UdpClient::HandleReceive(int fd)
     } else if (nbytes < 0) {
         std::string info = strerror(errno);
         NETWORK_LOGE("recv error: %s", info.c_str());
-        EventProcessor::GetInstance()->RemoveConnectionFd(fd);
+        EventReactor::GetInstance()->RemoveDescriptor(fd);
         close(fd);
 
         if (!listener_.expired()) {
@@ -138,10 +138,9 @@ void UdpClient::HandleReceive(int fd)
                 }
             });
         }
-
     } else if (nbytes == 0) {
         NETWORK_LOGW("Disconnect fd[%d]", fd);
-        EventProcessor::GetInstance()->RemoveConnectionFd(fd);
+        EventReactor::GetInstance()->RemoveDescriptor(fd);
         close(fd);
 
         if (!listener_.expired()) {
