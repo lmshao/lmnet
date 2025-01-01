@@ -3,16 +3,16 @@
 //
 
 #include "event_reactor.h"
-#include <cstring>
-#include <memory>
-#include <mutex>
+
+#include <errno.h>
 #include <sys/epoll.h>
 #include <sys/prctl.h>
-#include <thread>
+
+#include <cstring>
+
 #include "log.h"
 
 constexpr int EPOLL_WAIT_EVENT_NUMS_MAX = 1024;
-
 EventReactor::EventReactor()
 {
     epollThread_ = std::make_unique<std::thread>([&]() { this->Run(); });
@@ -49,7 +49,7 @@ void EventReactor::AddDescriptor(int fd, std::function<void(int)> callback)
         NETWORK_LOGE("epoll_ctl error: %s", strerror(errno));
         return;
     }
-    // NETWORK_LOGD("epoll_ctl ok");
+    NETWORK_LOGD("epoll_ctl ok");
 }
 
 void EventReactor::RemoveDescriptor(int fd)
@@ -93,8 +93,14 @@ void EventReactor::Run()
 
     while (running_) {
         nfds = epoll_wait(epollFd_, readyEvents, EPOLL_WAIT_EVENT_NUMS_MAX, 100);
+
         if (nfds == -1) {
-            NETWORK_LOGE("epoll_wait error: %s", strerror(errno));
+            if (errno == 4) {
+                NETWORK_LOGD("ignore signal EINTR/4");
+                continue;
+            }
+
+            NETWORK_LOGE("epoll_wait error: %s(%d)", strerror(errno), errno);
             return;
         } else if (nfds == 0) {
             continue;

@@ -5,6 +5,7 @@
 #include "task_queue.h"
 
 #include <unistd.h>
+
 #include "log.h"
 
 TaskQueue::~TaskQueue()
@@ -29,13 +30,7 @@ int32_t TaskQueue::Stop() noexcept
 {
     std::unique_lock<std::mutex> lock(mutex_);
     if (isExit_) {
-        NETWORK_LOGE("Stopped already, ignore ! [%s]", name_.c_str());
         return 0;
-    }
-
-    if (std::this_thread::get_id() == thread_->get_id()) {
-        NETWORK_LOGE("Stop at the task thread, reject");
-        return -1;
     }
 
     std::unique_ptr<std::thread> t;
@@ -56,7 +51,6 @@ int32_t TaskQueue::Stop() noexcept
 // cancelNotExecuted = false, delayUs = 0ULL.
 int32_t TaskQueue::EnqueueTask(const std::shared_ptr<ITaskHandler> &task, bool cancelNotExecuted, uint64_t delayUs)
 {
-
     constexpr uint64_t MAX_DELAY_US = 10000000ULL; // max delay.
 
     if (task == nullptr) {
@@ -67,8 +61,9 @@ int32_t TaskQueue::EnqueueTask(const std::shared_ptr<ITaskHandler> &task, bool c
     task->Clear();
 
     if (delayUs >= MAX_DELAY_US) {
-        NETWORK_LOGE("Enqueue task when taskqueue delayUs[%ld] is >= max delayUs %ld invalid! [%s]", delayUs,
-                     MAX_DELAY_US, name_.c_str());
+        // NETWORK_LOGE("Enqueue task when taskqueue delayUs[%llu] is >= max delayUs %ld invalid!
+        // [%s]", delayUs,
+        //               MAX_DELAY_US, name_.c_str());
         return -1;
     }
 
@@ -92,11 +87,13 @@ int32_t TaskQueue::EnqueueTask(const std::shared_ptr<ITaskHandler> &task, bool c
     }
 
     uint64_t executeTimeNs = delayUs * US_TO_NS + curTimeNs;
-    auto iter = std::find_if(taskList_.begin(), taskList_.end(), [executeTimeNs](const TaskHandlerItem &item) {
-        return (item.executeTimeNs_ > executeTimeNs);
-    });
+    // auto iter = std::find_if(taskList_.begin(), taskList_.end(), [executeTimeNs](const TaskHandlerItem &item) {
+    //     return (item.executeTimeNs_ > executeTimeNs);
+    // });
 
-    (void)taskList_.insert(iter, {task, executeTimeNs});
+    // (void)taskList_.insert(iter, {task, executeTimeNs});
+    (void)taskList_.push_back({task, executeTimeNs});
+
     cond_.notify_all();
 
     return 0;
@@ -104,7 +101,6 @@ int32_t TaskQueue::EnqueueTask(const std::shared_ptr<ITaskHandler> &task, bool c
 
 void TaskQueue::CancelNotExecutedTaskLocked()
 {
-    NETWORK_LOGE("All task not executed are being cancelled..........[%s]", name_.c_str());
     while (!taskList_.empty()) {
         std::shared_ptr<ITaskHandler> task = taskList_.front().task_;
         taskList_.pop_front();
@@ -118,7 +114,7 @@ void TaskQueue::TaskProcessor()
 {
     constexpr uint32_t nameSizeMax = 15;
     tid_ = gettid();
-    NETWORK_LOGE("Enter TaskProcessor [%s], tid_: (%d)\n", name_.c_str(), tid_);
+    NETWORK_LOGD("Enter TaskProcessor [%s], tid_: (%d)\n", name_.c_str(), tid_);
     fflush(stdout);
 
     pthread_setname_np(pthread_self(), name_.substr(0, nameSizeMax).c_str());
@@ -127,7 +123,7 @@ void TaskQueue::TaskProcessor()
         std::unique_lock<std::mutex> lock(mutex_);
         cond_.wait(lock, [this] { return isExit_ || !taskList_.empty(); });
         if (isExit_) {
-            NETWORK_LOGE("Exit TaskProcessor [%s], tid_: (%d)\n", name_.c_str(), tid_);
+            NETWORK_LOGD("Exit TaskProcessor [%s], tid_: (%d)\n", name_.c_str(), tid_);
             return;
         }
         TaskHandlerItem item = taskList_.front();
@@ -162,8 +158,7 @@ void TaskQueue::TaskProcessor()
             NETWORK_LOGE("enqueue periodic task failed:%d, why? [%s]", res, name_.c_str());
         }
     }
-    //    (void)mallopt(M_FLUSH_THREAD_CACHE, 0);
-    NETWORK_LOGE("Leave TaskProcessor [%s]", name_.c_str());
+    NETWORK_LOGD("Leave TaskProcessor [%s]", name_.c_str());
 }
 
 bool TaskQueue::IsTaskExecuting()

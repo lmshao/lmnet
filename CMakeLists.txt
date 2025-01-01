@@ -8,7 +8,7 @@ file(GLOB_RECURSE SOURCES "src/*.cpp")
 
 set(CMAKE_CXX_FLAGS "-Wno-error -Wno-format-truncation -g")
 
-set(CMAKE_CXX_FLAGS "-DRELEASE")
+# set(CMAKE_CXX_FLAGS "-DRELEASE")
 
 add_library(${PROJECT_NAME} STATIC ${SOURCES})
 

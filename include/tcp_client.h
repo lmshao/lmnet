@@ -5,12 +5,14 @@
 #ifndef NETWORK_TCP_CLIENT_H
 #define NETWORK_TCP_CLIENT_H
 
-#include <cstdint>
 #include <netinet/in.h>
+
+#include <cstdint>
 #include <string>
+
 #include "data_buffer.h"
 #include "iclient_listener.h"
-#include "thread_pool.h"
+#include "task_queue.h"
 
 class TcpClient final {
     friend class EventProcessor;
@@ -23,7 +25,6 @@ public:
         return std::shared_ptr<TcpClient>(new TcpClient(args...));
     }
 
-    TcpClient(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
     ~TcpClient();
 
     bool Init();
@@ -36,8 +37,13 @@ public:
 
     void Close();
 
+    int GetSocketFd() const { return socket_; }
+
 protected:
+    TcpClient(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
+
     void HandleReceive(int fd);
+    void ReInit();
 
 private:
     std::string remoteIp_;
@@ -47,10 +53,11 @@ private:
     uint16_t localPort_;
 
     int socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_ {};
+    struct sockaddr_in serverAddr_;
 
     std::weak_ptr<IClientListener> listener_;
-    std::unique_ptr<ThreadPool> callbackThreads_;
+    std::unique_ptr<TaskQueue> taskQueue_;
+    std::unique_ptr<DataBuffer> readBuffer_;
 };
 
 #endif // NETWORK_TCP_CLIENT_H

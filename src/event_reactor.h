@@ -11,6 +11,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+
 #include "singleton.h"
 
 class EventReactor : public Singleton<EventReactor> {
@@ -38,4 +39,5 @@ private:
     std::unordered_map<int, std::function<void(int)>> fds_;
     std::unique_ptr<std::thread> epollThread_;
 };
+
 #endif // NETWORK_EVENT_REACTOR_H

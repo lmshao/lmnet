@@ -3,18 +3,17 @@
 //
 
 #include "tcp_server.h"
+
 #include <arpa/inet.h>
-#include <cerrno>
-#include <cstddef>
-#include <cstring>
-#include <memory>
-#include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include <cerrno>
+
 #include "event_reactor.h"
 #include "log.h"
-#include "thread_pool.h"
+#include "session_impl.h"
 
 const int RECV_BUFFER_MAX_SIZE = 4096;
 const int TCP_BACKLOG = 10;
@@ -54,6 +53,8 @@ bool TcpServer::Init()
         return false;
     }
 
+    taskQueue_ = std::make_unique<TaskQueue>("TcPServerCb");
+
     return true;
 }
 
@@ -64,10 +65,7 @@ bool TcpServer::Start()
         return false;
     }
 
-    if (!listener_.expired()) {
-        callbackThreads_ = std::make_unique<ThreadPool>(1, 1, "TcpServer-cb");
-    }
-
+    taskQueue_->Start();
     EventReactor::GetInstance()->AddDescriptor(socket_, [&](int fd) { this->HandleAccept(fd); });
 
     return true;
@@ -76,10 +74,14 @@ bool TcpServer::Start()
 bool TcpServer::Stop()
 {
     if (socket_ != INVALID_SOCKET) {
-        callbackThreads_.reset();
         EventReactor::GetInstance()->RemoveDescriptor(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
+    }
+
+    if (taskQueue_) {
+        taskQueue_->Stop();
+        taskQueue_.reset();
     }
 
     return true;
@@ -94,7 +96,6 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
 
     ssize_t bytes = send(fd, buffer->Data(), buffer->Size(), 0);
     if (bytes != buffer->Size()) {
-        printf("Send scuccess, length:%zd\n\n", bytes);
         NETWORK_LOGE("send failed with error: %s, %zd/%zu", strerror(errno), bytes, buffer->Size());
         return false;
     }
@@ -125,17 +126,17 @@ void TcpServer::HandleAccept(int fd)
     sessions_.emplace(clientSocket, session);
 
     if (!listener_.expired()) {
-        callbackThreads_->AddTask(
-            [=]() {
-                NETWORK_LOGD("invoke OnAccept callback");
-                auto listener = listener_.lock();
-                if (listener) {
-                    listener->OnAccept(sessions_[clientSocket]);
-                } else {
-                    NETWORK_LOGE("not found listener!");
-                }
-            },
-            std::to_string(fd));
+        auto task = std::make_shared<TaskHandler<void>>([=]() {
+            NETWORK_LOGD("invoke OnAccept callback");
+            auto listener = listener_.lock();
+            if (listener) {
+                listener->OnAccept(sessions_[clientSocket]);
+            } else {
+                NETWORK_LOGE("not found listener!");
+            }
+        });
+
+        taskQueue_->EnqueueTask(task);
     } else {
         NETWORK_LOGE("listener is null");
     }
@@ -144,25 +145,33 @@ void TcpServer::HandleAccept(int fd)
 void TcpServer::HandleReceive(int fd)
 {
     NETWORK_LOGD("fd: %d", fd);
-    static char buffer[RECV_BUFFER_MAX_SIZE] = {};
-    memset(buffer, 0, RECV_BUFFER_MAX_SIZE);
+    if (readBuffer_ == nullptr) {
+        readBuffer_ = std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE);
+    }
+
+    readBuffer_->Clear();
 
     while (true) {
-        ssize_t nbytes = recv(fd, buffer, sizeof(buffer), 0);
+        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0);
         if (nbytes > 0) {
             if (!listener_.expired()) {
                 auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
-                dataBuffer->Assign(buffer, nbytes);
-                callbackThreads_->AddTask(
-                    [=]() {
-                        auto listener = listener_.lock();
-                        if (listener) {
-                            listener->OnReceive(sessions_[fd], dataBuffer);
-                        }
-                    },
-                    std::to_string(fd));
+                dataBuffer->Assign(readBuffer_->Data(), nbytes);
+
+                auto task = std::make_shared<TaskHandler<void>>([=]() {
+                    auto listener = listener_.lock();
+                    if (listener) {
+                        listener->OnReceive(sessions_[fd], dataBuffer);
+                    }
+                });
+
+                taskQueue_->EnqueueTask(task);
             }
             continue;
+        }
+
+        if (errno == EAGAIN) {
+            break;
         }
 
         if (nbytes == 0) {
@@ -171,41 +180,37 @@ void TcpServer::HandleReceive(int fd)
             close(fd);
 
             if (!listener_.expired()) {
-                callbackThreads_->AddTask(
-                    [=]() {
-                        auto listener = listener_.lock();
-                        if (listener) {
-                            listener->OnClose(sessions_[fd]);
-                            sessions_.erase(fd);
-                        } else {
-                            NETWORK_LOGE("not found listener!");
-                        }
-                    },
-                    std::to_string(fd));
+                auto task = std::make_shared<TaskHandler<void>>([=]() {
+                    auto listener = listener_.lock();
+                    if (listener) {
+                        listener->OnClose(sessions_[fd]);
+                        sessions_.erase(fd);
+                    } else {
+                        NETWORK_LOGE("not found listener!");
+                    }
+                });
+
+                taskQueue_->EnqueueTask(task);
             }
 
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                break;
-            }
-
             std::string info = strerror(errno);
             NETWORK_LOGE("recv error: %s", info.c_str());
             EventReactor::GetInstance()->RemoveDescriptor(fd);
             close(fd);
 
             if (!listener_.expired()) {
-                callbackThreads_->AddTask(
-                    [=]() {
-                        auto listener = listener_.lock();
-                        if (listener) {
-                            listener->OnError(sessions_[fd], info);
-                            sessions_.erase(fd);
-                        } else {
-                            NETWORK_LOGE("not found listener!");
-                        }
-                    },
-                    std::to_string(fd));
+                auto task = std::make_shared<TaskHandler<void>>([=]() {
+                    auto listener = listener_.lock();
+                    if (listener) {
+                        listener->OnError(sessions_[fd], info);
+                        sessions_.erase(fd);
+                    } else {
+                        NETWORK_LOGE("not found listener!");
+                    }
+                });
+
+                taskQueue_->EnqueueTask(task);
             }
         }
 

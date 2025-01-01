@@ -3,25 +3,25 @@
 //
 
 #include "udp_server.h"
+
 #include <arpa/inet.h>
-#include <cstdint>
 #include <fcntl.h>
-#include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include "event_reactor.h"
 #include "log.h"
-#include "thread_pool.h"
+#include "session_impl.h"
 
-const int RECV_BUFFER_MAX_SIZE = 4096;
-const uint16_t UDP_SERVER_DEFAULT_PORT_START = 10000;
-
-static uint16_t idlePort_ = UDP_SERVER_DEFAULT_PORT_START;
+constexpr int RECV_BUFFER_MAX_SIZE = 4096;
+constexpr uint16_t UDP_SERVER_DEFAULT_PORT_START = 10000;
+static uint16_t gIdlePort = UDP_SERVER_DEFAULT_PORT_START;
 
 UdpServer::~UdpServer()
 {
     NETWORK_LOGD("destructor");
+
     Stop();
 }
 
@@ -56,6 +56,8 @@ bool UdpServer::Init()
         return false;
     }
 
+    taskQueue_ = std::make_unique<TaskQueue>("UdpServerCb");
+
     return true;
 }
 
@@ -66,10 +68,7 @@ bool UdpServer::Start()
         return false;
     }
 
-    if (!listener_.expired()) {
-        callbackThreads_ = std::make_unique<ThreadPool>(1, 1, "UdpServer-cb");
-    }
-
+    taskQueue_->Start();
     EventReactor::GetInstance()->AddDescriptor(socket_, [&](int fd) { this->HandleReceive(fd); });
 
     return true;
@@ -81,7 +80,11 @@ bool UdpServer::Stop()
         EventReactor::GetInstance()->RemoveDescriptor(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
-        callbackThreads_.reset();
+    }
+
+    if (taskQueue_) {
+        taskQueue_->Stop();
+        taskQueue_.reset();
     }
 
     return true;
@@ -99,7 +102,7 @@ bool UdpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
     remoteAddr.sin_port = htons(port);
     inet_aton(host.c_str(), &remoteAddr.sin_addr);
 
-    ssize_t nbytes =
+    size_t nbytes =
         sendto(socket_, buffer->Data(), buffer->Size(), 0, (struct sockaddr *)&remoteAddr, sizeof(remoteAddr));
     if (nbytes != buffer->Size()) {
         NETWORK_LOGE("send error: %s %zd/%zu", strerror(errno), nbytes, buffer->Size());
@@ -111,30 +114,40 @@ bool UdpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
 
 void UdpServer::HandleReceive(int fd)
 {
-    static char buffer[RECV_BUFFER_MAX_SIZE] = {};
-    memset(buffer, 0, RECV_BUFFER_MAX_SIZE);
+    if (fd != socket_) {
+        NETWORK_LOGE("fd (%d) mismatch socket(%d)", fd, socket_);
+        return;
+    }
+
+    if (readBuffer_ == nullptr) {
+        readBuffer_ = std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE);
+    }
+
+    readBuffer_->Clear();
     struct sockaddr_in clientAddr;
     socklen_t addrLen = sizeof(clientAddr);
 
     while (true) {
-        ssize_t nbytes = recvfrom(socket_, buffer, sizeof(buffer), 0, (struct sockaddr *)&clientAddr, &addrLen);
+        ssize_t nbytes = recvfrom(socket_, readBuffer_->Data(), readBuffer_->Capacity(), 0,
+                                  (struct sockaddr *)&clientAddr, &addrLen);
         std::string host = inet_ntoa(clientAddr.sin_addr);
         uint16_t port = ntohs(clientAddr.sin_port);
-        // NETWORK_LOGD("recvfrom %s:%d", host.c_str(), port);
+        // NETWORK_LOGD("recvfrom %s:%d, size: %d", host.c_str(), port, (int)nbytes);
 
         if (nbytes > 0) {
             if (!listener_.expired()) {
                 auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
-                dataBuffer->Assign(buffer, nbytes);
-                callbackThreads_->AddTask(
-                    [=]() {
-                        auto listener = listener_.lock();
-                        if (listener) {
-                            listener->OnReceive(std::make_shared<SessionImpl>(fd, host, port, shared_from_this()),
-                                                dataBuffer);
-                        }
-                    },
-                    host + std::to_string(port));
+                dataBuffer->Assign(readBuffer_->Data(), nbytes);
+
+                auto task = std::make_shared<TaskHandler<void>>([=]() {
+                    auto listener = listener_.lock();
+                    if (listener) {
+                        auto session = std::make_shared<SessionImpl>(fd, host, port, shared_from_this());
+                        listener->OnReceive(session, dataBuffer);
+                    }
+                });
+
+                taskQueue_->EnqueueTask(task);
             }
             continue;
         }
@@ -144,19 +157,18 @@ void UdpServer::HandleReceive(int fd)
         }
 
         std::string info = strerror(errno);
-        NETWORK_LOGE("recvfrom() failed: %s", info.c_str());
         if (!listener_.expired()) {
-            callbackThreads_->AddTask(
-                [=]() {
-                    auto listener = listener_.lock();
-                    if (listener) {
-                        listener->OnError(std::make_shared<SessionImpl>(fd, host, port, shared_from_this()), info);
-                        sessions_.erase(fd);
-                    } else {
-                        NETWORK_LOGE("not found listener!");
-                    }
-                },
-                host + std::to_string(port));
+            auto task = std::make_shared<TaskHandler<void>>([=]() {
+                auto listener = listener_.lock();
+                if (listener) {
+                    auto session = std::make_shared<SessionImpl>(fd, host, port, shared_from_this());
+                    listener->OnError(session, info);
+                } else {
+                    NETWORK_LOGE("not found listener!");
+                }
+            });
+
+            taskQueue_->EnqueueTask(task);
         }
         break;
     }
@@ -168,7 +180,7 @@ uint16_t UdpServer::GetIdlePort()
     struct sockaddr_in addr;
 
     uint16_t i;
-    for (i = idlePort_; i < idlePort_ + 100; i++) {
+    for (i = gIdlePort; i < gIdlePort + 100; i++) {
         sock = socket(AF_INET, SOCK_DGRAM, 0);
         if (sock < 0) {
             perror("socket creation failed");
@@ -188,12 +200,12 @@ uint16_t UdpServer::GetIdlePort()
         break;
     }
 
-    if (i == idlePort_ + 100) {
+    if (i == gIdlePort + 100) {
         NETWORK_LOGE("Can't find idle port");
         return 0;
     }
 
-    idlePort_ = i + 1;
+    gIdlePort = i + 1;
 
     return i;
 }

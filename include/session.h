@@ -9,9 +9,9 @@
 #include <memory>
 #include <sstream>
 #include <string>
+
 #include "base_server.h"
 #include "data_buffer.h"
-#include "log.h"
 
 class Session {
 public:

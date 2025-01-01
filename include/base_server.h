@@ -6,6 +6,7 @@
 #define NETWORK_BASE_SERVER_H
 
 #include <memory>
+
 #include "data_buffer.h"
 
 class IServerListener;

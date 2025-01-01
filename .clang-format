@@ -70,13 +70,21 @@ ForEachMacros:
   - foreach
   - Q_FOREACH
   - BOOST_FOREACH
-IncludeBlocks:   Preserve
+IncludeBlocks:   Regroup
 IncludeCategories:
-  - Regex:           '^<*.*>'
-    Priority:        1
-  - Regex:           '^"*.*"'
+  - Regex:           '^<ext/.*\.h>'
     Priority:        2
-IncludeIsMainRegex: '(Test)?$'
+    SortPriority:    0
+  - Regex:           '^<.*\.h>'
+    Priority:        1
+    SortPriority:    0
+  - Regex:           '^<.*'
+    Priority:        2
+    SortPriority:    0
+  - Regex:           '.*'
+    Priority:        3
+    SortPriority:    0
+IncludeIsMainRegex: '([-_](test|unittest))?$'
 IncludeIsMainSourceRegex: ''
 IndentCaseLabels: true
 IndentCaseBlocks: false

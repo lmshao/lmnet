@@ -3,27 +3,27 @@
 //
 
 #include "udp_client.h"
+
 #include <arpa/inet.h>
 #include <assert.h>
-#include <cstddef>
-#include <cstring>
-#include <memory>
 #include <sys/socket.h>
 #include <unistd.h>
+
 #include "event_reactor.h"
 #include "log.h"
 
-#define RECV_BUFFER_MAX_SIZE 4096
-
+constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 UdpClient::UdpClient(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(remoteIp), remotePort_(remotePort), localIp_(localIp), localPort_(localPort)
 {
+    taskQueue_ = std::make_unique<TaskQueue>("UdpClientCb");
 }
 
 UdpClient::~UdpClient()
 {
-    if (callbackThreads_) {
-        callbackThreads_.reset();
+    if (taskQueue_) {
+        taskQueue_->Stop();
+        taskQueue_.reset();
     }
     Close();
 }
@@ -58,12 +58,14 @@ bool UdpClient::Init()
         }
     }
 
+    taskQueue_->Start();
+    EventReactor::GetInstance()->AddDescriptor(socket_, [&](int fd) { this->HandleReceive(fd); });
+
     return true;
 }
 
 void UdpClient::Close()
 {
-
     if (socket_ != INVALID_SOCKET) {
         EventReactor::GetInstance()->RemoveDescriptor(socket_);
         close(socket_);
@@ -76,11 +78,6 @@ bool UdpClient::Send(const void *data, size_t len)
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("socket not initialized");
         return false;
-    }
-
-    if (!listener_.expired() && callbackThreads_ == nullptr) {
-        callbackThreads_ = std::make_unique<ThreadPool>(1, 1, "UdpClient-cb");
-        EventReactor::GetInstance()->AddDescriptor(socket_, [&](int fd) { this->HandleReceive(fd); });
     }
 
     size_t nbytes = sendto(socket_, data, len, 0, (struct sockaddr *)&serverAddr_, (socklen_t)(sizeof(serverAddr_)));
@@ -105,21 +102,27 @@ bool UdpClient::Send(std::shared_ptr<DataBuffer> data)
 void UdpClient::HandleReceive(int fd)
 {
     NETWORK_LOGD("fd: %d", fd);
-    static char buffer[RECV_BUFFER_MAX_SIZE] = {};
-    memset(buffer, 0, RECV_BUFFER_MAX_SIZE);
+    if (readBuffer_ == nullptr) {
+        readBuffer_ = std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE);
+    }
+
+    readBuffer_->Clear();
 
     assert(socket_ == fd);
-    ssize_t nbytes = recv(fd, buffer, sizeof(buffer), 0);
+    ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0);
     if (nbytes > 0) {
         if (!listener_.expired()) {
             auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
-            dataBuffer->Assign(buffer, nbytes);
-            callbackThreads_->AddTask([=]() {
+            dataBuffer->Assign(readBuffer_->Data(), nbytes);
+
+            auto task = std::make_shared<TaskHandler<void>>([=]() {
                 auto listener = listener_.lock();
                 if (listener) {
-                    listener->OnReceive(dataBuffer);
+                    listener->OnReceive(fd, dataBuffer);
                 }
             });
+
+            taskQueue_->EnqueueTask(task);
         }
     } else if (nbytes < 0) {
         std::string info = strerror(errno);
@@ -128,15 +131,17 @@ void UdpClient::HandleReceive(int fd)
         close(fd);
 
         if (!listener_.expired()) {
-            callbackThreads_->AddTask([=]() {
+            auto task = std::make_shared<TaskHandler<void>>([=]() {
                 auto listener = listener_.lock();
                 if (listener) {
-                    listener->OnError(info);
+                    listener->OnError(fd, info);
                     Close();
                 } else {
                     NETWORK_LOGE("not found listener!");
                 }
             });
+
+            taskQueue_->EnqueueTask(task);
         }
     } else if (nbytes == 0) {
         NETWORK_LOGW("Disconnect fd[%d]", fd);
@@ -144,15 +149,17 @@ void UdpClient::HandleReceive(int fd)
         close(fd);
 
         if (!listener_.expired()) {
-            callbackThreads_->AddTask([=]() {
+            auto task = std::make_shared<TaskHandler<void>>([=]() {
                 auto listener = listener_.lock();
                 if (listener) {
-                    listener->OnClose();
+                    listener->OnClose(fd);
                     Close();
                 } else {
                     NETWORK_LOGE("not found listener!");
                 }
             });
+
+            taskQueue_->EnqueueTask(task);
         }
     }
 }

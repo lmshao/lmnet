@@ -10,7 +10,7 @@
 bool gExit = false;
 class MyListener : public IClientListener {
 public:
-    void OnReceive(std::shared_ptr<DataBuffer> buffer) override
+    void OnReceive(int fd, std::shared_ptr<DataBuffer> buffer) override
     {
         std::cout << "----------" << std::endl;
         std::cout << "pid: " << std::this_thread::get_id() << std::endl;
@@ -19,7 +19,7 @@ public:
         std::cout << "----------" << std::endl;
     }
 
-    void OnClose() override
+    void OnClose(int fd) override
     {
         std::cout << "----------" << std::endl;
         std::cout << "pid: " << std::this_thread::get_id() << std::endl;
@@ -28,7 +28,7 @@ public:
         gExit = true;
     }
 
-    void OnError(const std::string &errorInfo) override
+    void OnError(int fd, const std::string &errorInfo) override
     {
         std::cout << "----------" << std::endl;
         std::cout << "pid: " << std::this_thread::get_id() << std::endl;

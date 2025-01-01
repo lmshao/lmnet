@@ -5,14 +5,15 @@
 #ifndef NETWORK_UDP_SERVER_H
 #define NETWORK_UDP_SERVER_H
 
-#include <cstdint>
 #include <netinet/in.h>
+
+#include <cstdint>
 #include <string>
-#include <unordered_map>
+
 #include "base_server.h"
 #include "iserver_listener.h"
-#include "session_impl.h"
-#include "thread_pool.h"
+#include "session.h"
+#include "task_queue.h"
 
 class UdpServer final : public BaseServer, public std::enable_shared_from_this<UdpServer> {
     friend class EventProcessor;
@@ -52,8 +53,8 @@ private:
     struct sockaddr_in serverAddr_;
 
     std::weak_ptr<IServerListener> listener_;
-    std::unordered_map<int, std::shared_ptr<SessionImpl>> sessions_;
-    std::unique_ptr<ThreadPool> callbackThreads_;
+    std::unique_ptr<TaskQueue> taskQueue_;
+    std::unique_ptr<DataBuffer> readBuffer_;
 };
 
 #endif // NETWORK_UDP_SERVER_H

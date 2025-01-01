@@ -4,11 +4,12 @@
 
 #include "data_buffer.h"
 
+#include <arpa/inet.h>
+
 #include <cstdio>
 #include <cstring>
 
 constexpr size_t DATA_ALIGN = 8;
-
 inline static size_t align(size_t len)
 {
     return (len + DATA_ALIGN - 1) / DATA_ALIGN * DATA_ALIGN;
@@ -122,6 +123,30 @@ void DataBuffer::Append(const void *p, size_t len)
         data_ = newBuffer;
         size_ += len;
     }
+}
+
+void DataBuffer::Assign(uint16_t u16)
+{
+    uint16_t t = htons(u16);
+    Assign((uint8_t *)&t, 2);
+}
+
+void DataBuffer::Assign(uint32_t u32)
+{
+    uint32_t t = htonl(u32);
+    Assign((uint8_t *)&t, 4);
+}
+
+void DataBuffer::Append(uint16_t u16)
+{
+    uint16_t t = htons(u16);
+    Append((uint8_t *)&t, 2);
+}
+
+void DataBuffer::Append(uint32_t u32)
+{
+    uint32_t t = htonl(u32);
+    Append((uint8_t *)&t, 4);
 }
 
 void DataBuffer::SetSize(size_t len)

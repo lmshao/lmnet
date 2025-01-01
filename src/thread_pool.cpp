@@ -3,9 +3,10 @@
 //
 
 #include "thread_pool.h"
-#include <cstring>
+
 #include <string>
 #include <utility>
+
 #include "log.h"
 
 ThreadPool::ThreadPool(int preAlloc, int threadsMax, std::string name) : threadsMax_(threadsMax)
