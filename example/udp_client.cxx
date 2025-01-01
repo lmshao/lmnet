@@ -54,7 +54,7 @@ int main(int argc, char **argv)
         remotePort = atoi(argv[1]);
     }
 
-    auto udpClient = UdpClient::Create(remoteIp, remotePort, "", 7900);
+    auto udpClient = UdpClient::Create(remoteIp, remotePort, "", 0);
     auto listener = std::make_shared<MyListener>();
     udpClient->SetListener(listener);
     bool res = false;

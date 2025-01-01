@@ -5,7 +5,6 @@
 #include "tcp_client.h"
 
 #include <arpa/inet.h>
-#include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -31,7 +30,7 @@ TcpClient::~TcpClient()
 
 bool TcpClient::Init()
 {
-    socket_ = socket(AF_INET, SOCK_STREAM | O_NONBLOCK, 0);
+    socket_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("Socket error: %s", strerror(errno));
         return false;

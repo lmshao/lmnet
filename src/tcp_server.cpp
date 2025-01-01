@@ -108,7 +108,7 @@ void TcpServer::HandleAccept(int fd)
     NETWORK_LOGD("enter");
     struct sockaddr_in clientAddr = {};
     socklen_t addrLen = sizeof(struct sockaddr_in);
-    int clientSocket = accept(fd, (struct sockaddr *)&clientAddr, &addrLen);
+    int clientSocket = accept4(fd, (struct sockaddr *)&clientAddr, &addrLen, SOCK_NONBLOCK);
     if (clientSocket < 0) {
         NETWORK_LOGE("accept error: %s", strerror(errno));
         return;
@@ -171,6 +171,7 @@ void TcpServer::HandleReceive(int fd)
         }
 
         if (errno == EAGAIN) {
+            NETWORK_LOGD("recv EAGAIN");
             break;
         }
 
@@ -216,4 +217,5 @@ void TcpServer::HandleReceive(int fd)
 
         break;
     }
+    NETWORK_LOGD("leave");
 }
