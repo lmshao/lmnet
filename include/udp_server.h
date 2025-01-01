@@ -21,9 +21,9 @@ class UdpServer final : public BaseServer, public std::enable_shared_from_this<U
 
 public:
     template <typename... Args>
-    static std::shared_ptr<UdpServer> Create(Args... args)
+    static std::shared_ptr<UdpServer> Create(Args &&...args)
     {
-        return std::shared_ptr<UdpServer>(new UdpServer(args...));
+        return std::shared_ptr<UdpServer>(new UdpServer(std::forward<Args>(args)...));
     }
 
     ~UdpServer();
@@ -39,10 +39,11 @@ public:
     static uint16_t GetIdlePort();
     static uint16_t GetIdlePortPair();
 
-protected:
+private:
     UdpServer(std::string listenIp, uint16_t listenPort) : localIp_(listenIp), localPort_(listenPort) {}
     explicit UdpServer(uint16_t listenPort) : localPort_(listenPort) {}
 
+protected:
     void HandleReceive(int fd);
 
 private:

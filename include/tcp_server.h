@@ -22,9 +22,9 @@ class TcpServer final : public BaseServer, public std::enable_shared_from_this<T
 
 public:
     template <typename... Args>
-    static std::shared_ptr<TcpServer> Create(Args... args)
+    static std::shared_ptr<TcpServer> Create(Args &&...args)
     {
-        return std::shared_ptr<TcpServer>(new TcpServer(args...));
+        return std::shared_ptr<TcpServer>(new TcpServer(std::forward<Args>(args)...));
     }
 
     ~TcpServer();

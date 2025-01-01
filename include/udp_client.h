@@ -21,9 +21,9 @@ class UdpClient final {
 
 public:
     template <typename... Args>
-    static std::shared_ptr<UdpClient> Create(Args... args)
+    static std::shared_ptr<UdpClient> Create(Args &&...args)
     {
-        return std::shared_ptr<UdpClient>(new UdpClient(args...));
+        return std::shared_ptr<UdpClient>(new UdpClient(std::forward<Args>(args)...));
     }
 
     ~UdpClient();

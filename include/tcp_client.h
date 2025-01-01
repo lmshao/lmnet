@@ -20,9 +20,9 @@ class TcpClient final {
 
 public:
     template <typename... Args>
-    static std::shared_ptr<TcpClient> Create(Args... args)
+    static std::shared_ptr<TcpClient> Create(Args &&...args)
     {
-        return std::shared_ptr<TcpClient>(new TcpClient(args...));
+        return std::shared_ptr<TcpClient>(new TcpClient(std::forward<Args>(args)...));
     }
 
     ~TcpClient();
