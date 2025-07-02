@@ -24,7 +24,7 @@ public:
     void AddDescriptor(int fd, std::function<void(int)> callback);
     void RemoveDescriptor(int fd);
 
-    void SetThreadName(std::string name);
+    void SetThreadName(const std::string &name);
 
 private:
     void Run();

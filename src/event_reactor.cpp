@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <sys/epoll.h>
 #include <sys/prctl.h>
+#include <unistd.h>
 
 #include <cstring>
 
@@ -28,14 +29,16 @@ EventReactor::~EventReactor()
     if (epollThread_ && epollThread_->joinable()) {
         epollThread_->join();
     }
+
+    if (epollFd_ != -1) {
+        close(epollFd_);
+        epollFd_ = -1;
+    }
 }
 
 void EventReactor::AddDescriptor(int fd, std::function<void(int)> callback)
 {
     NETWORK_LOGD("[%p] ... fd:%d", this, fd);
-    std::unique_lock<std::mutex> lock(mutex_);
-    fds_.emplace(fd, callback);
-    lock.unlock();
 
     if (!running_) {
         NETWORK_LOGE("Reactor has exited");
@@ -49,6 +52,10 @@ void EventReactor::AddDescriptor(int fd, std::function<void(int)> callback)
         NETWORK_LOGE("epoll_ctl error: %s", strerror(errno));
         return;
     }
+
+    std::unique_lock<std::mutex> lock(mutex_);
+    fds_.emplace(fd, std::move(callback));
+
     NETWORK_LOGD("epoll_ctl ok");
 }
 
@@ -95,8 +102,8 @@ void EventReactor::Run()
         nfds = epoll_wait(epollFd_, readyEvents, EPOLL_WAIT_EVENT_NUMS_MAX, 100);
 
         if (nfds == -1) {
-            if (errno == 4) {
-                NETWORK_LOGD("ignore signal EINTR/4");
+            if (errno == EINTR) {
+                NETWORK_LOGD("ignore signal EINTR");
                 continue;
             }
 
@@ -120,12 +127,13 @@ void EventReactor::Run()
     }
 }
 
-void EventReactor::SetThreadName(std::string name)
+void EventReactor::SetThreadName(const std::string &name)
 {
     if (epollThread_ && !name.empty()) {
-        if (name.size() > 15) {
-            name = name.substr(0, 15);
+        std::string threadName = name;
+        if (threadName.size() > 15) {
+            threadName = threadName.substr(0, 15);
         }
-        pthread_setname_np(epollThread_->native_handle(), name.c_str());
+        pthread_setname_np(epollThread_->native_handle(), threadName.c_str());
     }
 }
