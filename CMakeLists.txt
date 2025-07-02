@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(network)
 set(CMAKE_CXX_STANDARD 17)
 
-include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(${PROJECT_SOURCE_DIR}/include/network)
 
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 
@@ -16,10 +16,8 @@ add_library(${PROJECT_NAME} STATIC ${SOURCES})
 find_package(Threads REQUIRED)
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
 
-file(GLOB_RECURSE EXAMPLE "example/*.cxx")
-foreach(src IN LISTS EXAMPLE)
-  string(REGEX REPLACE "^.*/([^/.]+).cxx" "\\1" target ${src})
-  message(STATUS "target: " ${target})
-  add_executable(${target} ${src})
-  target_link_libraries(${target} ${PROJECT_NAME})
-endforeach(src)
+# Add examples subdirectory
+option(BUILD_EXAMPLES "Build examples" ON)
+if(BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
