@@ -12,10 +12,14 @@ set(CMAKE_CXX_FLAGS "-Wno-error -Wno-format-truncation -g")
 
 add_library(${PROJECT_NAME} STATIC ${SOURCES})
 
+# Find and link pthread library
+find_package(Threads REQUIRED)
+target_link_libraries(${PROJECT_NAME} Threads::Threads)
+
 file(GLOB_RECURSE EXAMPLE "example/*.cxx")
 foreach(src IN LISTS EXAMPLE)
   string(REGEX REPLACE "^.*/([^/.]+).cxx" "\\1" target ${src})
   message(STATUS "target: " ${target})
-  link_libraries(${PROJECT_NAME})
   add_executable(${target} ${src})
+  target_link_libraries(${target} ${PROJECT_NAME})
 endforeach(src)

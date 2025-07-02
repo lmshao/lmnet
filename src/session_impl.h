@@ -27,6 +27,15 @@ public:
         return false;
     }
 
+    bool Send(const std::string &str) const
+    {
+        auto server = server_.lock();
+        if (server) {
+            return server->Send(fd, host, port, str);
+        }
+        return false;
+    }
+
     std::string ClientInfo() const
     {
         std::stringstream ss;

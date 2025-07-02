@@ -20,6 +20,7 @@ public:
     int fd = 0;
 
     virtual bool Send(std::shared_ptr<DataBuffer> buffer) const = 0;
+    virtual bool Send(const std::string &str) const = 0;
     virtual std::string ClientInfo() const = 0;
 
 protected:

@@ -34,6 +34,7 @@ public:
     bool Start() override;
     bool Stop() override;
     bool Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
+    bool Send(int fd, std::string host, uint16_t port, const std::string &str) override;
 
     int GetSocketFd() const { return socket_; }
 
@@ -43,6 +44,8 @@ protected:
 
     void HandleAccept(int fd);
     void HandleReceive(int fd);
+    bool IsConnectionAlive(int fd);
+    void EnableKeepAlive(int fd);
 
 private:
     uint16_t localPort_;

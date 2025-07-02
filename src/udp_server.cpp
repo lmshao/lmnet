@@ -112,6 +112,27 @@ bool UdpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
     return true;
 }
 
+bool UdpServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
+{
+    if (socket_ == INVALID_SOCKET) {
+        NETWORK_LOGE("socket not initialized");
+        return false;
+    }
+
+    struct sockaddr_in remoteAddr;
+    remoteAddr.sin_family = AF_INET;
+    remoteAddr.sin_port = htons(port);
+    inet_aton(host.c_str(), &remoteAddr.sin_addr);
+
+    ssize_t bytes = sendto(socket_, str.c_str(), str.length(), 0, (struct sockaddr *)&remoteAddr, sizeof(remoteAddr));
+    if (bytes != str.length()) {
+        NETWORK_LOGE("send failed with error: %s, %zd/%zu", strerror(errno), bytes, str.length());
+        return false;
+    }
+
+    return true;
+}
+
 void UdpServer::HandleReceive(int fd)
 {
     if (fd != socket_) {
