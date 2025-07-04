@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_LOG_H
@@ -23,7 +23,7 @@ std::string Time();
 
 #define NETWORK_LOGD(fmt, ...)
 #define NETWORK_LOGW(fmt, ...)
-
+#define NETWORK_LOGE(fmt, ...) NETWORK_LOG_IMPL("\033[0;33m", "\033[0m", fmt, ##__VA_ARGS__)
 #else
 
 #define NETWORK_LOGD(fmt, ...) NETWORK_LOG_IMPL("", "", fmt, ##__VA_ARGS__)

@@ -1,5 +1,5 @@
 //
-// Copyright © 2023-2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2023-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #include "data_buffer.h"
@@ -21,6 +21,7 @@ DataBuffer::DataBuffer(size_t len)
         capacity_ = align(len);
         data_ = new uint8_t[capacity_ + 1];
         size_ = 0;
+        data_[0] = 0;
     }
 }
 
@@ -31,18 +32,25 @@ DataBuffer::DataBuffer(const DataBuffer &other) noexcept
         data_ = new uint8_t[capacity_ + 1];
         memcpy(data_, other.data_, other.size_);
         size_ = other.size_;
+        data_[size_] = 0;
     }
 }
 
 DataBuffer &DataBuffer::operator=(const DataBuffer &other) noexcept
 {
     if (this != &other) {
+        delete[] data_; // 先释放当前内存
+
         if (other.data_ && other.size_) {
             capacity_ = align(other.size_);
-            delete[] data_;
             data_ = new uint8_t[capacity_ + 1];
             memcpy(data_, other.data_, other.size_);
             size_ = other.size_;
+            data_[size_] = 0;
+        } else {
+            data_ = nullptr;
+            size_ = 0;
+            capacity_ = 0;
         }
     }
     return *this;
@@ -100,6 +108,7 @@ void DataBuffer::Assign(const void *p, size_t len)
 
     memcpy(data_, p, len);
     size_ = len;
+    data_[size_] = 0;
 }
 
 void DataBuffer::Append(const void *p, size_t len)
@@ -123,6 +132,7 @@ void DataBuffer::Append(const void *p, size_t len)
         data_ = newBuffer;
         size_ += len;
     }
+    data_[size_] = 0;
 }
 
 void DataBuffer::Assign(uint16_t u16)
@@ -168,6 +178,7 @@ void DataBuffer::SetSize(size_t len)
     delete[] data_;
     data_ = new_buffer;
     size_ = len;
+    data_[size_] = 0;
 }
 
 void DataBuffer::SetCapacity(size_t len)
@@ -204,10 +215,10 @@ void DataBuffer::SetCapacity(size_t len)
 
 void DataBuffer::Clear()
 {
-    if (data_) {
-        memset(data_, 0, capacity_);
-    }
     size_ = 0;
+    if (data_) {
+        data_[0] = 0;
+    }
 }
 
 void DataBuffer::HexDump(size_t len)
@@ -235,4 +246,17 @@ std::string DataBuffer::ToString()
         return {};
     }
     return std::string((char *)data_, size_);
+}
+
+bool DataBuffer::operator==(const DataBuffer &other) const
+{
+    if (size_ != other.size_) {
+        return false;
+    }
+
+    if (size_ == 0) {
+        return true;
+    }
+
+    return memcmp(data_, other.data_, size_) == 0;
 }

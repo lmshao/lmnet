@@ -1,5 +1,5 @@
 //
-// Copyright © 2023-2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2023-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_DATA_BUFFER_H
@@ -40,6 +40,13 @@ public:
     void Append(std::shared_ptr<DataBuffer> b) { Append(b->Data(), b->Size()); }
 
     uint8_t *Data() { return data_; }
+    const uint8_t *Data() const { return data_; }
+
+    uint8_t &operator[](size_t index) { return data_[index]; }
+    const uint8_t &operator[](size_t index) const { return data_[index]; }
+
+    bool operator==(const DataBuffer &other) const;
+    bool operator!=(const DataBuffer &other) const { return !(*this == other); }
 
     size_t Size() const { return size_; }
     void SetSize(size_t len);
