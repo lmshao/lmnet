@@ -17,3 +17,9 @@ add_executable(test_log test_log.cpp)
 target_link_libraries(test_log network)
 add_test(NAME LogTests COMMAND $<TARGET_FILE:test_log>)
 set_tests_properties(LogTests PROPERTIES LABELS "unit")
+
+# ThreadPool unit tests
+add_executable(test_thread_pool test_thread_pool.cpp)
+target_link_libraries(test_thread_pool network pthread)
+add_test(NAME ThreadPoolTests COMMAND $<TARGET_FILE:test_thread_pool>)
+set_tests_properties(ThreadPoolTests PROPERTIES LABELS "unit")

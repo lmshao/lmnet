@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #include "thread_pool.h"
@@ -8,6 +8,8 @@
 #include <utility>
 
 #include "log.h"
+
+constexpr size_t POOL_SIZE_MAX = 100;
 
 ThreadPool::ThreadPool(int preAlloc, int threadsMax, std::string name) : threadsMax_(threadsMax)
 {
@@ -22,17 +24,25 @@ ThreadPool::ThreadPool(int preAlloc, int threadsMax, std::string name) : threads
         threadName_ = name;
     }
 
+    std::lock_guard<std::mutex> lock(mutex_);
     for (int i = 0; i < preAlloc; ++i) {
-        auto p = std::make_unique<std::thread>(&ThreadPool::Worker, this);
-        std::string threadName = threadName_ + "-" + std::to_string(i);
-        pthread_setname_np(p->native_handle(), threadName.c_str());
-        threads_.emplace(std::move(p));
+        CreateWorkerThread();
     }
 }
 
 ThreadPool::~ThreadPool()
 {
-    running_ = false;
+    Shutdown();
+}
+
+void ThreadPool::Shutdown()
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        running_ = false;
+        shutdown_ = true;
+    }
+
     signal_.notify_all();
     for (auto &thread : threads_) {
         if (thread->joinable()) {
@@ -44,31 +54,52 @@ ThreadPool::~ThreadPool()
 void ThreadPool::Worker()
 {
     while (running_) {
-        while (tasks_.empty()) {
-            std::unique_lock<std::mutex> taskLock(signalMutex_);
+        std::shared_ptr<TaskItem> task;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
             idle_++;
-            signal_.wait(taskLock);
+            signal_.wait(lock, [this] { return !running_ || !tasks_.empty() || HasSerialTask(); });
             idle_--;
+
             if (!running_) {
                 return;
             }
-        }
 
-        std::unique_lock<std::mutex> lock(taskMutex_);
-        if (tasks_.empty()) {
-            continue;
+            // Process normal tasks first
+            if (!tasks_.empty()) {
+                task = std::move(tasks_.front());
+                tasks_.pop();
+            } else {
+                // Process serial tasks
+                task = GetNextSerialTask();
+            }
         }
-
-        // Take out a task
-        auto task = std::move(tasks_.front());
-        tasks_.pop();
-        lock.unlock();
 
         if (task) {
             auto fn = task->fn;
             if (fn) {
-                fn();
+                try {
+                    fn();
+                } catch (const std::exception &e) {
+                    NETWORK_LOGE("Task execution failed: %s", e.what());
+                } catch (...) {
+                    NETWORK_LOGE("Task execution failed with unknown exception");
+                }
             }
+
+            // If it's a serial task, clean up state after completion
+            if (!task->tag.empty()) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                runningSerialTags_.erase(task->tag);
+                // Add tag back to available queue if there are pending tasks
+                if (serialTasks_.count(task->tag) && !serialTasks_[task->tag].empty()) {
+                    availableSerialTags_.push(task->tag);
+                    signal_.notify_one();
+                }
+            }
+
+            // Return TaskItem to object pool
+            ReleaseTaskItem(task);
         }
     }
 }
@@ -80,21 +111,124 @@ void ThreadPool::AddTask(const Task &task, const std::string &serialTag)
         return;
     }
 
-    auto t = std::make_shared<TaskItem>(task, serialTag);
-    std::unique_lock<std::mutex> lock(taskMutex_);
-    tasks_.push(t);
-    lock.unlock();
+    auto t = AcquireTaskItem();
+    t->reset(task, serialTag);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
 
-    if (idle_ > 0) {
-        signal_.notify_one();
+        if (shutdown_) {
+            NETWORK_LOGE("ThreadPool is shutting down, task rejected");
+            return;
+        }
+
+        if (serialTag.empty()) {
+            // Normal task
+            tasks_.push(t);
+        } else {
+            // Serial task
+            if (runningSerialTags_.count(serialTag)) {
+                // A task with the same tag is running, add to waiting queue
+                serialTasks_[serialTag].push(t);
+                return;
+            } else {
+                // No task with the same tag is running, add to normal queue directly
+                runningSerialTags_.insert(serialTag);
+                tasks_.push(t);
+            }
+        }
+
+        // Create threads dynamically
+        if (idle_ == 0 && threads_.size() < threadsMax_) {
+            CreateWorkerThread();
+        }
+    }
+
+    signal_.notify_one();
+}
+
+bool ThreadPool::HasSerialTask() const
+{
+    // Use the optimized available tags queue for O(1) check
+    return !availableSerialTags_.empty();
+}
+
+std::shared_ptr<ThreadPool::TaskItem> ThreadPool::GetNextSerialTask()
+{
+    // Use the optimized available tags queue for O(1) lookup
+    if (!availableSerialTags_.empty()) {
+        std::string tag = availableSerialTags_.front();
+        availableSerialTags_.pop();
+
+        if (serialTasks_.count(tag) && !serialTasks_[tag].empty() && !runningSerialTags_.count(tag)) {
+            auto task = serialTasks_[tag].front();
+            serialTasks_[tag].pop();
+            runningSerialTags_.insert(tag);
+
+            // If the queue is empty, clean up the map
+            if (serialTasks_[tag].empty()) {
+                serialTasks_.erase(tag);
+            }
+
+            return task;
+        }
+    }
+
+    return nullptr;
+}
+
+size_t ThreadPool::GetQueueSize() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    size_t total = tasks_.size();
+    for (const auto &pair : serialTasks_) {
+        total += pair.second.size();
+    }
+    return total;
+}
+
+size_t ThreadPool::GetThreadCount() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return threads_.size();
+}
+
+void ThreadPool::CreateWorkerThread()
+{
+    size_t threadIndex = threads_.size();
+    auto p = std::make_unique<std::thread>(&ThreadPool::Worker, this);
+    std::string threadName = threadName_ + "-" + std::to_string(threadIndex);
+    pthread_setname_np(p->native_handle(), threadName.c_str());
+    threads_.emplace_back(std::move(p));
+    NETWORK_LOGD("Created new thread, total: %zu/%d", threads_.size(), threadsMax_);
+}
+
+std::shared_ptr<ThreadPool::TaskItem> ThreadPool::AcquireTaskItem()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!taskItemPool_.empty()) {
+        auto item = taskItemPool_.top();
+        taskItemPool_.pop();
+        return item;
+    }
+
+    // Create new item if pool is empty
+    return std::make_shared<TaskItem>();
+}
+
+void ThreadPool::ReleaseTaskItem(std::shared_ptr<TaskItem> item)
+{
+    if (!item) {
         return;
     }
 
-    NETWORK_LOGD("idle:%d, thread num: %zu/%d", idle_.load(), threads_.size(), threadsMax_);
-    if (threads_.size() < threadsMax_) {
-        auto p = std::make_unique<std::thread>(&ThreadPool::Worker, this);
-        std::string threadName = threadName_ + "-" + std::to_string(threads_.size());
-        pthread_setname_np(p->native_handle(), threadName_.c_str());
-        threads_.emplace(std::move(p));
+    // Clear the item for reuse
+    item->clear();
+
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Only return to pool if we haven't exceeded the max size
+    if (taskItemPool_.size() < POOL_SIZE_MAX) {
+        taskItemPool_.push(item);
     }
 }
