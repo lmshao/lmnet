@@ -61,9 +61,9 @@ int32_t TaskQueue::EnqueueTask(const std::shared_ptr<ITaskHandler> &task, bool c
     task->Clear();
 
     if (delayUs >= MAX_DELAY_US) {
-        // NETWORK_LOGE("Enqueue task when taskqueue delayUs[%llu] is >= max delayUs %ld invalid!
-        // [%s]", delayUs,
-        //               MAX_DELAY_US, name_.c_str());
+        NETWORK_LOGE("Enqueue task when taskqueue delayUs[%llu] is >= max delayUs %llu invalid! [%s]",
+                     static_cast<unsigned long long>(delayUs), static_cast<unsigned long long>(MAX_DELAY_US),
+                     name_.c_str());
         return -1;
     }
 
@@ -87,12 +87,13 @@ int32_t TaskQueue::EnqueueTask(const std::shared_ptr<ITaskHandler> &task, bool c
     }
 
     uint64_t executeTimeNs = delayUs * US_TO_NS + curTimeNs;
-    // auto iter = std::find_if(taskList_.begin(), taskList_.end(), [executeTimeNs](const TaskHandlerItem &item) {
-    //     return (item.executeTimeNs_ > executeTimeNs);
-    // });
 
-    // (void)taskList_.insert(iter, {task, executeTimeNs});
-    (void)taskList_.push_back({task, executeTimeNs});
+    // Insert task in sorted order by execution time for efficient scheduling
+    auto iter = std::find_if(taskList_.begin(), taskList_.end(), [executeTimeNs](const TaskHandlerItem &item) {
+        return (item.executeTimeNs_ > executeTimeNs);
+    });
+
+    (void)taskList_.insert(iter, {task, executeTimeNs});
 
     cond_.notify_all();
 
@@ -146,7 +147,14 @@ void TaskQueue::TaskProcessor()
             continue;
         }
 
-        item.task_->Execute();
+        try {
+            item.task_->Execute();
+        } catch (const std::exception &e) {
+            NETWORK_LOGE("Task execution failed with exception: %s [%s]", e.what(), name_.c_str());
+        } catch (...) {
+            NETWORK_LOGE("Task execution failed with unknown exception [%s]", name_.c_str());
+        }
+
         lock.lock();
         isTaskExecuting_ = false;
         lock.unlock();
