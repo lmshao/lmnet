@@ -17,6 +17,7 @@
 #include "task_queue.h"
 
 class EventHandler;
+class TcpConnectionHandler;
 
 class TcpServer final : public BaseServer, public std::enable_shared_from_this<TcpServer> {
     friend class EventProcessor;
@@ -63,7 +64,7 @@ private:
     std::unique_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<EventHandler> serverHandler_;
-    std::unordered_map<int, std::shared_ptr<EventHandler>> connectionHandlers_;
+    std::unordered_map<int, std::shared_ptr<TcpConnectionHandler>> connectionHandlers_;
 };
 
 #endif // NETWORK_TCP_SERVER_H

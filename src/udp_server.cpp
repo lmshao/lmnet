@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #include "udp_server.h"
@@ -10,6 +10,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <cerrno>
+
 #include "event_reactor.h"
 #include "log.h"
 #include "session_impl.h"
@@ -18,10 +20,44 @@ constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 constexpr uint16_t UDP_SERVER_DEFAULT_PORT_START = 10000;
 static uint16_t gIdlePort = UDP_SERVER_DEFAULT_PORT_START;
 
+class UdpServerHandler : public EventHandler {
+public:
+    explicit UdpServerHandler(std::weak_ptr<UdpServer> server) : server_(server) {}
+
+    void HandleRead(int fd) override
+    {
+        if (auto server = server_.lock()) {
+            server->HandleReceive(fd);
+        }
+    }
+
+    void HandleWrite(int fd) override {}
+
+    void HandleError(int fd) override { NETWORK_LOGE("UDP server socket error on fd: %d", fd); }
+
+    void HandleClose(int fd) override { NETWORK_LOGD("UDP server socket close on fd: %d", fd); }
+
+    int GetHandle() const override
+    {
+        if (auto server = server_.lock()) {
+            return server->GetSocketFd();
+        }
+        return -1;
+    }
+
+    int GetEvents() const override
+    {
+        return static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) |
+               static_cast<int>(EventType::CLOSE);
+    }
+
+private:
+    std::weak_ptr<UdpServer> server_;
+};
+
 UdpServer::~UdpServer()
 {
     NETWORK_LOGD("destructor");
-
     Stop();
 }
 
@@ -69,17 +105,24 @@ bool UdpServer::Start()
     }
 
     taskQueue_->Start();
-    EventReactor::GetInstance()->AddDescriptor(socket_, [&](int fd) { this->HandleReceive(fd); });
 
+    serverHandler_ = std::make_shared<UdpServerHandler>(shared_from_this());
+    if (!EventReactor::GetInstance()->RegisterHandler(serverHandler_)) {
+        NETWORK_LOGE("Failed to register UDP server handler");
+        return false;
+    }
+
+    NETWORK_LOGD("UdpServer started with new EventHandler interface");
     return true;
 }
 
 bool UdpServer::Stop()
 {
-    if (socket_ != INVALID_SOCKET) {
-        EventReactor::GetInstance()->RemoveDescriptor(socket_);
+    if (socket_ != INVALID_SOCKET && serverHandler_) {
+        EventReactor::GetInstance()->RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
+        serverHandler_.reset();
     }
 
     if (taskQueue_) {
@@ -87,6 +130,7 @@ bool UdpServer::Stop()
         taskQueue_.reset();
     }
 
+    NETWORK_LOGD("UdpServer stopped");
     return true;
 }
 

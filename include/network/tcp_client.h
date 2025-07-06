@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_TCP_CLIENT_H
@@ -8,14 +8,19 @@
 #include <netinet/in.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "data_buffer.h"
 #include "iclient_listener.h"
 #include "task_queue.h"
 
-class TcpClient final {
-    friend class EventProcessor;
+class TcpClientHandler;
+
+class EventHandler;
+
+class TcpClient final : public std::enable_shared_from_this<TcpClient> {
+    friend class TcpClientHandler;
     const int INVALID_SOCKET = -1;
 
 public:
@@ -43,6 +48,7 @@ protected:
     TcpClient(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
 
     void HandleReceive(int fd);
+    void HandleConnectionClose(int fd, bool isError, const std::string &reason);
     void ReInit();
 
 private:
@@ -58,6 +64,8 @@ private:
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::unique_ptr<DataBuffer> readBuffer_;
+
+    std::shared_ptr<TcpClientHandler> clientHandler_;
 };
 
 #endif // NETWORK_TCP_CLIENT_H

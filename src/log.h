@@ -23,12 +23,13 @@ std::string Time();
 
 #define NETWORK_LOGD(fmt, ...)
 #define NETWORK_LOGW(fmt, ...)
-#define NETWORK_LOGE(fmt, ...) NETWORK_LOG_IMPL("\033[0;33m", "\033[0m", fmt, ##__VA_ARGS__)
+#define NETWORK_LOGE(fmt, ...) NETWORK_LOG_IMPL("\033[0;31m", "\033[0m", fmt, ##__VA_ARGS__)
+
 #else
 
 #define NETWORK_LOGD(fmt, ...) NETWORK_LOG_IMPL("", "", fmt, ##__VA_ARGS__)
-#define NETWORK_LOGW(fmt, ...) NETWORK_LOG_IMPL("\033[0;32m", "\033[0m", fmt, ##__VA_ARGS__)
-#define NETWORK_LOGE(fmt, ...) NETWORK_LOG_IMPL("\033[0;33m", "\033[0m", fmt, ##__VA_ARGS__)
+#define NETWORK_LOGW(fmt, ...) NETWORK_LOG_IMPL("\033[0;33m", "\033[0m", fmt, ##__VA_ARGS__)
+#define NETWORK_LOGE(fmt, ...) NETWORK_LOG_IMPL("\033[0;31m", "\033[0m", fmt, ##__VA_ARGS__)
 
 #endif // RELEASE
 } // namespace Network

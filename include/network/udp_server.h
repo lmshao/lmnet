@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_UDP_SERVER_H
@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "base_server.h"
@@ -15,8 +16,10 @@
 #include "session.h"
 #include "task_queue.h"
 
+class EventHandler;
+
 class UdpServer final : public BaseServer, public std::enable_shared_from_this<UdpServer> {
-    friend class EventProcessor;
+    friend class UdpServerHandler;
     const int INVALID_SOCKET = -1;
 
 public:
@@ -44,7 +47,6 @@ private:
     UdpServer(std::string listenIp, uint16_t listenPort) : localIp_(listenIp), localPort_(listenPort) {}
     explicit UdpServer(uint16_t listenPort) : localPort_(listenPort) {}
 
-protected:
     void HandleReceive(int fd);
 
 private:
@@ -57,6 +59,8 @@ private:
     std::weak_ptr<IServerListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::unique_ptr<DataBuffer> readBuffer_;
+
+    std::shared_ptr<EventHandler> serverHandler_;
 };
 
 #endif // NETWORK_UDP_SERVER_H

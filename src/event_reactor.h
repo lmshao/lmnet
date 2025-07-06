@@ -41,12 +41,7 @@ public:
     EventReactor();
     ~EventReactor();
 
-    // Legacy callback-based interface (kept for backward compatibility)
-    void AddDescriptor(int fd, std::function<void(int)> callback);
-    void RemoveDescriptor(int fd);
-
     bool RegisterHandler(std::shared_ptr<EventHandler> handler);
-    bool RegisterHandler(std::shared_ptr<EventHandler> handler, int events);
     bool RemoveHandler(int fd);
     bool ModifyHandler(int fd, int events);
 
@@ -64,10 +59,6 @@ private:
     std::mutex signalMutex_;
     std::condition_variable runningSignal_;
 
-    // Legacy callback storage
-    std::unordered_map<int, std::function<void(int)>> fds_;
-
-    // New event handler storage
     std::unordered_map<int, std::shared_ptr<EventHandler>> handlers_;
 
     std::unique_ptr<std::thread> epollThread_;

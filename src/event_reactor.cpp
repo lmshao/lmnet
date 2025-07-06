@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #include "event_reactor.h"
@@ -36,53 +36,6 @@ EventReactor::~EventReactor()
     }
 }
 
-void EventReactor::AddDescriptor(int fd, std::function<void(int)> callback)
-{
-    NETWORK_LOGD("[%p] ... fd:%d", this, fd);
-
-    if (!running_) {
-        NETWORK_LOGE("Reactor has exited");
-        return;
-    }
-
-    struct epoll_event ev;
-    ev.events = EPOLLIN | EPOLLET;
-    ev.data.fd = fd;
-    if (epoll_ctl(epollFd_, EPOLL_CTL_ADD, fd, &ev) == -1) {
-        NETWORK_LOGE("epoll_ctl error: %s", strerror(errno));
-        return;
-    }
-
-    std::unique_lock<std::mutex> lock(mutex_);
-    fds_.emplace(fd, std::move(callback));
-
-    NETWORK_LOGD("epoll_ctl ok");
-}
-
-void EventReactor::RemoveDescriptor(int fd)
-{
-    NETWORK_LOGD("remove fd(%d)", fd);
-    std::unique_lock<std::mutex> lock(mutex_);
-    if (fds_.find(fd) == fds_.end()) {
-        return;
-    }
-    fds_.erase(fd);
-    lock.unlock();
-
-    if (running_ == false) {
-        NETWORK_LOGE("Reactor has exited");
-        return;
-    }
-
-    struct epoll_event ev;
-    ev.events = EPOLLIN | EPOLLET;
-    ev.data.fd = fd;
-    if (epoll_ctl(epollFd_, EPOLL_CTL_DEL, fd, &ev) == -1) {
-        NETWORK_LOGE("epoll_ctl error: %s", strerror(errno));
-        return;
-    }
-}
-
 void EventReactor::Run()
 {
     NETWORK_LOGD("enter");
@@ -100,7 +53,6 @@ void EventReactor::Run()
 
     while (running_) {
         nfds = epoll_wait(epollFd_, readyEvents, EPOLL_WAIT_EVENT_NUMS_MAX, 100);
-
         if (nfds == -1) {
             if (errno == EINTR) {
                 NETWORK_LOGD("ignore signal EINTR");
@@ -118,24 +70,12 @@ void EventReactor::Run()
             int events = readyEvents[i].events;
 
             std::unique_lock<std::mutex> lock(mutex_);
-
-            // First try new event handler interface
             auto handlerIt = handlers_.find(readyFd);
             if (handlerIt != handlers_.end()) {
                 auto handler = handlerIt->second;
                 lock.unlock();
-
                 DispatchEvent(readyFd, events);
                 continue;
-            }
-
-            // Fallback to legacy callback interface
-            auto callbackIt = fds_.find(readyFd);
-            if (callbackIt != fds_.end()) {
-                auto callback = callbackIt->second;
-                lock.unlock();
-
-                callback(readyFd);
             }
         }
     }
@@ -161,18 +101,6 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
 
     int fd = handler->GetHandle();
     int events = handler->GetEvents();
-
-    return RegisterHandler(handler, events);
-}
-
-bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler, int events)
-{
-    if (!handler) {
-        NETWORK_LOGE("Handler is nullptr");
-        return false;
-    }
-
-    int fd = handler->GetHandle();
     NETWORK_LOGD("[%p] Register handler for fd:%d, events:0x%x", this, fd, events);
 
     if (!running_) {
@@ -180,7 +108,6 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler, int ev
         return false;
     }
 
-    // Convert EventType to epoll events
     uint32_t epollEvents = 0;
     if (events & static_cast<int>(EventType::READ)) {
         epollEvents |= EPOLLIN;
@@ -195,7 +122,7 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler, int ev
         epollEvents |= EPOLLHUP | EPOLLRDHUP;
     }
 
-    epollEvents |= EPOLLET; // Use edge-triggered mode
+    epollEvents |= EPOLLET;
 
     struct epoll_event ev;
     ev.events = epollEvents;
@@ -250,7 +177,13 @@ bool EventReactor::ModifyHandler(int fd, int events)
         return false;
     }
 
-    // Convert EventType to epoll events
+    std::unique_lock<std::mutex> lock(mutex_);
+    auto it = handlers_.find(fd);
+    if (it == handlers_.end()) {
+        NETWORK_LOGW("Handler not found for fd:%d during modify", fd);
+        return false;
+    }
+
     uint32_t epollEvents = 0;
     if (events & static_cast<int>(EventType::READ)) {
         epollEvents |= EPOLLIN;
@@ -265,7 +198,7 @@ bool EventReactor::ModifyHandler(int fd, int events)
         epollEvents |= EPOLLHUP | EPOLLRDHUP;
     }
 
-    epollEvents |= EPOLLET; // Use edge-triggered mode
+    epollEvents |= EPOLLET;
 
     struct epoll_event ev;
     ev.events = epollEvents;
@@ -293,7 +226,6 @@ void EventReactor::DispatchEvent(int fd, int events)
     lock.unlock();
 
     try {
-        // Dispatch events based on type
         if (events & EPOLLIN) {
             handler->HandleRead(fd);
         }
@@ -302,13 +234,12 @@ void EventReactor::DispatchEvent(int fd, int events)
             handler->HandleWrite(fd);
         }
 
-        if (events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
-            if (events & EPOLLERR) {
-                handler->HandleError(fd);
-            }
-            if (events & (EPOLLHUP | EPOLLRDHUP)) {
-                handler->HandleClose(fd);
-            }
+        if (events & EPOLLERR) {
+            handler->HandleError(fd);
+        }
+
+        if (events & (EPOLLHUP | EPOLLRDHUP)) {
+            handler->HandleClose(fd);
         }
     } catch (const std::exception &e) {
         NETWORK_LOGE("Exception in event handler for fd %d: %s", fd, e.what());

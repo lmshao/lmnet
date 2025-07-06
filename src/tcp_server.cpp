@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #include "tcp_server.h"
@@ -19,9 +19,6 @@
 
 constexpr int TCP_BACKLOG = 10;
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;
-constexpr int TCP_KEEP_IDLE = 3;     // Start probing after 3 seconds of no data interaction
-constexpr int TCP_KEEP_INTERVAL = 1; // Probe interval 1 second
-constexpr int TCP_KEEP_COUNT = 2;    // Probe 2 times
 
 class TcpServerHandler : public EventHandler {
 public:
@@ -201,12 +198,12 @@ bool TcpServer::Init()
     inet_aton(localIp_.c_str(), &serverAddr_.sin_addr);
 
     if (bind(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
-        NETWORK_LOGD("bind error: %s", strerror(errno));
+        NETWORK_LOGE("bind error: %s", strerror(errno));
         return false;
     }
 
     if (listen(socket_, TCP_BACKLOG) < 0) {
-        NETWORK_LOGD("listen error: %s", strerror(errno));
+        NETWORK_LOGE("listen error: %s", strerror(errno));
         return false;
     }
 
@@ -277,7 +274,7 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
 
     auto handlerIt = connectionHandlers_.find(fd);
     if (handlerIt != connectionHandlers_.end()) {
-        auto tcpHandler = std::dynamic_pointer_cast<TcpConnectionHandler>(handlerIt->second);
+        auto tcpHandler = handlerIt->second;
         if (tcpHandler) {
             tcpHandler->QueueSend(reinterpret_cast<const char *>(buffer->Data()), buffer->Size());
             return true;
@@ -297,7 +294,7 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, const std::string 
 
     auto handlerIt = connectionHandlers_.find(fd);
     if (handlerIt != connectionHandlers_.end()) {
-        auto tcpHandler = std::dynamic_pointer_cast<TcpConnectionHandler>(handlerIt->second);
+        auto tcpHandler = handlerIt->second;
         if (tcpHandler) {
             tcpHandler->QueueSend(str);
             return true;
@@ -398,7 +395,7 @@ void TcpServer::HandleReceive(int fd)
             continue;
         } else if (nbytes == 0) {
             NETWORK_LOGW("Disconnect fd[%d]", fd);
-            HandleConnectionClose(fd, false, "Connection closed by peer");
+            // Do not call HandleConnectionClose directly; let the event system handle EPOLLHUP
             break;
         } else {
             if (errno == EAGAIN) {
@@ -436,7 +433,8 @@ void TcpServer::HandleConnectionClose(int fd, bool isError, const std::string &r
 {
     NETWORK_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
 
-    if (sessions_.find(fd) == sessions_.end()) {
+    auto sessionIt = sessions_.find(fd);
+    if (sessionIt == sessions_.end()) {
         NETWORK_LOGD("Connection fd: %d already cleaned up", fd);
         return;
     }
@@ -445,12 +443,8 @@ void TcpServer::HandleConnectionClose(int fd, bool isError, const std::string &r
 
     close(fd);
 
-    std::shared_ptr<Session> session;
-    auto it = sessions_.find(fd);
-    if (it != sessions_.end()) {
-        session = it->second;
-        sessions_.erase(it);
-    }
+    std::shared_ptr<Session> session = sessionIt->second;
+    sessions_.erase(sessionIt);
 
     connectionHandlers_.erase(fd);
 

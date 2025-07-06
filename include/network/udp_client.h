@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_UDP_CLIENT_H
@@ -15,8 +15,10 @@
 #include "iclient_listener.h"
 #include "task_queue.h"
 
-class UdpClient final {
-    friend class EventProcessor;
+class EventHandler;
+
+class UdpClient final : public std::enable_shared_from_this<UdpClient> {
+    friend class UdpClientHandler;
     const int INVALID_SOCKET = -1;
 
 public:
@@ -43,6 +45,7 @@ protected:
     UdpClient(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
 
     void HandleReceive(int fd);
+    void HandleConnectionClose(int fd, bool isError, const std::string &reason);
 
 private:
     std::string remoteIp_;
@@ -57,5 +60,7 @@ private:
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::unique_ptr<DataBuffer> readBuffer_;
+
+    std::shared_ptr<EventHandler> clientHandler_;
 };
 #endif // NETWORK_UDP_CLIENT_H
