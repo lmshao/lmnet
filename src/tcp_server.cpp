@@ -11,15 +11,169 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <queue>
 
 #include "event_reactor.h"
 #include "log.h"
 #include "session_impl.h"
+
 constexpr int TCP_BACKLOG = 10;
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 constexpr int TCP_KEEP_IDLE = 3;     // Start probing after 3 seconds of no data interaction
 constexpr int TCP_KEEP_INTERVAL = 1; // Probe interval 1 second
 constexpr int TCP_KEEP_COUNT = 2;    // Probe 2 times
+
+class TcpServerHandler : public EventHandler {
+public:
+    explicit TcpServerHandler(std::weak_ptr<TcpServer> server) : server_(server) {}
+
+    void HandleRead(int fd) override
+    {
+        if (auto server = server_.lock()) {
+            server->HandleAccept(fd);
+        }
+    }
+
+    void HandleWrite(int fd) override {}
+
+    void HandleError(int fd) override { NETWORK_LOGE("Server socket error on fd: %d", fd); }
+
+    void HandleClose(int fd) override { NETWORK_LOGD("Server socket close on fd: %d", fd); }
+
+    int GetHandle() const override
+    {
+        if (auto server = server_.lock()) {
+            return server->GetSocketFd();
+        }
+        return -1;
+    }
+
+    int GetEvents() const override
+    {
+        return static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) |
+               static_cast<int>(EventType::CLOSE);
+    }
+
+private:
+    std::weak_ptr<TcpServer> server_;
+};
+
+class TcpConnectionHandler : public EventHandler {
+public:
+    TcpConnectionHandler(int fd, std::weak_ptr<TcpServer> server) : fd_(fd), server_(server), writeEventsEnabled_(false)
+    {
+    }
+
+    void HandleRead(int fd) override
+    {
+        if (auto server = server_.lock()) {
+            server->HandleReceive(fd);
+        }
+    }
+
+    void HandleWrite(int fd) override { ProcessSendQueue(); }
+
+    void HandleError(int fd) override
+    {
+        NETWORK_LOGE("Connection error on fd: %d", fd);
+        if (auto server = server_.lock()) {
+            server->HandleConnectionClose(fd, true, "Connection error");
+        }
+    }
+
+    void HandleClose(int fd) override
+    {
+        NETWORK_LOGD("Connection close on fd: %d", fd);
+        if (auto server = server_.lock()) {
+            server->HandleConnectionClose(fd, false, "Connection closed");
+        }
+    }
+
+    int GetHandle() const override { return fd_; }
+
+    int GetEvents() const override
+    {
+        int events =
+            static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) | static_cast<int>(EventType::CLOSE);
+
+        if (writeEventsEnabled_) {
+            events |= static_cast<int>(EventType::WRITE);
+        }
+
+        return events;
+    }
+
+    void QueueSend(const std::string &data)
+    {
+        if (data.empty())
+            return;
+
+        sendQueue_.push(data);
+        EnableWriteEvents();
+    }
+
+    void QueueSend(const char *data, size_t size)
+    {
+        if (!data || size == 0)
+            return;
+
+        sendQueue_.push(std::string(data, size));
+        EnableWriteEvents();
+    }
+
+private:
+    void EnableWriteEvents()
+    {
+        if (!writeEventsEnabled_) {
+            writeEventsEnabled_ = true;
+            EventReactor::GetInstance()->ModifyHandler(fd_, GetEvents());
+        }
+    }
+
+    void DisableWriteEvents()
+    {
+        if (writeEventsEnabled_) {
+            writeEventsEnabled_ = false;
+            EventReactor::GetInstance()->ModifyHandler(fd_, GetEvents());
+        }
+    }
+
+    void ProcessSendQueue()
+    {
+        while (!sendQueue_.empty()) {
+            const std::string &data = sendQueue_.front();
+            ssize_t bytesSent = send(fd_, data.c_str(), data.size(), MSG_NOSIGNAL);
+
+            if (bytesSent > 0) {
+                if (static_cast<size_t>(bytesSent) == data.size()) {
+                    sendQueue_.pop();
+                } else {
+                    std::string remaining = data.substr(bytesSent);
+                    sendQueue_.front() = remaining;
+                    break;
+                }
+            } else if (bytesSent == -1) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    break;
+                } else {
+                    NETWORK_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
+                    return;
+                }
+            }
+        }
+
+        if (sendQueue_.empty()) {
+            DisableWriteEvents();
+        }
+    }
+
+private:
+    int fd_;
+    std::weak_ptr<TcpServer> server_;
+    std::queue<std::string> sendQueue_;
+    bool writeEventsEnabled_;
+};
+
 TcpServer::~TcpServer()
 {
     NETWORK_LOGD("fd:%d", socket_);
@@ -68,30 +222,41 @@ bool TcpServer::Start()
     }
 
     taskQueue_->Start();
-    EventReactor::GetInstance()->AddDescriptor(socket_, [&](int fd) { this->HandleAccept(fd); });
 
+    serverHandler_ = std::make_shared<TcpServerHandler>(shared_from_this());
+    if (!EventReactor::GetInstance()->RegisterHandler(serverHandler_)) {
+        NETWORK_LOGE("Failed to register server handler");
+        return false;
+    }
+
+    NETWORK_LOGD("TcpServer started with new EventHandler interface");
     return true;
 }
 
 bool TcpServer::Stop()
 {
+    auto reactor = EventReactor::GetInstance();
+
     std::vector<int> clientFds;
-    for (const auto &[fd, session] : sessions_) {
-        clientFds.push_back(fd);
+    for (const auto &pair : sessions_) {
+        clientFds.push_back(pair.first);
     }
 
     for (int clientFd : clientFds) {
         NETWORK_LOGD("close client fd: %d", clientFd);
-        EventReactor::GetInstance()->RemoveDescriptor(clientFd);
+        reactor->RemoveHandler(clientFd);
         close(clientFd);
+
+        connectionHandlers_.erase(clientFd);
     }
     sessions_.clear();
 
-    if (socket_ != INVALID_SOCKET) {
+    if (socket_ != INVALID_SOCKET && serverHandler_) {
         NETWORK_LOGD("close server fd: %d", socket_);
-        EventReactor::GetInstance()->RemoveDescriptor(socket_);
+        reactor->RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
+        serverHandler_.reset();
     }
 
     if (taskQueue_) {
@@ -99,6 +264,7 @@ bool TcpServer::Stop()
         taskQueue_.reset();
     }
 
+    NETWORK_LOGD("TcpServer stopped");
     return true;
 }
 
@@ -109,13 +275,17 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
         return false;
     }
 
-    size_t bytes = send(fd, buffer->Data(), buffer->Size(), 0);
-    if (bytes != buffer->Size()) {
-        NETWORK_LOGD("send failed with error: %s, %zd/%zu", strerror(errno), bytes, buffer->Size());
-        return false;
+    auto handlerIt = connectionHandlers_.find(fd);
+    if (handlerIt != connectionHandlers_.end()) {
+        auto tcpHandler = std::dynamic_pointer_cast<TcpConnectionHandler>(handlerIt->second);
+        if (tcpHandler) {
+            tcpHandler->QueueSend(reinterpret_cast<const char *>(buffer->Data()), buffer->Size());
+            return true;
+        }
     }
 
-    return true;
+    NETWORK_LOGE("Connection handler not found for fd: %d", fd);
+    return false;
 }
 
 bool TcpServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
@@ -125,13 +295,17 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, const std::string 
         return false;
     }
 
-    size_t bytes = send(fd, str.c_str(), str.length(), 0);
-    if (bytes != str.length()) {
-        NETWORK_LOGD("send failed with error: %s, %zd/%zu", strerror(errno), bytes, str.length());
-        return false;
+    auto handlerIt = connectionHandlers_.find(fd);
+    if (handlerIt != connectionHandlers_.end()) {
+        auto tcpHandler = std::dynamic_pointer_cast<TcpConnectionHandler>(handlerIt->second);
+        if (tcpHandler) {
+            tcpHandler->QueueSend(str);
+            return true;
+        }
     }
 
-    return true;
+    NETWORK_LOGE("Connection handler not found for fd: %d", fd);
+    return false;
 }
 
 void TcpServer::HandleAccept(int fd)
@@ -145,9 +319,16 @@ void TcpServer::HandleAccept(int fd)
         return;
     }
 
-    EventReactor::GetInstance()->AddDescriptor(clientSocket, [&](int fd) { this->HandleReceive(fd); });
+    auto connectionHandler = std::make_shared<TcpConnectionHandler>(clientSocket, shared_from_this());
+    if (!EventReactor::GetInstance()->RegisterHandler(connectionHandler)) {
+        NETWORK_LOGE("Failed to register connection handler for fd: %d", clientSocket);
+        close(clientSocket);
+        return;
+    }
 
-    EnableKeepAlive(clientSocket);
+    connectionHandlers_[clientSocket] = connectionHandler;
+
+    // EnableKeepAlive(clientSocket);
 
     std::string host = inet_ntoa(clientAddr.sin_addr);
     uint16_t port = ntohs(clientAddr.sin_port);
@@ -217,37 +398,14 @@ void TcpServer::HandleReceive(int fd)
             continue;
         } else if (nbytes == 0) {
             NETWORK_LOGW("Disconnect fd[%d]", fd);
-            EventReactor::GetInstance()->RemoveDescriptor(fd);
-            close(fd);
-
-            std::shared_ptr<Session> session;
-            auto it = sessions_.find(fd);
-            if (it != sessions_.end()) {
-                session = it->second;
-                sessions_.erase(it);
-            }
-
-            if (!listener_.expired() && session) {
-                auto task = std::make_shared<TaskHandler<void>>([session, this]() {
-                    auto listener = listener_.lock();
-                    if (listener != nullptr) {
-                        listener->OnClose(session);
-                    }
-                });
-                if (taskQueue_) {
-                    taskQueue_->EnqueueTask(task);
-                }
-            }
+            HandleConnectionClose(fd, false, "Connection closed by peer");
+            break;
         } else {
-            std::string info = strerror(errno);
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                if (IsConnectionAlive(fd)) {
-                    NETWORK_LOGD("EAGAIN: connection is alive");
-                    break;
-                } else {
-                    NETWORK_LOGD("EAGAIN: connection is dead");
-                }
+            if (errno == EAGAIN) {
+                break;
             }
+
+            std::string info = strerror(errno);
             NETWORK_LOGD("recv error: %s(%d)", info.c_str(), errno);
 
             if (errno == ETIMEDOUT) {
@@ -255,55 +413,60 @@ void TcpServer::HandleReceive(int fd)
                 break;
             }
 
-            EventReactor::GetInstance()->RemoveDescriptor(fd);
-            close(fd);
-
-            std::shared_ptr<Session> session;
-            auto it = sessions_.find(fd);
-            if (it != sessions_.end()) {
-                session = it->second;
-                sessions_.erase(it);
-            }
-
-            if (!listener_.expired() && session) {
-                auto task = std::make_shared<TaskHandler<void>>([session, info, this]() {
-                    auto listener = listener_.lock();
-                    if (listener != nullptr) {
-                        listener->OnError(session, info);
-                    }
-                });
-                if (taskQueue_) {
-                    taskQueue_->EnqueueTask(task);
-                }
-            }
+            HandleConnectionClose(fd, true, info);
         }
 
         break;
     }
 }
 
-bool TcpServer::IsConnectionAlive(int fd)
-{
-    fd_set readfds;
-    struct timeval timeout;
-
-    FD_ZERO(&readfds);
-    FD_SET(fd, &readfds);
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 1000; // 1ms
-
-    int result = select(fd + 1, &readfds, nullptr, nullptr, &timeout);
-    if (result < 0) {
-        return false;
-    }
-    return true;
-}
-
 void TcpServer::EnableKeepAlive(int fd)
 {
     int keepAlive = 1;
+    constexpr int TCP_KEEP_IDLE = 3;     // Start probing after 3 seconds of no data interaction
+    constexpr int TCP_KEEP_INTERVAL = 1; // Probe interval 1 second
+    constexpr int TCP_KEEP_COUNT = 2;    // Probe 2 times
     setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(keepAlive));
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &TCP_KEEP_IDLE, sizeof(TCP_KEEP_IDLE));
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &TCP_KEEP_INTERVAL, sizeof(TCP_KEEP_INTERVAL));
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &TCP_KEEP_COUNT, sizeof(TCP_KEEP_COUNT));
+}
+
+void TcpServer::HandleConnectionClose(int fd, bool isError, const std::string &reason)
+{
+    NETWORK_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
+
+    if (sessions_.find(fd) == sessions_.end()) {
+        NETWORK_LOGD("Connection fd: %d already cleaned up", fd);
+        return;
+    }
+
+    EventReactor::GetInstance()->RemoveHandler(fd);
+
+    close(fd);
+
+    std::shared_ptr<Session> session;
+    auto it = sessions_.find(fd);
+    if (it != sessions_.end()) {
+        session = it->second;
+        sessions_.erase(it);
+    }
+
+    connectionHandlers_.erase(fd);
+
+    if (!listener_.expired() && session) {
+        auto task = std::make_shared<TaskHandler<void>>([session, reason, isError, this]() {
+            auto listener = listener_.lock();
+            if (listener != nullptr) {
+                if (isError) {
+                    listener->OnError(session, reason);
+                } else {
+                    listener->OnClose(session);
+                }
+            }
+        });
+        if (taskQueue_) {
+            taskQueue_->EnqueueTask(task);
+        }
+    }
 }

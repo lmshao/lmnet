@@ -16,8 +16,12 @@
 #include "session.h"
 #include "task_queue.h"
 
+class EventHandler;
+
 class TcpServer final : public BaseServer, public std::enable_shared_from_this<TcpServer> {
     friend class EventProcessor;
+    friend class TcpServerHandler;
+    friend class TcpConnectionHandler;
     const int INVALID_SOCKET = -1;
 
 public:
@@ -44,7 +48,7 @@ protected:
 
     void HandleAccept(int fd);
     void HandleReceive(int fd);
-    bool IsConnectionAlive(int fd);
+    void HandleConnectionClose(int fd, bool isError, const std::string &reason);
     void EnableKeepAlive(int fd);
 
 private:
@@ -57,6 +61,9 @@ private:
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::unique_ptr<DataBuffer> readBuffer_;
+
+    std::shared_ptr<EventHandler> serverHandler_;
+    std::unordered_map<int, std::shared_ptr<EventHandler>> connectionHandlers_;
 };
 
 #endif // NETWORK_TCP_SERVER_H

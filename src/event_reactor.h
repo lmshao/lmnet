@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_EVENT_REACTOR_H
@@ -14,6 +14,26 @@
 
 #include "singleton.h"
 
+enum class EventType {
+    READ = 0x01,
+    WRITE = 0x02,
+    ERROR = 0x04,
+    CLOSE = 0x08
+};
+
+class EventHandler {
+public:
+    virtual ~EventHandler() = default;
+
+    virtual void HandleRead(int fd) = 0;
+    virtual void HandleWrite(int fd) = 0;
+    virtual void HandleError(int fd) = 0;
+    virtual void HandleClose(int fd) = 0;
+
+    virtual int GetHandle() const = 0;
+    virtual int GetEvents() const { return static_cast<int>(EventType::READ); }
+};
+
 class EventReactor : public Singleton<EventReactor> {
 public:
     friend class Singleton<EventReactor>;
@@ -21,13 +41,20 @@ public:
     EventReactor();
     ~EventReactor();
 
+    // Legacy callback-based interface (kept for backward compatibility)
     void AddDescriptor(int fd, std::function<void(int)> callback);
     void RemoveDescriptor(int fd);
+
+    bool RegisterHandler(std::shared_ptr<EventHandler> handler);
+    bool RegisterHandler(std::shared_ptr<EventHandler> handler, int events);
+    bool RemoveHandler(int fd);
+    bool ModifyHandler(int fd, int events);
 
     void SetThreadName(const std::string &name);
 
 private:
     void Run();
+    void DispatchEvent(int fd, int events);
 
 private:
     int epollFd_ = -1;
@@ -36,7 +63,13 @@ private:
     std::mutex mutex_;
     std::mutex signalMutex_;
     std::condition_variable runningSignal_;
+
+    // Legacy callback storage
     std::unordered_map<int, std::function<void(int)>> fds_;
+
+    // New event handler storage
+    std::unordered_map<int, std::shared_ptr<EventHandler>> handlers_;
+
     std::unique_ptr<std::thread> epollThread_;
 };
 
