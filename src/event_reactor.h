@@ -8,7 +8,7 @@
 #include <condition_variable>
 #include <functional>
 #include <memory>
-#include <mutex>
+#include <shared_mutex>
 #include <thread>
 #include <unordered_map>
 
@@ -55,7 +55,7 @@ private:
     int epollFd_ = -1;
     bool running_ = false;
 
-    std::mutex mutex_;
+    std::shared_mutex mutex_;
     std::mutex signalMutex_;
     std::condition_variable runningSignal_;
 

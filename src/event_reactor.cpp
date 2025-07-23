@@ -69,7 +69,7 @@ void EventReactor::Run()
             int readyFd = readyEvents[i].data.fd;
             int events = readyEvents[i].events;
 
-            std::unique_lock<std::mutex> lock(mutex_);
+            std::shared_lock<std::shared_mutex> lock(mutex_);
             auto handlerIt = handlers_.find(readyFd);
             if (handlerIt != handlers_.end()) {
                 auto handler = handlerIt->second;
@@ -133,7 +133,7 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
         return false;
     }
 
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     handlers_.emplace(fd, handler);
 
     NETWORK_LOGD("Handler registered successfully for fd:%d", fd);
@@ -144,7 +144,7 @@ bool EventReactor::RemoveHandler(int fd)
 {
     NETWORK_LOGD("Remove handler for fd(%d)", fd);
 
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     auto it = handlers_.find(fd);
     if (it == handlers_.end()) {
         NETWORK_LOGW("Handler not found for fd:%d", fd);
@@ -177,7 +177,7 @@ bool EventReactor::ModifyHandler(int fd, int events)
         return false;
     }
 
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     auto it = handlers_.find(fd);
     if (it == handlers_.end()) {
         NETWORK_LOGW("Handler not found for fd:%d during modify", fd);
@@ -215,7 +215,7 @@ bool EventReactor::ModifyHandler(int fd, int events)
 
 void EventReactor::DispatchEvent(int fd, int events)
 {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = handlers_.find(fd);
     if (it == handlers_.end()) {
         NETWORK_LOGW("Handler not found for fd:%d", fd);
