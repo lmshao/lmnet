@@ -134,7 +134,7 @@ bool UdpServer::Stop()
     return true;
 }
 
-bool UdpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool UdpServer::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
 {
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("socket not initialized");
@@ -146,35 +146,24 @@ bool UdpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
     remoteAddr.sin_port = htons(port);
     inet_aton(host.c_str(), &remoteAddr.sin_addr);
 
-    size_t nbytes =
-        sendto(socket_, buffer->Data(), buffer->Size(), 0, (struct sockaddr *)&remoteAddr, sizeof(remoteAddr));
-    if (nbytes != buffer->Size()) {
-        NETWORK_LOGE("send error: %s %zd/%zu", strerror(errno), nbytes, buffer->Size());
+    ssize_t nbytes = sendto(socket_, data, size, 0, (struct sockaddr *)&remoteAddr, sizeof(remoteAddr));
+    if (nbytes != (ssize_t)size) {
+        NETWORK_LOGE("send error: %s %zd/%zu", strerror(errno), nbytes, size);
         return false;
     }
-
     return true;
+}
+
+bool UdpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+{
+    if (!buffer)
+        return false;
+    return Send(fd, host, port, buffer->Data(), buffer->Size());
 }
 
 bool UdpServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
 {
-    if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("socket not initialized");
-        return false;
-    }
-
-    struct sockaddr_in remoteAddr;
-    remoteAddr.sin_family = AF_INET;
-    remoteAddr.sin_port = htons(port);
-    inet_aton(host.c_str(), &remoteAddr.sin_addr);
-
-    ssize_t bytes = sendto(socket_, str.c_str(), str.length(), 0, (struct sockaddr *)&remoteAddr, sizeof(remoteAddr));
-    if (bytes != str.length()) {
-        NETWORK_LOGE("send failed with error: %s, %zd/%zu", strerror(errno), bytes, str.length());
-        return false;
-    }
-
-    return true;
+    return Send(fd, host, port, str.data(), str.size());
 }
 
 void UdpServer::HandleReceive(int fd)

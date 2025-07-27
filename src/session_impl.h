@@ -18,25 +18,26 @@ public:
 
     virtual ~SessionImpl() = default;
 
-    bool Send(std::shared_ptr<DataBuffer> buffer) const
+    bool Send(const void *data, size_t size) const override
     {
         auto server = server_.lock();
         if (server) {
-            return server->Send(fd, host, port, buffer);
+            return server->Send(fd, host, port, data, size);
         }
         return false;
     }
 
-    bool Send(const std::string &str) const
+    bool Send(std::shared_ptr<DataBuffer> buffer) const override
     {
-        auto server = server_.lock();
-        if (server) {
-            return server->Send(fd, host, port, str);
+        if (!buffer) {
+            return false;
         }
-        return false;
+        return Send(buffer->Data(), buffer->Size());
     }
 
-    std::string ClientInfo() const
+    bool Send(const std::string &str) const override { return Send(str.data(), str.size()); }
+
+    std::string ClientInfo() const override
     {
         std::stringstream ss;
         ss << host << ":" << port << " (" << fd << ")";

@@ -38,6 +38,7 @@ public:
     bool Stop() override;
     bool Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
     bool Send(int fd, std::string host, uint16_t port, const std::string &str) override;
+    bool Send(int fd, std::string host, uint16_t port, const void *data, size_t size);
     bool Send(int fd, const std::string &str);
     bool Send(int fd, std::shared_ptr<DataBuffer> buffer);
     void Close();

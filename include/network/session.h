@@ -21,6 +21,7 @@ public:
 
     virtual bool Send(std::shared_ptr<DataBuffer> buffer) const = 0;
     virtual bool Send(const std::string &str) const = 0;
+    virtual bool Send(const void *data, size_t size) const = 0;
     virtual std::string ClientInfo() const = 0;
 
 protected:

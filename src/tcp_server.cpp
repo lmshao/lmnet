@@ -265,7 +265,7 @@ bool TcpServer::Stop()
     return true;
 }
 
-bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool TcpServer::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
 {
     if (sessions_.find(fd) == sessions_.end()) {
         NETWORK_LOGD("invalid session fd");
@@ -276,7 +276,7 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
     if (handlerIt != connectionHandlers_.end()) {
         auto tcpHandler = handlerIt->second;
         if (tcpHandler) {
-            tcpHandler->QueueSend(reinterpret_cast<const char *>(buffer->Data()), buffer->Size());
+            tcpHandler->QueueSend(reinterpret_cast<const char *>(data), size);
             return true;
         }
     }
@@ -285,24 +285,17 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
     return false;
 }
 
-bool TcpServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
+bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
 {
-    if (sessions_.find(fd) == sessions_.end()) {
-        NETWORK_LOGD("invalid session fd");
+    if (!buffer) {
         return false;
     }
+    return Send(fd, host, port, buffer->Data(), buffer->Size());
+}
 
-    auto handlerIt = connectionHandlers_.find(fd);
-    if (handlerIt != connectionHandlers_.end()) {
-        auto tcpHandler = handlerIt->second;
-        if (tcpHandler) {
-            tcpHandler->QueueSend(str);
-            return true;
-        }
-    }
-
-    NETWORK_LOGE("Connection handler not found for fd: %d", fd);
-    return false;
+bool TcpServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
+{
+    return Send(fd, host, port, str.data(), str.size());
 }
 
 void TcpServer::HandleAccept(int fd)

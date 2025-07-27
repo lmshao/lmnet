@@ -143,12 +143,14 @@ bool UdpClient::Send(const void *data, size_t len)
 
 bool UdpClient::Send(const std::string &str)
 {
-    return UdpClient::Send(str.c_str(), str.length());
+    return Send(str.data(), str.size());
 }
 
 bool UdpClient::Send(std::shared_ptr<DataBuffer> data)
 {
-    return UdpClient::Send((char *)data->Data(), data->Size());
+    if (!data)
+        return false;
+    return Send(data->Data(), data->Size());
 }
 
 void UdpClient::HandleReceive(int fd)

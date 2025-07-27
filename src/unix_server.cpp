@@ -224,18 +224,32 @@ bool UnixServer::Stop()
     return true;
 }
 
-bool UnixServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool UnixServer::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
 {
     (void)host;
     (void)port;
-    return Send(fd, buffer);
+    auto handlerIt = connectionHandlers_.find(fd);
+    if (handlerIt != connectionHandlers_.end()) {
+        auto unixHandler = handlerIt->second;
+        if (unixHandler) {
+            unixHandler->QueueSend(reinterpret_cast<const char *>(data), size);
+            return true;
+        }
+    }
+    NETWORK_LOGE("Connection handler not found for fd: %d", fd);
+    return false;
+}
+
+bool UnixServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+{
+    if (!buffer)
+        return false;
+    return Send(fd, host, port, buffer->Data(), buffer->Size());
 }
 
 bool UnixServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
 {
-    (void)host;
-    (void)port;
-    return Send(fd, str);
+    return Send(fd, host, port, str.data(), str.size());
 }
 
 bool UnixServer::Send(int fd, const std::string &str)
