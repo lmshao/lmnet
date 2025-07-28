@@ -75,7 +75,7 @@ UdpClient::~UdpClient()
 
 bool UdpClient::Init()
 {
-    socket_ = socket(AF_INET, SOCK_DGRAM, 0);
+    socket_ = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("socket error: %s", strerror(errno));
         return false;
