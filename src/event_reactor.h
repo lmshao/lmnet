@@ -51,8 +51,8 @@ private:
     void Run();
     void DispatchEvent(int fd, int events);
 
-private:
     int epollFd_ = -1;
+    int wakeupFd_ = -1;
     bool running_ = false;
 
     std::shared_mutex mutex_;

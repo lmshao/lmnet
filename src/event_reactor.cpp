@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/prctl.h>
 #include <unistd.h>
 
@@ -14,8 +15,14 @@
 #include "log.h"
 
 constexpr int EPOLL_WAIT_EVENT_NUMS_MAX = 1024;
-EventReactor::EventReactor()
+
+namespace {
+constexpr int INVALID_WAKEUP_FD = -1;
+}
+
+EventReactor::EventReactor() : wakeupFd_(INVALID_WAKEUP_FD)
 {
+    wakeupFd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     epollThread_ = std::make_unique<std::thread>([&]() { this->Run(); });
     SetThreadName("EventReactor");
     std::unique_lock<std::mutex> taskLock(signalMutex_);
@@ -26,8 +33,19 @@ EventReactor::~EventReactor()
 {
     NETWORK_LOGD("enter");
     running_ = false;
+
+    if (wakeupFd_ != INVALID_WAKEUP_FD) {
+        uint64_t one = 1;
+        write(wakeupFd_, &one, sizeof(one));
+    }
+
     if (epollThread_ && epollThread_->joinable()) {
         epollThread_->join();
+    }
+
+    if (wakeupFd_ != INVALID_WAKEUP_FD) {
+        close(wakeupFd_);
+        wakeupFd_ = INVALID_WAKEUP_FD;
     }
 
     if (epollFd_ != -1) {
@@ -44,6 +62,13 @@ void EventReactor::Run()
         perror("epoll_create");
         NETWORK_LOGE("epoll_create %s", strerror(errno));
         return;
+    }
+
+    if (wakeupFd_ != INVALID_WAKEUP_FD) {
+        struct epoll_event ev;
+        ev.events = EPOLLIN;
+        ev.data.fd = wakeupFd_;
+        epoll_ctl(epollFd_, EPOLL_CTL_ADD, wakeupFd_, &ev);
     }
 
     int nfds = 0;
@@ -68,6 +93,12 @@ void EventReactor::Run()
         for (int i = 0; i < nfds; i++) {
             int readyFd = readyEvents[i].data.fd;
             int events = readyEvents[i].events;
+
+            if (wakeupFd_ != INVALID_WAKEUP_FD && readyFd == wakeupFd_) {
+                uint64_t tmp;
+                read(wakeupFd_, &tmp, sizeof(tmp));
+                continue;
+            }
 
             std::shared_lock<std::shared_mutex> lock(mutex_);
             auto handlerIt = handlers_.find(readyFd);
