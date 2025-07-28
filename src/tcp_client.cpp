@@ -64,8 +64,9 @@ public:
     {
         if (data.empty())
             return;
-
-        sendQueue_.push(data);
+        auto buf = DataBuffer::PoolAlloc(data.size());
+        buf->Assign(data.data(), data.size());
+        sendQueue_.push(buf);
         EnableWriteEvents();
     }
 
@@ -73,8 +74,9 @@ public:
     {
         if (!data || size == 0)
             return;
-
-        sendQueue_.push(std::string(data, size));
+        auto buf = DataBuffer::PoolAlloc(size);
+        buf->Assign(data, size);
+        sendQueue_.push(buf);
         EnableWriteEvents();
     }
 
@@ -98,19 +100,20 @@ private:
     void ProcessSendQueue()
     {
         while (!sendQueue_.empty()) {
-            const std::string &data = sendQueue_.front();
-            ssize_t bytesSent = send(fd_, data.c_str(), data.size(), MSG_NOSIGNAL);
+            auto &buf = sendQueue_.front();
+            ssize_t bytesSent = send(fd_, buf->Data(), buf->Size(), MSG_NOSIGNAL);
 
             if (bytesSent > 0) {
-                if (static_cast<size_t>(bytesSent) == data.size()) {
+                if (static_cast<size_t>(bytesSent) == buf->Size()) {
                     sendQueue_.pop();
                 } else {
-                    std::string remaining = data.substr(bytesSent);
+                    auto remaining = DataBuffer::PoolAlloc(buf->Size() - bytesSent);
+                    remaining->Assign(buf->Data() + bytesSent, buf->Size() - bytesSent);
                     sendQueue_.front() = remaining;
                     break;
                 }
             } else if (bytesSent == -1) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) { // Usually same value, but check both for portability
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     break;
                 } else {
                     NETWORK_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
@@ -127,7 +130,7 @@ private:
 private:
     int fd_;
     std::weak_ptr<TcpClient> client_;
-    std::queue<std::string> sendQueue_;
+    std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
 };
 
@@ -292,7 +295,7 @@ void TcpClient::HandleReceive(int fd)
 {
     NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
-        readBuffer_ = std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE);
+        readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
     }
 
     while (true) {
@@ -300,7 +303,7 @@ void TcpClient::HandleReceive(int fd)
 
         if (nbytes > 0) {
             if (!listener_.expired()) {
-                auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
+                auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
 
                 auto task = std::make_shared<TaskHandler<void>>([dataBuffer, fd, this]() {

@@ -174,7 +174,7 @@ void UdpServer::HandleReceive(int fd)
     }
 
     if (readBuffer_ == nullptr) {
-        readBuffer_ = std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE);
+        readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
     }
 
     readBuffer_->Clear();
@@ -190,7 +190,7 @@ void UdpServer::HandleReceive(int fd)
 
         if (nbytes > 0) {
             if (!listener_.expired()) {
-                auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
+                auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
 
                 auto task = std::make_shared<TaskHandler<void>>([=]() {

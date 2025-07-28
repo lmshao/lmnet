@@ -59,7 +59,7 @@ private:
 
     std::weak_ptr<IServerListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
-    std::unique_ptr<DataBuffer> readBuffer_;
+    std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<EventHandler> serverHandler_;
 };

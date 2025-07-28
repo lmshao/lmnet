@@ -157,7 +157,7 @@ void UdpClient::HandleReceive(int fd)
 {
     NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
-        readBuffer_ = std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE);
+        readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
     }
 
     while (true) {
@@ -165,7 +165,7 @@ void UdpClient::HandleReceive(int fd)
 
         if (nbytes > 0) {
             if (!listener_.expired()) {
-                auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
+                auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
 
                 auto task = std::make_shared<TaskHandler<void>>([dataBuffer, fd, this]() {

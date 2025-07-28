@@ -307,14 +307,14 @@ void UnixServer::HandleAccept(int fd)
 void UnixServer::HandleReceive(int fd)
 {
     if (readBuffer_ == nullptr) {
-        readBuffer_ = std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE);
+        readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
     }
 
     while (true) {
         ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0);
         if (nbytes > 0) {
             if (!listener_.expired()) {
-                auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
+                auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
                 auto sessionIt = sessions_.find(fd);
                 std::shared_ptr<Session> session = (sessionIt != sessions_.end()) ? sessionIt->second : nullptr;

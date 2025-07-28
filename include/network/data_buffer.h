@@ -21,6 +21,8 @@ public:
     virtual ~DataBuffer();
 
     static std::shared_ptr<DataBuffer> Create(size_t len = 0);
+    static std::shared_ptr<DataBuffer> PoolAlloc(size_t len = 4096);
+    static void PoolFree(DataBuffer *buf);
 
     void Assign(std::nullptr_t) {}
     void Assign(const void *p, size_t len);

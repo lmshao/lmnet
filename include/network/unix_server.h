@@ -58,7 +58,7 @@ private:
     std::weak_ptr<IServerListener> listener_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
     std::unique_ptr<TaskQueue> taskQueue_;
-    std::unique_ptr<DataBuffer> readBuffer_;
+    std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<EventHandler> serverHandler_;
     std::unordered_map<int, std::shared_ptr<UnixConnectionHandler>> connectionHandlers_;

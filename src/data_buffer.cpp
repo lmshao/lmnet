@@ -8,6 +8,9 @@
 
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <mutex>
+#include <vector>
 
 constexpr size_t DATA_ALIGN = 8;
 inline static size_t align(size_t len)
@@ -15,11 +18,18 @@ inline static size_t align(size_t len)
     return (len + DATA_ALIGN - 1) / DATA_ALIGN * DATA_ALIGN;
 }
 
+constexpr size_t POOL_BLOCK_SIZE = 4096;
+constexpr size_t POOL_GLOBAL_MAX = 1024;
+constexpr size_t POOL_LOCAL_MAX = 32;
+static std::mutex g_poolMutex;
+static std::vector<DataBuffer *> g_bufferPool;
+thread_local std::vector<DataBuffer *> t_localPool;
+
 DataBuffer::DataBuffer(size_t len)
 {
     if (len) {
         capacity_ = align(len);
-        data_ = new uint8_t[capacity_ + 1];
+        data_ = new uint8_t[capacity_];
         size_ = 0;
         data_[0] = 0;
     }
@@ -29,24 +39,27 @@ DataBuffer::DataBuffer(const DataBuffer &other) noexcept
 {
     if (other.data_ && other.size_) {
         capacity_ = align(other.size_);
-        data_ = new uint8_t[capacity_ + 1];
+        data_ = new uint8_t[capacity_];
         memcpy(data_, other.data_, other.size_);
         size_ = other.size_;
-        data_[size_] = 0;
+        if (size_ < capacity_) {
+            data_[size_] = 0;
+        }
     }
 }
 
 DataBuffer &DataBuffer::operator=(const DataBuffer &other) noexcept
 {
     if (this != &other) {
-        delete[] data_; // 先释放当前内存
-
+        delete[] data_;
         if (other.data_ && other.size_) {
             capacity_ = align(other.size_);
-            data_ = new uint8_t[capacity_ + 1];
+            data_ = new uint8_t[capacity_];
             memcpy(data_, other.data_, other.size_);
             size_ = other.size_;
-            data_[size_] = 0;
+            if (size_ < capacity_) {
+                data_[size_] = 0;
+            }
         } else {
             data_ = nullptr;
             size_ = 0;
@@ -94,6 +107,57 @@ std::shared_ptr<DataBuffer> DataBuffer::Create(size_t len)
     return std::make_shared<DataBuffer>(len);
 }
 
+std::shared_ptr<DataBuffer> DataBuffer::PoolAlloc(size_t len)
+{
+    DataBuffer *buf = nullptr;
+    if (len > POOL_BLOCK_SIZE) {
+        buf = new DataBuffer(len);
+        return std::shared_ptr<DataBuffer>(buf, [](DataBuffer *p) { delete p; });
+    }
+
+    if (!t_localPool.empty()) {
+        buf = t_localPool.back();
+        t_localPool.pop_back();
+        buf->SetSize(0);
+    } else {
+        std::lock_guard<std::mutex> lock(g_poolMutex);
+        if (!g_bufferPool.empty()) {
+            buf = g_bufferPool.back();
+            g_bufferPool.pop_back();
+            buf->SetSize(0);
+        }
+    }
+
+    if (!buf) {
+        buf = new DataBuffer(POOL_BLOCK_SIZE);
+    }
+    return std::shared_ptr<DataBuffer>(buf, [](DataBuffer *p) { DataBuffer::PoolFree(p); });
+}
+
+void DataBuffer::PoolFree(DataBuffer *buf)
+{
+    if (!buf)
+        return;
+    if (buf->capacity_ != POOL_BLOCK_SIZE) {
+        delete buf;
+        return;
+    }
+
+    if (t_localPool.size() < POOL_LOCAL_MAX) {
+        buf->Clear();
+        t_localPool.push_back(buf);
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(g_poolMutex);
+    if (g_bufferPool.size() < POOL_GLOBAL_MAX) {
+        buf->Clear();
+        g_bufferPool.push_back(buf);
+    } else {
+        delete buf;
+    }
+}
+
 void DataBuffer::Assign(const void *p, size_t len)
 {
     if (!p || !len) {
@@ -103,12 +167,14 @@ void DataBuffer::Assign(const void *p, size_t len)
     if (len > capacity_) {
         delete[] data_;
         capacity_ = align(len);
-        data_ = new uint8_t[capacity_ + 1];
+        data_ = new uint8_t[capacity_];
     }
 
     memcpy(data_, p, len);
     size_ = len;
-    data_[size_] = 0;
+    if (size_ < capacity_) {
+        data_[size_] = 0;
+    }
 }
 
 void DataBuffer::Append(const void *p, size_t len)
@@ -122,7 +188,7 @@ void DataBuffer::Append(const void *p, size_t len)
         size_ += len;
     } else {
         capacity_ = align(size_ + len);
-        auto newBuffer = new uint8_t[capacity_ + 1];
+        auto newBuffer = new uint8_t[capacity_];
         if (data_) {
             memcpy(newBuffer, data_, size_);
         }
@@ -132,7 +198,10 @@ void DataBuffer::Append(const void *p, size_t len)
         data_ = newBuffer;
         size_ += len;
     }
-    data_[size_] = 0;
+
+    if (size_ < capacity_) {
+        data_[size_] = 0;
+    }
 }
 
 void DataBuffer::Assign(uint16_t u16)
@@ -163,14 +232,14 @@ void DataBuffer::SetSize(size_t len)
 {
     if (len <= capacity_) {
         size_ = len;
-        if (data_) {
+        if (data_ && size_ < capacity_) {
             data_[size_] = 0;
         }
         return;
     }
 
     capacity_ = align(len);
-    auto new_buffer = new uint8_t[capacity_ + 1];
+    auto new_buffer = new uint8_t[capacity_];
     if (data_) {
         memcpy(new_buffer, data_, size_);
     }
@@ -178,7 +247,9 @@ void DataBuffer::SetSize(size_t len)
     delete[] data_;
     data_ = new_buffer;
     size_ = len;
-    data_[size_] = 0;
+    if (size_ < capacity_) {
+        data_[size_] = 0;
+    }
 }
 
 void DataBuffer::SetCapacity(size_t len)
@@ -190,19 +261,19 @@ void DataBuffer::SetCapacity(size_t len)
     if (size_ == 0) {
         delete[] data_;
         capacity_ = align(len);
-        data_ = new uint8_t[capacity_ + 1];
+        data_ = new uint8_t[capacity_];
         size_ = 0;
     } else {
         capacity_ = align(len);
         if (size_ <= capacity_) {
-            auto newBuffer = new uint8_t[capacity_ + 1];
+            auto newBuffer = new uint8_t[capacity_];
             if (data_) {
                 memcpy(newBuffer, data_, size_);
             }
             delete[] data_;
             data_ = newBuffer;
         } else {
-            auto newBuffer = new uint8_t[capacity_ + 1];
+            auto newBuffer = new uint8_t[capacity_];
             if (data_) {
                 memcpy(newBuffer, data_, capacity_);
             }
@@ -216,7 +287,7 @@ void DataBuffer::SetCapacity(size_t len)
 void DataBuffer::Clear()
 {
     size_ = 0;
-    if (data_) {
+    if (data_ && capacity_ > 0) {
         data_[0] = 0;
     }
 }

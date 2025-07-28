@@ -63,7 +63,7 @@ private:
 
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
-    std::unique_ptr<DataBuffer> readBuffer_;
+    std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<TcpClientHandler> clientHandler_;
 };
