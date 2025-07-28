@@ -167,9 +167,9 @@ void UdpClient::HandleReceive(int fd)
             if (!listener_.expired()) {
                 auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
-
-                auto task = std::make_shared<TaskHandler<void>>([dataBuffer, fd, this]() {
-                    auto listener = listener_.lock();
+                auto listenerWeak = listener_;
+                auto task = std::make_shared<TaskHandler<void>>([listenerWeak, dataBuffer, fd]() {
+                    auto listener = listenerWeak.lock();
                     if (listener) {
                         listener->OnReceive(fd, dataBuffer);
                     }
@@ -214,8 +214,9 @@ void UdpClient::HandleConnectionClose(int fd, bool isError, const std::string &r
     clientHandler_.reset();
 
     if (!listener_.expired()) {
-        auto task = std::make_shared<TaskHandler<void>>([reason, isError, fd, this]() {
-            auto listener = listener_.lock();
+        auto listenerWeak = listener_;
+        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, reason, isError, fd]() {
+            auto listener = listenerWeak.lock();
             if (listener != nullptr) {
                 if (isError) {
                     listener->OnError(fd, reason);

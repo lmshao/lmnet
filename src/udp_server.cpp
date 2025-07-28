@@ -193,10 +193,12 @@ void UdpServer::HandleReceive(int fd)
                 auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
 
-                auto task = std::make_shared<TaskHandler<void>>([=]() {
-                    auto listener = listener_.lock();
+                auto listenerWeak = listener_;
+                auto self = shared_from_this();
+                auto task = std::make_shared<TaskHandler<void>>([listenerWeak, self, fd, host, port, dataBuffer]() {
+                    auto listener = listenerWeak.lock();
                     if (listener) {
-                        auto session = std::make_shared<SessionImpl>(fd, host, port, shared_from_this());
+                        auto session = std::make_shared<SessionImpl>(fd, host, port, self);
                         listener->OnReceive(session, dataBuffer);
                     }
                 });
@@ -212,10 +214,12 @@ void UdpServer::HandleReceive(int fd)
 
         std::string info = strerror(errno);
         if (!listener_.expired()) {
-            auto task = std::make_shared<TaskHandler<void>>([=]() {
-                auto listener = listener_.lock();
+            auto listenerWeak = listener_;
+            auto self = shared_from_this();
+            auto task = std::make_shared<TaskHandler<void>>([listenerWeak, self, fd, host, port, info]() {
+                auto listener = listenerWeak.lock();
                 if (listener) {
-                    auto session = std::make_shared<SessionImpl>(fd, host, port, shared_from_this());
+                    auto session = std::make_shared<SessionImpl>(fd, host, port, self);
                     listener->OnError(session, info);
                 } else {
                     NETWORK_LOGE("not found listener!");

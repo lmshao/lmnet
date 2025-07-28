@@ -207,8 +207,9 @@ void UnixClient::HandleReceive(int fd)
             if (!listener_.expired()) {
                 auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
-                auto task = std::make_shared<TaskHandler<void>>([dataBuffer, this, fd]() {
-                    auto listener = listener_.lock();
+                auto listenerWeak = listener_;
+                auto task = std::make_shared<TaskHandler<void>>([listenerWeak, dataBuffer, fd]() {
+                    auto listener = listenerWeak.lock();
                     if (listener) {
                         listener->OnReceive(fd, dataBuffer);
                     }

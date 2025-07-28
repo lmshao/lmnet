@@ -318,8 +318,9 @@ void UnixServer::HandleReceive(int fd)
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
                 auto sessionIt = sessions_.find(fd);
                 std::shared_ptr<Session> session = (sessionIt != sessions_.end()) ? sessionIt->second : nullptr;
-                auto task = std::make_shared<TaskHandler<void>>([dataBuffer, session, this]() {
-                    auto listener = listener_.lock();
+                auto listenerWeak = listener_;
+                auto task = std::make_shared<TaskHandler<void>>([listenerWeak, dataBuffer, session]() {
+                    auto listener = listenerWeak.lock();
                     if (listener && session) {
                         listener->OnReceive(session, dataBuffer);
                     }

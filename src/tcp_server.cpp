@@ -330,11 +330,13 @@ void TcpServer::HandleAccept(int fd)
     sessions_.emplace(clientSocket, session);
 
     if (!listener_.expired()) {
-        auto task = std::make_shared<TaskHandler<void>>([=]() {
+        auto listenerWeak = listener_;
+        auto session = sessions_[clientSocket];
+        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session]() {
             NETWORK_LOGD("invoke OnAccept callback");
-            auto listener = listener_.lock();
+            auto listener = listenerWeak.lock();
             if (listener) {
-                listener->OnAccept(sessions_[clientSocket]);
+                listener->OnAccept(session);
             } else {
                 NETWORK_LOGD("not found listener!");
             }
@@ -374,8 +376,9 @@ void TcpServer::HandleReceive(int fd)
                 }
 
                 if (session) {
-                    auto task = std::make_shared<TaskHandler<void>>([session, dataBuffer, this]() {
-                        auto listener = listener_.lock();
+                    auto listenerWeak = listener_;
+                    auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session, dataBuffer]() {
+                        auto listener = listenerWeak.lock();
                         if (listener != nullptr) {
                             listener->OnReceive(session, dataBuffer);
                         }
@@ -442,8 +445,9 @@ void TcpServer::HandleConnectionClose(int fd, bool isError, const std::string &r
     connectionHandlers_.erase(fd);
 
     if (!listener_.expired() && session) {
-        auto task = std::make_shared<TaskHandler<void>>([session, reason, isError, this]() {
-            auto listener = listener_.lock();
+        auto listenerWeak = listener_;
+        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session, reason, isError]() {
+            auto listener = listenerWeak.lock();
             if (listener != nullptr) {
                 if (isError) {
                     listener->OnError(session, reason);
