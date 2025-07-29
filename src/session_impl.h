@@ -29,13 +29,21 @@ public:
 
     bool Send(std::shared_ptr<DataBuffer> buffer) const override
     {
-        if (!buffer) {
-            return false;
+        auto server = server_.lock();
+        if (server) {
+            return server->Send(fd, host, port, buffer);
         }
-        return Send(buffer->Data(), buffer->Size());
+        return false;
     }
 
-    bool Send(const std::string &str) const override { return Send(str.data(), str.size()); }
+    bool Send(const std::string &str) const override
+    {
+        auto server = server_.lock();
+        if (server) {
+            return server->Send(fd, host, port, str);
+        }
+        return false;
+    }
 
     std::string ClientInfo() const override
     {

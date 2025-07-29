@@ -60,23 +60,11 @@ public:
         return events;
     }
 
-    void QueueSend(const std::string &data)
+    void QueueSend(std::shared_ptr<DataBuffer> buffer)
     {
-        if (data.empty())
+        if (!buffer || buffer->Size() == 0)
             return;
-        auto buf = DataBuffer::PoolAlloc(data.size());
-        buf->Assign(data.data(), data.size());
-        sendQueue_.push(buf);
-        EnableWriteEvents();
-    }
-
-    void QueueSend(const char *data, size_t size)
-    {
-        if (!data || size == 0)
-            return;
-        auto buf = DataBuffer::PoolAlloc(size);
-        buf->Assign(data, size);
-        sendQueue_.push(buf);
+        sendQueue_.push(buffer);
         EnableWriteEvents();
     }
 
@@ -257,28 +245,46 @@ bool TcpClient::Connect()
 
 bool TcpClient::Send(const std::string &str)
 {
-    return Send(str.c_str(), str.length());
+    if (str.empty()) {
+        NETWORK_LOGE("Invalid string data");
+        return false;
+    }
+
+    auto buf = DataBuffer::PoolAlloc(str.size());
+    buf->Assign(str.data(), str.size());
+    return Send(buf);
 }
 
 bool TcpClient::Send(const char *data, size_t len)
 {
+    if (!data || len == 0) {
+        NETWORK_LOGE("Invalid data");
+        return false;
+    }
+
+    auto buf = DataBuffer::PoolAlloc(len);
+    buf->Assign(data, len);
+    return Send(buf);
+}
+
+bool TcpClient::Send(std::shared_ptr<DataBuffer> data)
+{
+    if (!data || data->Size() == 0) {
+        NETWORK_LOGE("Invalid data buffer");
+        return false;
+    }
+
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("socket not initialized");
         return false;
     }
 
     if (clientHandler_) {
-        clientHandler_->QueueSend(data, len);
+        clientHandler_->QueueSend(data);
         return true;
     }
-
     NETWORK_LOGE("Client handler not found");
     return false;
-}
-
-bool TcpClient::Send(std::shared_ptr<DataBuffer> data)
-{
-    return Send(reinterpret_cast<const char *>(data->Data()), data->Size());
 }
 
 void TcpClient::Close()
@@ -299,7 +305,7 @@ void TcpClient::HandleReceive(int fd)
     }
 
     while (true) {
-        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0);
+        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
 
         if (nbytes > 0) {
             if (!listener_.expired()) {

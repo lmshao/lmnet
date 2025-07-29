@@ -132,7 +132,12 @@ bool UdpClient::Send(const void *data, size_t len)
         return false;
     }
 
-    size_t nbytes = sendto(socket_, data, len, 0, (struct sockaddr *)&serverAddr_, (socklen_t)(sizeof(serverAddr_)));
+    if (!data || len == 0) {
+        NETWORK_LOGE("invalid send parameters: data=%p, len=%zu", data, len);
+        return false;
+    }
+
+    ssize_t nbytes = sendto(socket_, data, len, 0, (struct sockaddr *)&serverAddr_, (socklen_t)(sizeof(serverAddr_)));
     if (nbytes == -1) {
         NETWORK_LOGE("sendto error: %s", strerror(errno));
         return false;
@@ -143,6 +148,10 @@ bool UdpClient::Send(const void *data, size_t len)
 
 bool UdpClient::Send(const std::string &str)
 {
+    if (str.empty()) {
+        NETWORK_LOGE("invalid send parameters: empty string");
+        return false;
+    }
     return Send(str.data(), str.size());
 }
 
@@ -161,7 +170,7 @@ void UdpClient::HandleReceive(int fd)
     }
 
     while (true) {
-        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0);
+        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
 
         if (nbytes > 0) {
             if (!listener_.expired()) {

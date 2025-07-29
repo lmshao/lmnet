@@ -90,19 +90,11 @@ public:
         return events;
     }
 
-    void QueueSend(const std::string &data)
+    void QueueSend(std::shared_ptr<DataBuffer> buffer)
     {
-        if (data.empty())
+        if (!buffer || buffer->Size() == 0)
             return;
-        sendQueue_.push(data);
-        EnableWriteEvents();
-    }
-
-    void QueueSend(const char *data, size_t size)
-    {
-        if (!data || size == 0)
-            return;
-        sendQueue_.push(std::string(data, size));
+        sendQueue_.push(buffer);
         EnableWriteEvents();
     }
 
@@ -126,13 +118,14 @@ private:
     void ProcessSendQueue()
     {
         while (!sendQueue_.empty()) {
-            const std::string &data = sendQueue_.front();
-            ssize_t bytesSent = send(fd_, data.c_str(), data.size(), MSG_NOSIGNAL);
+            auto &buf = sendQueue_.front();
+            ssize_t bytesSent = send(fd_, buf->Data(), buf->Size(), MSG_NOSIGNAL);
             if (bytesSent > 0) {
-                if (static_cast<size_t>(bytesSent) == data.size()) {
+                if (static_cast<size_t>(bytesSent) == buf->Size()) {
                     sendQueue_.pop();
                 } else {
-                    std::string remaining = data.substr(bytesSent);
+                    auto remaining = DataBuffer::PoolAlloc(buf->Size() - bytesSent);
+                    remaining->Assign(buf->Data() + bytesSent, buf->Size() - bytesSent);
                     sendQueue_.front() = remaining;
                     break;
                 }
@@ -151,7 +144,7 @@ private:
     }
     int fd_;
     std::weak_ptr<UnixServer> server_;
-    std::queue<std::string> sendQueue_;
+    std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
 };
 
@@ -226,39 +219,26 @@ bool UnixServer::Stop()
 
 bool UnixServer::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
 {
-    (void)host;
-    (void)port;
-    auto handlerIt = connectionHandlers_.find(fd);
-    if (handlerIt != connectionHandlers_.end()) {
-        auto unixHandler = handlerIt->second;
-        if (unixHandler) {
-            unixHandler->QueueSend(reinterpret_cast<const char *>(data), size);
-            return true;
-        }
+    if (!data || size == 0) {
+        return false;
     }
-    NETWORK_LOGE("Connection handler not found for fd: %d", fd);
-    return false;
+    auto buf = DataBuffer::PoolAlloc(size);
+    buf->Assign(reinterpret_cast<const char *>(data), size);
+    return Send(fd, host, port, buf);
 }
 
 bool UnixServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
 {
-    if (!buffer)
+    (void)host;
+    (void)port;
+    if (!buffer || buffer->Size() == 0) {
         return false;
-    return Send(fd, host, port, buffer->Data(), buffer->Size());
-}
-
-bool UnixServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
-{
-    return Send(fd, host, port, str.data(), str.size());
-}
-
-bool UnixServer::Send(int fd, const std::string &str)
-{
+    }
     auto handlerIt = connectionHandlers_.find(fd);
     if (handlerIt != connectionHandlers_.end()) {
         auto unixHandler = handlerIt->second;
         if (unixHandler) {
-            unixHandler->QueueSend(str);
+            unixHandler->QueueSend(buffer);
             return true;
         }
     }
@@ -266,9 +246,14 @@ bool UnixServer::Send(int fd, const std::string &str)
     return false;
 }
 
-bool UnixServer::Send(int fd, std::shared_ptr<DataBuffer> buffer)
+bool UnixServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
 {
-    return Send(fd, std::string(reinterpret_cast<const char *>(buffer->Data()), buffer->Size()));
+    if (str.empty()) {
+        return false;
+    }
+    auto buf = DataBuffer::PoolAlloc(str.size());
+    buf->Assign(str.data(), str.size());
+    return Send(fd, host, port, buf);
 }
 
 void UnixServer::Close()
@@ -311,7 +296,7 @@ void UnixServer::HandleReceive(int fd)
     }
 
     while (true) {
-        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0);
+        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
         if (nbytes > 0) {
             if (!listener_.expired()) {
                 auto dataBuffer = DataBuffer::PoolAlloc(nbytes);

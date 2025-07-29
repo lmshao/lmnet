@@ -52,20 +52,11 @@ public:
             events |= static_cast<int>(EventType::WRITE);
         return events;
     }
-    void QueueSend(const std::string &data)
+    void QueueSend(std::shared_ptr<DataBuffer> buffer)
     {
-        if (data.empty()) {
+        if (!buffer || buffer->Size() == 0)
             return;
-        }
-        sendQueue_.push(data);
-        EnableWriteEvents();
-    }
-    void QueueSend(const char *data, size_t size)
-    {
-        if (!data || size == 0) {
-            return;
-        }
-        sendQueue_.push(std::string(data, size));
+        sendQueue_.push(buffer);
         EnableWriteEvents();
     }
 
@@ -87,13 +78,14 @@ private:
     void ProcessSendQueue()
     {
         while (!sendQueue_.empty()) {
-            const std::string &data = sendQueue_.front();
-            ssize_t bytesSent = send(fd_, data.c_str(), data.size(), MSG_NOSIGNAL);
+            auto &buf = sendQueue_.front();
+            ssize_t bytesSent = send(fd_, buf->Data(), buf->Size(), MSG_NOSIGNAL);
             if (bytesSent > 0) {
-                if (static_cast<size_t>(bytesSent) == data.size()) {
+                if (static_cast<size_t>(bytesSent) == buf->Size()) {
                     sendQueue_.pop();
                 } else {
-                    std::string remaining = data.substr(bytesSent);
+                    auto remaining = DataBuffer::PoolAlloc(buf->Size() - bytesSent);
+                    remaining->Assign(buf->Data() + bytesSent, buf->Size() - bytesSent);
                     sendQueue_.front() = remaining;
                     break;
                 }
@@ -112,7 +104,7 @@ private:
     }
     int fd_;
     std::weak_ptr<UnixClient> client_;
-    std::queue<std::string> sendQueue_;
+    std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
 };
 
@@ -163,26 +155,38 @@ bool UnixClient::Connect()
 
 bool UnixClient::Send(const std::string &str)
 {
-    return Send(str.c_str(), str.length());
+    if (str.empty()) {
+        NETWORK_LOGE("Invalid string for Send");
+        return false;
+    }
+    auto buf = DataBuffer::PoolAlloc(str.size());
+    buf->Assign(str.data(), str.size());
+    return Send(buf);
 }
 
 bool UnixClient::Send(const void *data, size_t len)
+{
+    if (data == nullptr || len == 0) {
+        NETWORK_LOGE("Invalid data or length for Send");
+        return false;
+    }
+    auto buf = DataBuffer::PoolAlloc(len);
+    buf->Assign(reinterpret_cast<const char *>(data), len);
+    return Send(buf);
+}
+
+bool UnixClient::Send(std::shared_ptr<DataBuffer> data)
 {
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("socket not initialized");
         return false;
     }
     if (clientHandler_) {
-        clientHandler_->QueueSend((const char *)data, len);
+        clientHandler_->QueueSend(data);
         return true;
     }
     NETWORK_LOGE("Client handler not found");
     return false;
-}
-
-bool UnixClient::Send(std::shared_ptr<DataBuffer> data)
-{
-    return Send((char *)data->Data(), data->Size());
 }
 
 void UnixClient::Close()
@@ -202,7 +206,7 @@ void UnixClient::HandleReceive(int fd)
         readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
     }
     while (true) {
-        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0);
+        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
         if (nbytes > 0) {
             if (!listener_.expired()) {
                 auto dataBuffer = DataBuffer::PoolAlloc(nbytes);

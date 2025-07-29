@@ -100,21 +100,11 @@ public:
         return events;
     }
 
-    void QueueSend(const std::string &data)
+    void QueueSend(std::shared_ptr<DataBuffer> buffer)
     {
-        if (data.empty())
+        if (!buffer || buffer->Size() == 0)
             return;
-
-        sendQueue_.push(data);
-        EnableWriteEvents();
-    }
-
-    void QueueSend(const char *data, size_t size)
-    {
-        if (!data || size == 0)
-            return;
-
-        sendQueue_.push(std::string(data, size));
+        sendQueue_.push(buffer);
         EnableWriteEvents();
     }
 
@@ -138,14 +128,14 @@ private:
     void ProcessSendQueue()
     {
         while (!sendQueue_.empty()) {
-            const std::string &data = sendQueue_.front();
-            ssize_t bytesSent = send(fd_, data.c_str(), data.size(), MSG_NOSIGNAL);
-
+            auto &buf = sendQueue_.front();
+            ssize_t bytesSent = send(fd_, buf->Data(), buf->Size(), MSG_NOSIGNAL);
             if (bytesSent > 0) {
-                if (static_cast<size_t>(bytesSent) == data.size()) {
+                if (static_cast<size_t>(bytesSent) == buf->Size()) {
                     sendQueue_.pop();
                 } else {
-                    std::string remaining = data.substr(bytesSent);
+                    auto remaining = DataBuffer::PoolAlloc(buf->Size() - bytesSent);
+                    remaining->Assign(buf->Data() + bytesSent, buf->Size() - bytesSent);
                     sendQueue_.front() = remaining;
                     break;
                 }
@@ -167,7 +157,7 @@ private:
 private:
     int fd_;
     std::weak_ptr<TcpServer> server_;
-    std::queue<std::string> sendQueue_;
+    std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
 };
 
@@ -267,6 +257,21 @@ bool TcpServer::Stop()
 
 bool TcpServer::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
 {
+    if (!data || size == 0) {
+        NETWORK_LOGD("invalid data or size");
+        return false;
+    }
+    auto buf = DataBuffer::PoolAlloc(size);
+    buf->Assign(reinterpret_cast<const char *>(data), size);
+    return Send(fd, host, port, buf);
+}
+
+bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+{
+    if (!buffer || buffer->Size() == 0) {
+        return false;
+    }
+
     if (sessions_.find(fd) == sessions_.end()) {
         NETWORK_LOGD("invalid session fd");
         return false;
@@ -276,26 +281,23 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, const void *data, 
     if (handlerIt != connectionHandlers_.end()) {
         auto tcpHandler = handlerIt->second;
         if (tcpHandler) {
-            tcpHandler->QueueSend(reinterpret_cast<const char *>(data), size);
+            tcpHandler->QueueSend(buffer);
             return true;
         }
     }
-
     NETWORK_LOGE("Connection handler not found for fd: %d", fd);
     return false;
 }
 
-bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
-{
-    if (!buffer) {
-        return false;
-    }
-    return Send(fd, host, port, buffer->Data(), buffer->Size());
-}
-
 bool TcpServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
 {
-    return Send(fd, host, port, str.data(), str.size());
+    if (str.empty()) {
+        NETWORK_LOGD("invalid string data");
+        return false;
+    }
+    auto buf = DataBuffer::PoolAlloc(str.size());
+    buf->Assign(str.data(), str.size());
+    return Send(fd, host, port, buf);
 }
 
 void TcpServer::HandleAccept(int fd)
@@ -357,7 +359,7 @@ void TcpServer::HandleReceive(int fd)
     }
 
     while (true) {
-        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0);
+        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
 
         if (nbytes > 0) {
             if (nbytes > RECV_BUFFER_MAX_SIZE) {
