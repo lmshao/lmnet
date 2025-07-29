@@ -1,3 +1,7 @@
+//
+// Copyright © 2025 SHAO Liming <lmshao@163.com>. All rights reserved.
+//
+
 #include "unix_client.h"
 
 #include <chrono>
@@ -7,6 +11,8 @@
 #include <thread>
 
 #include "iclient_listener.h"
+
+using namespace lmshao::network;
 
 bool gExit = false;
 class EchoClientListener : public IClientListener {

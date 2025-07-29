@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_ISERVER_LISTENER_H
@@ -10,6 +10,8 @@
 #include "data_buffer.h"
 #include "session.h"
 
+namespace lmshao::network {
+
 class IServerListener {
 public:
     virtual ~IServerListener() = default;
@@ -18,5 +20,7 @@ public:
     virtual void OnAccept(std::shared_ptr<Session> session) = 0;
     virtual void OnReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer) = 0;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_ISERVER_LISTENER_H

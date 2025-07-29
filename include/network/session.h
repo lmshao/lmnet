@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_SESSION_H
@@ -12,6 +12,8 @@
 
 #include "base_server.h"
 #include "data_buffer.h"
+
+namespace lmshao::network {
 
 class Session {
 public:
@@ -28,5 +30,7 @@ protected:
     Session() = default;
     virtual ~Session() = default;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_SESSION_H

@@ -9,6 +9,8 @@
 #include "../test_framework.h"
 #include "network/task_queue.h"
 
+using namespace lmshao::network;
+
 TEST(TaskQueueTest, Construction)
 {
     TaskQueue queue("TestQueue");

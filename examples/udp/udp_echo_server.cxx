@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #include <unistd.h>
@@ -8,6 +8,8 @@
 #include <thread>
 
 #include "udp_server.h"
+
+using namespace lmshao::network;
 
 class MyListener : public IServerListener {
 public:

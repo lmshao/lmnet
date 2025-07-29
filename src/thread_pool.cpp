@@ -9,6 +9,7 @@
 
 #include "log.h"
 
+namespace lmshao::network {
 constexpr size_t POOL_SIZE_MAX = 100;
 
 ThreadPool::ThreadPool(int preAlloc, int threadsMax, std::string name) : threadsMax_(threadsMax)
@@ -232,3 +233,4 @@ void ThreadPool::ReleaseTaskItem(std::shared_ptr<TaskItem> item)
         taskItemPool_.push(item);
     }
 }
+} // namespace lmshao::network

@@ -1,5 +1,5 @@
 //
-// Copyright © 2025 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #include <atomic>
@@ -9,6 +9,8 @@
 #include "../test_framework.h"
 #include "network/tcp_client.h"
 #include "network/tcp_server.h"
+
+using namespace lmshao::network;
 
 // Simple TCP server-client test
 TEST(TcpTest, ServerClientSendRecv)

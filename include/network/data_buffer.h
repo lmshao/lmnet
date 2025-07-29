@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 
+namespace lmshao::network {
 class DataBuffer {
 public:
     explicit DataBuffer(size_t len = 0);
@@ -66,5 +67,7 @@ private:
     size_t size_ = 0;
     size_t capacity_ = 0;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_DATA_BUFFER_H

@@ -17,6 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
+namespace lmshao::network {
 constexpr int THREAD_NUM_MAX = 2;
 constexpr int THREAD_NUM_PRE_ALLOC = 1;
 
@@ -87,5 +88,7 @@ private:
 
     std::stack<std::shared_ptr<TaskItem>> taskItemPool_;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_THREAD_POOL_H

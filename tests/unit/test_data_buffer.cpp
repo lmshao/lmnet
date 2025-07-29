@@ -10,6 +10,8 @@
 #include "../test_framework.h"
 #include "network/data_buffer.h"
 
+using namespace lmshao::network;
+
 TEST(DataBufferTest, Construction)
 {
     DataBuffer buffer(1024);

@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_SINGLETON_H
@@ -10,6 +10,7 @@
 
 #include "noncopyable.h"
 
+namespace lmshao::network {
 template <typename T>
 class Singleton : public NonCopyable {
 public:
@@ -49,5 +50,7 @@ void Singleton<T>::DestroyInstance()
         instance_.reset();
     }
 }
+
+} // namespace lmshao::network
 
 #endif // NETWORK_SINGLETON_H

@@ -11,6 +11,8 @@
 #include "../test_framework.h"
 #include "thread_pool.h"
 
+using namespace lmshao::network;
+
 TEST(ThreadPoolTest, BasicConstruction)
 {
     ThreadPool pool(2, 5, "test");

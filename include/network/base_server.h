@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_BASE_SERVER_H
@@ -8,6 +8,8 @@
 #include <memory>
 
 #include "data_buffer.h"
+
+namespace lmshao::network {
 
 class IServerListener;
 class BaseServer {
@@ -21,5 +23,7 @@ public:
     virtual bool Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) = 0;
     virtual bool Send(int fd, std::string host, uint16_t port, const std::string &str) = 0;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_BASE_SERVER_H

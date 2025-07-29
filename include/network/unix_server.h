@@ -1,5 +1,5 @@
 //
-// Copyright © 2025 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2025-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_UNIX_SERVER_H
@@ -15,6 +15,7 @@
 #include "session.h"
 #include "task_queue.h"
 
+namespace lmshao::network {
 class EventHandler;
 class UnixConnectionHandler;
 
@@ -61,5 +62,7 @@ private:
     std::shared_ptr<EventHandler> serverHandler_;
     std::unordered_map<int, std::shared_ptr<UnixConnectionHandler>> connectionHandlers_;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_UNIX_SERVER_H

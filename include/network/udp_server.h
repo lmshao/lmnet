@@ -16,6 +16,7 @@
 #include "session.h"
 #include "task_queue.h"
 
+namespace lmshao::network {
 class EventHandler;
 
 class UdpServer final : public BaseServer, public std::enable_shared_from_this<UdpServer> {
@@ -63,5 +64,7 @@ private:
 
     std::shared_ptr<EventHandler> serverHandler_;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_UDP_SERVER_H

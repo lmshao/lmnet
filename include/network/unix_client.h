@@ -1,5 +1,5 @@
 //
-// Copyright © 2025 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_UNIX_CLIENT_H
@@ -14,6 +14,7 @@
 #include "iclient_listener.h"
 #include "task_queue.h"
 
+namespace lmshao::network {
 class EventHandler;
 class UnixClientHandler;
 
@@ -54,5 +55,7 @@ private:
 
     std::shared_ptr<UnixClientHandler> clientHandler_;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_UNIX_CLIENT_H

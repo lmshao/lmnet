@@ -15,6 +15,7 @@
 #include "event_reactor.h"
 #include "log.h"
 
+namespace lmshao::network {
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
 class UnixClientHandler : public EventHandler {
@@ -255,3 +256,4 @@ void UnixClient::HandleConnectionClose(int fd, bool isError, const std::string &
         }
     }
 }
+} // namespace lmshao::network

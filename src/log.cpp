@@ -8,7 +8,7 @@
 #include <iomanip>
 #include <sstream>
 
-namespace Network {
+namespace lmshao::network {
 
 std::string Time()
 {
@@ -39,4 +39,4 @@ std::string Time()
     return std::string(cached_result);
 }
 
-} // namespace Network
+} // namespace lmshao::network

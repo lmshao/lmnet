@@ -7,6 +7,7 @@
 
 #include "session.h"
 
+namespace lmshao::network {
 class SessionImpl : public Session {
 public:
     SessionImpl(int fd, std::string host, uint16_t port, std::shared_ptr<BaseServer> server) : server_(server)
@@ -56,4 +57,5 @@ private:
     std::weak_ptr<BaseServer> server_;
 };
 
+} // namespace lmshao::network
 #endif // NETWORK_SESSION_IMPL_H

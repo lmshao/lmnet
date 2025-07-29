@@ -12,6 +12,7 @@
 #include <mutex>
 #include <vector>
 
+namespace lmshao::network {
 constexpr size_t DATA_ALIGN = 8;
 inline static size_t align(size_t len)
 {
@@ -331,3 +332,4 @@ bool DataBuffer::operator==(const DataBuffer &other) const
 
     return memcmp(data_, other.data_, size_) == 0;
 }
+} // namespace lmshao::network

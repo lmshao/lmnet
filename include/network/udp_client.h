@@ -15,6 +15,8 @@
 #include "iclient_listener.h"
 #include "task_queue.h"
 
+namespace lmshao::network {
+
 class EventHandler;
 
 class UdpClient final : public std::enable_shared_from_this<UdpClient> {
@@ -63,4 +65,7 @@ private:
 
     std::shared_ptr<EventHandler> clientHandler_;
 };
+
+} // namespace lmshao::network
+
 #endif // NETWORK_UDP_CLIENT_H

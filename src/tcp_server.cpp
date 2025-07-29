@@ -17,6 +17,7 @@
 #include "log.h"
 #include "session_impl.h"
 
+namespace lmshao::network {
 constexpr int TCP_BACKLOG = 10;
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
@@ -463,3 +464,4 @@ void TcpServer::HandleConnectionClose(int fd, bool isError, const std::string &r
         }
     }
 }
+} // namespace lmshao::network

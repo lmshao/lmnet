@@ -7,12 +7,12 @@
 
 #include <string>
 
-namespace Network {
+namespace lmshao::network {
 std::string Time();
 
 #define NETWORK_LOG_IMPL(color_start, color_end, fmt, ...)                                                             \
     do {                                                                                                               \
-        auto timestamp = Network::Time();                                                                              \
+        auto timestamp = lmshao::network::Time();                                                                      \
         printf(color_start "%s - %s:%d - %s: " fmt color_end "\n", timestamp.c_str(), FILENAME_, __LINE__,             \
                __PRETTY_FUNCTION__, ##__VA_ARGS__);                                                                    \
     } while (0)
@@ -32,5 +32,5 @@ std::string Time();
 #define NETWORK_LOGE(fmt, ...) NETWORK_LOG_IMPL("\033[0;31m", "\033[0m", fmt, ##__VA_ARGS__)
 
 #endif // RELEASE
-} // namespace Network
+} // namespace lmshao::network
 #endif // NETWORK_LOG_H

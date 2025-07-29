@@ -16,6 +16,7 @@
 #include "log.h"
 #include "session_impl.h"
 
+namespace lmshao::network {
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 constexpr uint16_t UDP_SERVER_DEFAULT_PORT_START = 10000;
 static uint16_t gIdlePort = UDP_SERVER_DEFAULT_PORT_START;
@@ -283,3 +284,4 @@ uint16_t UdpServer::GetIdlePortPair()
         }
     }
 }
+} // namespace lmshao::network

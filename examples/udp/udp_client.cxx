@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #include "udp_client.h"
@@ -8,6 +8,8 @@
 
 #include <iostream>
 #include <thread>
+
+using namespace lmshao::network;
 
 bool gExit = false;
 class MyListener : public IClientListener {

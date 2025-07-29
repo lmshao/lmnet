@@ -5,6 +5,7 @@
 #ifndef NETWORK_NONCOPYABLE_H
 #define NETWORK_NONCOPYABLE_H
 
+namespace lmshao::network {
 class NonCopyable {
 protected:
     NonCopyable() = default;
@@ -16,5 +17,7 @@ public:
     NonCopyable(NonCopyable &&) = delete;
     NonCopyable &operator=(NonCopyable &&) = delete;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_NONCOPYABLE_H

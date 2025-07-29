@@ -14,6 +14,7 @@
 
 #include "singleton.h"
 
+namespace lmshao::network {
 enum class EventType {
     READ = 0x01,
     WRITE = 0x02,
@@ -63,5 +64,7 @@ private:
 
     std::unique_ptr<std::thread> epollThread_;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_EVENT_REACTOR_H

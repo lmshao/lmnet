@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_TASK_QUEUE_H
@@ -14,6 +14,7 @@
 #include <thread>
 #include <type_traits>
 
+namespace lmshao::network {
 class TaskQueue;
 template <typename T>
 class TaskHandler;
@@ -187,5 +188,7 @@ private:
     pid_t tid_ = -1;
     bool isTaskExecuting_ = false;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_TASK_QUEUE_H

@@ -1,3 +1,7 @@
+//
+// Copyright © 2025 SHAO Liming <lmshao@163.com>. All rights reserved.
+//
+
 #include <unistd.h>
 
 #include <iostream>
@@ -7,6 +11,8 @@
 #include "iserver_listener.h"
 #include "session.h"
 #include "unix_server.h"
+
+using namespace lmshao::network;
 
 class EchoServerListener : public IServerListener {
 public:

@@ -15,6 +15,8 @@
 #include "iclient_listener.h"
 #include "task_queue.h"
 
+namespace lmshao::network {
+
 class TcpClientHandler;
 
 class EventHandler;
@@ -67,5 +69,7 @@ private:
 
     std::shared_ptr<TcpClientHandler> clientHandler_;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_TCP_CLIENT_H

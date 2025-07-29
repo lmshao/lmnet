@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #ifndef NETWORK_TCP_SERVER_H
@@ -16,6 +16,7 @@
 #include "session.h"
 #include "task_queue.h"
 
+namespace lmshao::network {
 class EventHandler;
 class TcpConnectionHandler;
 
@@ -67,5 +68,7 @@ private:
     std::shared_ptr<EventHandler> serverHandler_;
     std::unordered_map<int, std::shared_ptr<TcpConnectionHandler>> connectionHandlers_;
 };
+
+} // namespace lmshao::network
 
 #endif // NETWORK_TCP_SERVER_H

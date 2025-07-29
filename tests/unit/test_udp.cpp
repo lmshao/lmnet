@@ -10,6 +10,8 @@
 #include "network/udp_client.h"
 #include "network/udp_server.h"
 
+using namespace lmshao::network;
+
 // Simple UDP server-client test
 TEST(UdpTest, ServerClientSendRecv)
 {

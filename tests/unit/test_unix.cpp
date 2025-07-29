@@ -11,6 +11,8 @@
 #include "network/unix_client.h"
 #include "network/unix_server.h"
 
+using namespace lmshao::network;
+
 // Simple UNIX socket server-client test
 TEST(UnixTest, ServerClientSendRecv)
 {

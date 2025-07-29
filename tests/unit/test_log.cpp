@@ -7,11 +7,13 @@
 #include <thread>
 
 #include "../test_framework.h"
-#include "log.h" // Include from src directory
+#include "log.h"
+
+using namespace lmshao::network;
 
 TEST(LogTest, TimeFormat)
 {
-    std::string time_str = Network::Time();
+    std::string time_str = Time();
 
     EXPECT_GT(time_str.length(), 0);
 
@@ -22,8 +24,8 @@ TEST(LogTest, TimeFormat)
 
 TEST(LogTest, TimeConsistency)
 {
-    std::string time1 = Network::Time();
-    std::string time2 = Network::Time();
+    std::string time1 = Time();
+    std::string time2 = Time();
 
     // Times should be close (same second or consecutive)
     EXPECT_TRUE(time1.length() == time2.length());
@@ -46,7 +48,7 @@ TEST(LogTest, ThreadSafety)
     for (int t = 0; t < num_threads; ++t) {
         threads.emplace_back([&results, t, calls_per_thread]() {
             for (int i = 0; i < calls_per_thread; ++i) {
-                results[t * calls_per_thread + i] = Network::Time();
+                results[t * calls_per_thread + i] = Time();
                 std::this_thread::sleep_for(std::chrono::microseconds(1));
             }
         });
@@ -70,7 +72,7 @@ TEST(LogTest, PerformanceCache)
 
     // Make many calls quickly (within same second)
     for (int i = 0; i < 1000; ++i) {
-        std::string time_str = Network::Time();
+        std::string time_str = Time();
         EXPECT_GT(time_str.length(), 0);
     }
 
@@ -85,12 +87,12 @@ TEST(LogTest, PerformanceCache)
 
 TEST(LogTest, MillisecondUpdates)
 {
-    std::string time1 = Network::Time();
+    std::string time1 = Time();
 
     // Sleep for a short time to ensure millisecond change
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
 
-    std::string time2 = Network::Time();
+    std::string time2 = Time();
 
     // Extract millisecond parts
     std::string ms1 = time1.substr(20, 3); // Last 3 digits

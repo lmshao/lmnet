@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
+// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
 //
 
 #include "task_queue.h"
@@ -8,6 +8,7 @@
 
 #include "log.h"
 
+namespace lmshao::network {
 TaskQueue::~TaskQueue()
 {
     (void)Stop();
@@ -174,3 +175,5 @@ bool TaskQueue::IsTaskExecuting()
     std::unique_lock<std::mutex> lock(mutex_);
     return isTaskExecuting_;
 }
+
+} // namespace lmshao::network
