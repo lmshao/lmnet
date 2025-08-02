@@ -1,6 +1,12 @@
-//
-// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file iclient_listener.h
+ * @brief Client Listener Interface
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #ifndef NETWORK_ICLIENT_LISTENER_H
 #define NETWORK_ICLIENT_LISTENER_H

@@ -1,6 +1,12 @@
-//
-// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file singleton.h
+ * @brief Singleton Pattern Implementation
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #ifndef NETWORK_SINGLETON_H
 #define NETWORK_SINGLETON_H

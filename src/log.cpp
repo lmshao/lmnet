@@ -1,6 +1,12 @@
-//
-// Copyright © 2020-2024 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file log.cpp
+ * @brief Logging System Implementation
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include "log.h"
 

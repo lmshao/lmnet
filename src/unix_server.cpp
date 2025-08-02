@@ -1,6 +1,12 @@
-//
-// Copyright © 2025 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file unix_server.cpp
+ * @brief Unix Domain Socket Server Implementation
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include "unix_server.h"
 

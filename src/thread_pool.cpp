@@ -1,6 +1,12 @@
-//
-// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file thread_pool.cpp
+ * @brief Thread Pool Implementation
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include "thread_pool.h"
 

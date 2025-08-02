@@ -1,6 +1,12 @@
-//
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file session_impl.h
+ * @brief Session Implementation Header
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #ifndef NETWORK_SESSION_IMPL_H
 #define NETWORK_SESSION_IMPL_H

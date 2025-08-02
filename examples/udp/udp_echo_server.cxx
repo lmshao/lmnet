@@ -1,6 +1,12 @@
-//
-// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file udp_echo_server.cxx
+ * @brief UDP Echo Server Example
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include <unistd.h>
 

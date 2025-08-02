@@ -1,6 +1,12 @@
-//
-// Copyright © 2025 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file unix_client.cxx
+ * @brief Unix Domain Socket Client Example
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include "unix_client.h"
 

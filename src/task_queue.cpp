@@ -1,6 +1,12 @@
-//
-// Copyright © 2024-2025 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file task_queue.cpp
+ * @brief Task Queue Implementation
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include "task_queue.h"
 

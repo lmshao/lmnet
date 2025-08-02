@@ -1,6 +1,12 @@
-//
-// Copyright © 2025 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file test_thread_pool.cpp
+ * @brief Thread Pool Unit Tests
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include <atomic>
 #include <chrono>

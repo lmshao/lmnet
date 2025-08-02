@@ -1,6 +1,12 @@
-//
-// Copyright © 2024 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file noncopyable.h
+ * @brief Non-copyable Base Class
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #ifndef NETWORK_NONCOPYABLE_H
 #define NETWORK_NONCOPYABLE_H

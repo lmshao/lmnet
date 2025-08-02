@@ -1,10 +1,12 @@
-//
-// Copyright © 2025 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
-
-//
-// Simple test framework for network library
-//
+/**
+ * @file test_framework.h
+ * @brief Unit Test Framework
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #ifndef TEST_FRAMEWORK_H
 #define TEST_FRAMEWORK_H

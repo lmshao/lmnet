@@ -1,6 +1,12 @@
-//
-// Copyright © 2025 SHAO Liming <lmshao@163.com>. All rights reserved.
-//
+/**
+ * @file udp_stream.cxx
+ * @brief UDP Stream Example
+ * @author SHAO Liming <lmshao@163.com>
+ * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @license MIT
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include <getopt.h>
 
