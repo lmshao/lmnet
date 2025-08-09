@@ -1,6 +1,6 @@
 /**
- * @file udp_client.cpp
- * @brief UDP Client Implementation
+ * @file udp_client_impl.cpp
+ * @brief UDP Client Linux Implementation
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2024-2025 SHAO Liming
  * @license MIT
@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "udp_client.h"
+#include "udp_client_impl.h"
 
 #include <arpa/inet.h>
 #include <assert.h>
@@ -25,18 +25,18 @@ constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
 class UdpClientHandler : public EventHandler {
 public:
-    UdpClientHandler(int fd, std::weak_ptr<UdpClient> client) : fd_(fd), client_(client) {}
+    UdpClientHandler(socket_t fd, std::weak_ptr<UdpClientImpl> client) : fd_(fd), client_(client) {}
 
-    void HandleRead(int fd) override
+    void HandleRead(socket_t fd) override
     {
         if (auto client = client_.lock()) {
             client->HandleReceive(fd);
         }
     }
 
-    void HandleWrite(int fd) override {}
+    void HandleWrite(socket_t fd) override {}
 
-    void HandleError(int fd) override
+    void HandleError(socket_t fd) override
     {
         NETWORK_LOGE("UDP client connection error on fd: %d", fd);
         if (auto client = client_.lock()) {
@@ -44,7 +44,7 @@ public:
         }
     }
 
-    void HandleClose(int fd) override
+    void HandleClose(socket_t fd) override
     {
         NETWORK_LOGD("UDP client connection close on fd: %d", fd);
         if (auto client = client_.lock()) {
@@ -52,7 +52,7 @@ public:
         }
     }
 
-    int GetHandle() const override { return fd_; }
+    socket_t GetHandle() const override { return fd_; }
 
     int GetEvents() const override
     {
@@ -62,16 +62,16 @@ public:
 
 private:
     int fd_;
-    std::weak_ptr<UdpClient> client_;
+    std::weak_ptr<UdpClientImpl> client_;
 };
 
-UdpClient::UdpClient(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
+UdpClientImpl::UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(remoteIp), remotePort_(remotePort), localIp_(localIp), localPort_(localPort)
 {
     taskQueue_ = std::make_unique<TaskQueue>("UdpClientCb");
 }
 
-UdpClient::~UdpClient()
+UdpClientImpl::~UdpClientImpl()
 {
     if (taskQueue_) {
         taskQueue_->Stop();
@@ -80,7 +80,7 @@ UdpClient::~UdpClient()
     Close();
 }
 
-bool UdpClient::Init()
+bool UdpClientImpl::Init()
 {
     socket_ = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
@@ -118,11 +118,11 @@ bool UdpClient::Init()
         return false;
     }
 
-    NETWORK_LOGD("UdpClient initialized with new EventHandler interface");
+    NETWORK_LOGD("UdpClientImpl initialized with new EventHandler interface");
     return true;
 }
 
-void UdpClient::Close()
+void UdpClientImpl::Close()
 {
     if (socket_ != INVALID_SOCKET && clientHandler_) {
         EventReactor::GetInstance()->RemoveHandler(socket_);
@@ -132,7 +132,7 @@ void UdpClient::Close()
     }
 }
 
-bool UdpClient::Send(const void *data, size_t len)
+bool UdpClientImpl::Send(const void *data, size_t len)
 {
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("socket not initialized");
@@ -153,7 +153,7 @@ bool UdpClient::Send(const void *data, size_t len)
     return true;
 }
 
-bool UdpClient::Send(const std::string &str)
+bool UdpClientImpl::Send(const std::string &str)
 {
     if (str.empty()) {
         NETWORK_LOGE("invalid send parameters: empty string");
@@ -162,14 +162,14 @@ bool UdpClient::Send(const std::string &str)
     return Send(str.data(), str.size());
 }
 
-bool UdpClient::Send(std::shared_ptr<DataBuffer> data)
+bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
     if (!data)
         return false;
     return Send(data->Data(), data->Size());
 }
 
-void UdpClient::HandleReceive(int fd)
+void UdpClientImpl::HandleReceive(int fd)
 {
     NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
@@ -214,7 +214,7 @@ void UdpClient::HandleReceive(int fd)
     }
 }
 
-void UdpClient::HandleConnectionClose(int fd, bool isError, const std::string &reason)
+void UdpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
     NETWORK_LOGD("Closing UDP client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
                  isError ? "true" : "false");

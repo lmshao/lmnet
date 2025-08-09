@@ -107,4 +107,33 @@ TEST(UdpTest, ServerClientSendRecv)
     printf("UDP server-client test completed successfully.\n");
 }
 
+// Test GetIdlePort functionality
+TEST(UdpTest, GetIdlePortTest)
+{
+    printf("Testing GetIdlePort function...\n");
+
+    // Test GetIdlePort
+    uint16_t port1 = UdpServer::GetIdlePort();
+    uint16_t port2 = UdpServer::GetIdlePort();
+    uint16_t port3 = UdpServer::GetIdlePort();
+
+    printf("GetIdlePort results:\n");
+    printf("  Port 1: %d\n", port1);
+    printf("  Port 2: %d\n", port2);
+    printf("  Port 3: %d\n", port3);
+
+    // Test GetIdlePortPair
+    printf("Testing GetIdlePortPair function...\n");
+    uint16_t pairPort = UdpServer::GetIdlePortPair();
+    printf("GetIdlePortPair result: %d\n", pairPort);
+
+    // Verify ports are valid and increasing
+    EXPECT_TRUE(port1 > 0);
+    EXPECT_TRUE(port2 > port1);
+    EXPECT_TRUE(port3 > port2);
+    EXPECT_TRUE(pairPort > 0);
+
+    printf("✅ Port discovery test completed successfully.\n");
+}
+
 RUN_ALL_TESTS()

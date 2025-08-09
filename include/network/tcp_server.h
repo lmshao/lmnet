@@ -11,68 +11,32 @@
 #ifndef NETWORK_TCP_SERVER_H
 #define NETWORK_TCP_SERVER_H
 
-#include <netinet/in.h>
-
 #include <cstdint>
 #include <memory>
 #include <string>
 
-#include "base_server.h"
+#include "common.h"
+#include "data_buffer.h"
 #include "iserver_listener.h"
-#include "session.h"
-#include "task_queue.h"
 
 namespace lmshao::network {
-class EventHandler;
-class TcpConnectionHandler;
 
-class TcpServer final : public BaseServer, public std::enable_shared_from_this<TcpServer> {
-    friend class EventProcessor;
-    friend class TcpServerHandler;
-    friend class TcpConnectionHandler;
-    const int INVALID_SOCKET = -1;
-
+class ITcpServer;
+class TcpServer final : public Creatable<TcpServer> {
 public:
-    template <typename... Args>
-    static std::shared_ptr<TcpServer> Create(Args &&...args)
-    {
-        return std::shared_ptr<TcpServer>(new TcpServer(std::forward<Args>(args)...));
-    }
+    TcpServer(std::string listenIp, uint16_t listenPort);
+    explicit TcpServer(uint16_t listenPort);
 
     ~TcpServer();
 
-    bool Init() override;
-    void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
-    bool Start() override;
-    bool Stop() override;
-    bool Send(int fd, std::string host, uint16_t port, const void *data, size_t size) override;
-    bool Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
-    bool Send(int fd, std::string host, uint16_t port, const std::string &str) override;
-
-    int GetSocketFd() const { return socket_; }
-
-protected:
-    TcpServer(std::string listenIp, uint16_t listenPort) : localPort_(listenPort), localIp_(listenIp) {}
-    explicit TcpServer(uint16_t listenPort) : localPort_(listenPort) {}
-
-    void HandleAccept(int fd);
-    void HandleReceive(int fd);
-    void HandleConnectionClose(int fd, bool isError, const std::string &reason);
-    void EnableKeepAlive(int fd);
+    bool Init();
+    void SetListener(std::shared_ptr<IServerListener> listener);
+    bool Start();
+    bool Stop();
+    socket_t GetSocketFd() const;
 
 private:
-    uint16_t localPort_;
-    int socket_ = INVALID_SOCKET;
-    std::string localIp_ = "0.0.0.0";
-    struct sockaddr_in serverAddr_;
-
-    std::weak_ptr<IServerListener> listener_;
-    std::unordered_map<int, std::shared_ptr<Session>> sessions_;
-    std::unique_ptr<TaskQueue> taskQueue_;
-    std::unique_ptr<DataBuffer> readBuffer_;
-
-    std::shared_ptr<EventHandler> serverHandler_;
-    std::unordered_map<int, std::shared_ptr<TcpConnectionHandler>> connectionHandlers_;
+    std::shared_ptr<class ITcpServer> impl_;
 };
 
 } // namespace lmshao::network

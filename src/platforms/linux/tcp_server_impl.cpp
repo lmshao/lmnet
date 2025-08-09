@@ -1,6 +1,6 @@
 /**
- * @file tcp_server.cpp
- * @brief TCP Server Implementation
+ * @file tcp_server_impl.cpp
+ * @brief TCP Server Linux Implementation
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2024-2025 SHAO Liming
  * @license MIT
@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "tcp_server.h"
+#include "tcp_server_impl.h"
 
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
@@ -29,7 +29,7 @@ constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
 class TcpServerHandler : public EventHandler {
 public:
-    explicit TcpServerHandler(std::weak_ptr<TcpServer> server) : server_(server) {}
+    explicit TcpServerHandler(std::weak_ptr<TcpServerImpl> server) : server_(server) {}
 
     void HandleRead(int fd) override
     {
@@ -59,12 +59,13 @@ public:
     }
 
 private:
-    std::weak_ptr<TcpServer> server_;
+    std::weak_ptr<TcpServerImpl> server_;
 };
 
 class TcpConnectionHandler : public EventHandler {
 public:
-    TcpConnectionHandler(int fd, std::weak_ptr<TcpServer> server) : fd_(fd), server_(server), writeEventsEnabled_(false)
+    TcpConnectionHandler(int fd, std::weak_ptr<TcpServerImpl> server)
+        : fd_(fd), server_(server), writeEventsEnabled_(false)
     {
     }
 
@@ -163,18 +164,18 @@ private:
 
 private:
     int fd_;
-    std::weak_ptr<TcpServer> server_;
+    std::weak_ptr<TcpServerImpl> server_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
 };
 
-TcpServer::~TcpServer()
+TcpServerImpl::~TcpServerImpl()
 {
     NETWORK_LOGD("fd:%d", socket_);
     Stop();
 }
 
-bool TcpServer::Init()
+bool TcpServerImpl::Init()
 {
     socket_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
@@ -208,7 +209,7 @@ bool TcpServer::Init()
     return true;
 }
 
-bool TcpServer::Start()
+bool TcpServerImpl::Start()
 {
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGD("socket not initialized");
@@ -223,11 +224,11 @@ bool TcpServer::Start()
         return false;
     }
 
-    NETWORK_LOGD("TcpServer started with new EventHandler interface");
+    NETWORK_LOGD("TcpServerImpl started with new EventHandler interface");
     return true;
 }
 
-bool TcpServer::Stop()
+bool TcpServerImpl::Stop()
 {
     auto reactor = EventReactor::GetInstance();
 
@@ -258,11 +259,11 @@ bool TcpServer::Stop()
         taskQueue_.reset();
     }
 
-    NETWORK_LOGD("TcpServer stopped");
+    NETWORK_LOGD("TcpServerImpl stopped");
     return true;
 }
 
-bool TcpServer::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
+bool TcpServerImpl::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
 {
     if (!data || size == 0) {
         NETWORK_LOGD("invalid data or size");
@@ -273,7 +274,7 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, const void *data, 
     return Send(fd, host, port, buf);
 }
 
-bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool TcpServerImpl::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
 {
     if (!buffer || buffer->Size() == 0) {
         return false;
@@ -296,7 +297,7 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<Da
     return false;
 }
 
-bool TcpServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
+bool TcpServerImpl::Send(int fd, std::string host, uint16_t port, const std::string &str)
 {
     if (str.empty()) {
         NETWORK_LOGD("invalid string data");
@@ -307,7 +308,7 @@ bool TcpServer::Send(int fd, std::string host, uint16_t port, const std::string 
     return Send(fd, host, port, buf);
 }
 
-void TcpServer::HandleAccept(int fd)
+void TcpServerImpl::HandleAccept(int fd)
 {
     NETWORK_LOGD("enter");
     struct sockaddr_in clientAddr = {};
@@ -358,7 +359,7 @@ void TcpServer::HandleAccept(int fd)
     }
 }
 
-void TcpServer::HandleReceive(int fd)
+void TcpServerImpl::HandleReceive(int fd)
 {
     NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
@@ -422,7 +423,7 @@ void TcpServer::HandleReceive(int fd)
     }
 }
 
-void TcpServer::EnableKeepAlive(int fd)
+void TcpServerImpl::EnableKeepAlive(int fd)
 {
     int keepAlive = 1;
     constexpr int TCP_KEEP_IDLE = 3;     // Start probing after 3 seconds of no data interaction
@@ -434,7 +435,7 @@ void TcpServer::EnableKeepAlive(int fd)
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &TCP_KEEP_COUNT, sizeof(TCP_KEEP_COUNT));
 }
 
-void TcpServer::HandleConnectionClose(int fd, bool isError, const std::string &reason)
+void TcpServerImpl::HandleConnectionClose(int fd, bool isError, const std::string &reason)
 {
     NETWORK_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
 

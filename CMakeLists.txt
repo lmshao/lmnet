@@ -16,21 +16,19 @@ endif()
 
 # Include directories
 include_directories(${PROJECT_SOURCE_DIR}/include/network)
-include_directories(${PROJECT_SOURCE_DIR}/src/common)
+include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${PROJECT_SOURCE_DIR}/src/${PLATFORM_DIR})
 
 message(STATUS "Building for platform: ${PLATFORM_NAME}")
 message(STATUS "Platform source directory: src/${PLATFORM_DIR}")
 
 # Collect source files
-file(GLOB_RECURSE COMMON_SOURCES "src/common/*.cpp")
+file(GLOB COMMON_SOURCES "src/*.cpp")
 file(GLOB_RECURSE PLATFORM_SOURCES "src/${PLATFORM_DIR}/*.cpp")
 
-# Check if platform sources exist
-list(LENGTH PLATFORM_SOURCES PLATFORM_SOURCES_COUNT)
-if(PLATFORM_SOURCES_COUNT EQUAL 0)
-    message(FATAL_ERROR "No platform-specific sources found in src/${PLATFORM_DIR}/")
-endif()
+# Remove any duplicates and invalid paths
+list(REMOVE_DUPLICATES COMMON_SOURCES)
+list(REMOVE_DUPLICATES PLATFORM_SOURCES)
 
 set(SOURCES ${COMMON_SOURCES} ${PLATFORM_SOURCES})
 

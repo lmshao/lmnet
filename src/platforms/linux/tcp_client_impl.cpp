@@ -1,6 +1,6 @@
 /**
- * @file tcp_client.cpp
- * @brief TCP Client Implementation
+ * @file tcp_client_impl.cpp
+ * @brief TCP Client Linux Implementation
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2024-2025 SHAO Liming
  * @license MIT
@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "tcp_client.h"
+#include "tcp_client_impl.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -26,7 +26,9 @@ constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
 class TcpClientHandler : public EventHandler {
 public:
-    TcpClientHandler(int fd, std::weak_ptr<TcpClient> client) : fd_(fd), client_(client), writeEventsEnabled_(false) {}
+    TcpClientHandler(int fd, std::weak_ptr<TcpClientImpl> client) : fd_(fd), client_(client), writeEventsEnabled_(false)
+    {
+    }
 
     void HandleRead(int fd) override
     {
@@ -124,18 +126,18 @@ private:
 
 private:
     int fd_;
-    std::weak_ptr<TcpClient> client_;
+    std::weak_ptr<TcpClientImpl> client_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
 };
 
-TcpClient::TcpClient(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
+TcpClientImpl::TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(remoteIp), remotePort_(remotePort), localIp_(localIp), localPort_(localPort)
 {
     taskQueue_ = std::make_unique<TaskQueue>("TcpClientCb");
 }
 
-TcpClient::~TcpClient()
+TcpClientImpl::~TcpClientImpl()
 {
     if (taskQueue_) {
         taskQueue_->Stop();
@@ -144,7 +146,7 @@ TcpClient::~TcpClient()
     Close();
 }
 
-bool TcpClient::Init()
+bool TcpClientImpl::Init()
 {
     socket_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
@@ -178,7 +180,7 @@ bool TcpClient::Init()
     return true;
 }
 
-void TcpClient::ReInit()
+void TcpClientImpl::ReInit()
 {
     if (socket_ != INVALID_SOCKET) {
         close(socket_);
@@ -187,7 +189,7 @@ void TcpClient::ReInit()
     Init();
 }
 
-bool TcpClient::Connect()
+bool TcpClientImpl::Connect()
 {
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("socket not initialized");
@@ -250,7 +252,7 @@ bool TcpClient::Connect()
     return true;
 }
 
-bool TcpClient::Send(const std::string &str)
+bool TcpClientImpl::Send(const std::string &str)
 {
     if (str.empty()) {
         NETWORK_LOGE("Invalid string data");
@@ -262,7 +264,7 @@ bool TcpClient::Send(const std::string &str)
     return Send(buf);
 }
 
-bool TcpClient::Send(const char *data, size_t len)
+bool TcpClientImpl::Send(const void *data, size_t len)
 {
     if (!data || len == 0) {
         NETWORK_LOGE("Invalid data");
@@ -274,7 +276,7 @@ bool TcpClient::Send(const char *data, size_t len)
     return Send(buf);
 }
 
-bool TcpClient::Send(std::shared_ptr<DataBuffer> data)
+bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
     if (!data || data->Size() == 0) {
         NETWORK_LOGE("Invalid data buffer");
@@ -294,7 +296,7 @@ bool TcpClient::Send(std::shared_ptr<DataBuffer> data)
     return false;
 }
 
-void TcpClient::Close()
+void TcpClientImpl::Close()
 {
     if (socket_ != INVALID_SOCKET && clientHandler_) {
         EventReactor::GetInstance()->RemoveHandler(socket_);
@@ -304,7 +306,7 @@ void TcpClient::Close()
     }
 }
 
-void TcpClient::HandleReceive(int fd)
+void TcpClientImpl::HandleReceive(int fd)
 {
     NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
@@ -349,7 +351,7 @@ void TcpClient::HandleReceive(int fd)
     }
 }
 
-void TcpClient::HandleConnectionClose(int fd, bool isError, const std::string &reason)
+void TcpClientImpl::HandleConnectionClose(int fd, bool isError, const std::string &reason)
 {
     NETWORK_LOGD("Closing client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
                  isError ? "true" : "false");
