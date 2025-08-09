@@ -11,23 +11,23 @@
 #ifndef NETWORK_UNIX_CLIENT_H
 #define NETWORK_UNIX_CLIENT_H
 
-#include <sys/un.h>
+// Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
+#if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
+#error "Unix domain sockets are not supported on this platform"
+#endif
 
 #include <memory>
 #include <string>
 
+#include "common.h"
 #include "data_buffer.h"
 #include "iclient_listener.h"
-#include "task_queue.h"
 
 namespace lmshao::network {
-class EventHandler;
-class UnixClientHandler;
 
-class UnixClient : public std::enable_shared_from_this<UnixClient> {
-    friend class UnixClientHandler;
-    static constexpr int INVALID_SOCKET = -1;
+class IUnixClient;
 
+class UnixClient {
 public:
     static std::shared_ptr<UnixClient> Create(const std::string &socketPath)
     {
@@ -37,29 +37,19 @@ public:
     ~UnixClient();
 
     bool Init();
-    void SetListener(std::shared_ptr<IClientListener> listener) { listener_ = listener; }
+    void SetListener(std::shared_ptr<IClientListener> listener);
     bool Connect();
     bool Send(const std::string &str);
     bool Send(const void *data, size_t len);
     bool Send(std::shared_ptr<DataBuffer> data);
     void Close();
-    int GetSocketFd() const { return socket_; }
+    socket_t GetSocketFd() const;
 
 protected:
     explicit UnixClient(const std::string &socketPath);
-    void HandleReceive(int fd);
-    void HandleConnectionClose(int fd, bool isError, const std::string &reason);
 
 private:
-    std::string socketPath_;
-    int socket_ = INVALID_SOCKET;
-    struct sockaddr_un serverAddr_;
-
-    std::weak_ptr<IClientListener> listener_;
-    std::unique_ptr<TaskQueue> taskQueue_;
-    std::shared_ptr<DataBuffer> readBuffer_;
-
-    std::shared_ptr<UnixClientHandler> clientHandler_;
+    std::shared_ptr<IUnixClient> impl_;
 };
 
 } // namespace lmshao::network

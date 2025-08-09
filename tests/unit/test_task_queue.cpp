@@ -13,7 +13,7 @@
 #include <thread>
 
 #include "../test_framework.h"
-#include "network/task_queue.h"
+#include "task_queue.h"
 
 using namespace lmshao::network;
 

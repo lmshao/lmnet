@@ -11,26 +11,22 @@
 #ifndef NETWORK_UNIX_SERVER_H
 #define NETWORK_UNIX_SERVER_H
 
-#include <sys/un.h>
+// Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
+#if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
+#error "Unix domain sockets are not supported on this platform"
+#endif
 
 #include <memory>
 #include <string>
-#include <unordered_map>
 
+#include "common.h"
 #include "iserver_listener.h"
-#include "session.h"
-#include "task_queue.h"
 
 namespace lmshao::network {
-class EventHandler;
-class UnixConnectionHandler;
 
-class UnixServer : public BaseServer, public std::enable_shared_from_this<UnixServer> {
+class IUnixServer;
 
-    friend class UnixServerHandler;
-    friend class UnixConnectionHandler;
-    static constexpr int INVALID_SOCKET = -1;
-
+class UnixServer {
 public:
     static std::shared_ptr<UnixServer> Create(const std::string &socketPath)
     {
@@ -39,34 +35,17 @@ public:
 
     ~UnixServer();
 
-    bool Init() override;
-    void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
-    bool Start() override;
-    bool Stop() override;
-    bool Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
-    bool Send(int fd, std::string host, uint16_t port, const std::string &str) override;
-    bool Send(int fd, std::string host, uint16_t port, const void *data, size_t size) override;
-    void Close();
-    int GetSocketFd() const { return socket_; }
+    bool Init();
+    void SetListener(std::shared_ptr<IServerListener> listener);
+    bool Start();
+    bool Stop();
+    socket_t GetSocketFd() const;
 
 protected:
     explicit UnixServer(const std::string &socketPath);
-    void HandleAccept(int fd);
-    void HandleReceive(int fd);
-    void HandleConnectionClose(int fd, bool isError, const std::string &reason);
 
 private:
-    std::string socketPath_;
-    int socket_ = INVALID_SOCKET;
-    struct sockaddr_un serverAddr_;
-
-    std::weak_ptr<IServerListener> listener_;
-    std::unordered_map<int, std::shared_ptr<Session>> sessions_;
-    std::unique_ptr<TaskQueue> taskQueue_;
-    std::shared_ptr<DataBuffer> readBuffer_;
-
-    std::shared_ptr<EventHandler> serverHandler_;
-    std::unordered_map<int, std::shared_ptr<UnixConnectionHandler>> connectionHandlers_;
+    std::shared_ptr<IUnixServer> impl_;
 };
 
 } // namespace lmshao::network

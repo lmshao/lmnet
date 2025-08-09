@@ -26,6 +26,13 @@ message(STATUS "Platform source directory: src/${PLATFORM_DIR}")
 file(GLOB COMMON_SOURCES "src/*.cpp")
 file(GLOB_RECURSE PLATFORM_SOURCES "src/${PLATFORM_DIR}/*.cpp")
 
+# On Windows, exclude Unix domain socket files since they are not supported
+if(WIN32)
+    list(FILTER COMMON_SOURCES EXCLUDE REGEX ".*unix_.*\.cpp$")
+    list(FILTER PLATFORM_SOURCES EXCLUDE REGEX ".*unix_.*\.cpp$")
+    message(STATUS "Unix domain socket files excluded on Windows platform")
+endif()
+
 # Remove any duplicates and invalid paths
 list(REMOVE_DUPLICATES COMMON_SOURCES)
 list(REMOVE_DUPLICATES PLATFORM_SOURCES)

@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "udp_client.h"
+#include "network/udp_client.h"
 
 #include <assert.h>
 

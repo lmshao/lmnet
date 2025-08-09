@@ -1,6 +1,6 @@
 /**
- * @file unix_server.cpp
- * @brief Unix Domain Socket Server Implementation
+ * @file unix_server_impl.cpp
+ * @brief Unix Server Linux Implementation
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2024-2025 SHAO Liming
  * @license MIT
@@ -8,7 +8,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "unix_server.h"
+// Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
+#if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
+#error "Unix domain sockets are not supported on this platform"
+#endif
+
+#include "unix_server_impl.h"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -27,22 +32,25 @@ constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
 class UnixServerHandler : public EventHandler {
 public:
-    explicit UnixServerHandler(std::weak_ptr<UnixServer> server) : server_(server) {}
+    explicit UnixServerHandler(std::weak_ptr<UnixServerImpl> server) : server_(server) {}
+
     void HandleRead(int fd) override
     {
-        if (auto s = server_.lock())
-            s->HandleAccept(fd);
+        if (auto server = server_.lock()) {
+            server->HandleAccept(fd);
+        }
     }
+
     void HandleWrite(int) override {}
 
-    void HandleError(int fd) override { NETWORK_LOGE("UNIX server socket error on fd: %d", fd); }
+    void HandleError(int fd) override { NETWORK_LOGE("Unix server socket error on fd: %d", fd); }
 
-    void HandleClose(int fd) override { NETWORK_LOGD("UNIX server socket close on fd: %d", fd); }
+    void HandleClose(int fd) override { NETWORK_LOGD("Unix server socket close on fd: %d", fd); }
 
     int GetHandle() const override
     {
-        if (auto s = server_.lock()) {
-            return s->GetSocketFd();
+        if (auto server = server_.lock()) {
+            return server->GetSocketFd();
         }
         return -1;
     }
@@ -54,36 +62,39 @@ public:
     }
 
 private:
-    std::weak_ptr<UnixServer> server_;
+    std::weak_ptr<UnixServerImpl> server_;
 };
 
 class UnixConnectionHandler : public EventHandler {
 public:
-    UnixConnectionHandler(int fd, std::weak_ptr<UnixServer> server)
+    UnixConnectionHandler(int fd, std::weak_ptr<UnixServerImpl> server)
         : fd_(fd), server_(server), writeEventsEnabled_(false)
     {
     }
 
     void HandleRead(int fd) override
     {
-        if (auto s = server_.lock())
-            s->HandleReceive(fd);
+        if (auto server = server_.lock()) {
+            server->HandleReceive(fd);
+        }
     }
 
     void HandleWrite(int fd) override { ProcessSendQueue(); }
 
     void HandleError(int fd) override
     {
-        NETWORK_LOGE("UNIX connection error on fd: %d", fd);
-        if (auto s = server_.lock())
-            s->HandleConnectionClose(fd, true, "Connection error");
+        NETWORK_LOGE("Unix connection error on fd: %d", fd);
+        if (auto server = server_.lock()) {
+            server->HandleConnectionClose(fd, true, "Connection error");
+        }
     }
 
     void HandleClose(int fd) override
     {
-        NETWORK_LOGD("UNIX connection close on fd: %d", fd);
-        if (auto s = server_.lock())
-            s->HandleConnectionClose(fd, false, "Connection closed");
+        NETWORK_LOGD("Unix connection close on fd: %d", fd);
+        if (auto server = server_.lock()) {
+            server->HandleConnectionClose(fd, false, "Connection closed");
+        }
     }
 
     int GetHandle() const override { return fd_; }
@@ -92,8 +103,11 @@ public:
     {
         int events =
             static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) | static_cast<int>(EventType::CLOSE);
-        if (writeEventsEnabled_)
+
+        if (writeEventsEnabled_) {
             events |= static_cast<int>(EventType::WRITE);
+        }
+
         return events;
     }
 
@@ -145,34 +159,42 @@ private:
                 }
             }
         }
+
         if (sendQueue_.empty()) {
             DisableWriteEvents();
         }
     }
+
+private:
     int fd_;
-    std::weak_ptr<UnixServer> server_;
+    std::weak_ptr<UnixServerImpl> server_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
 };
 
-UnixServer::UnixServer(const std::string &socketPath) : socketPath_(socketPath) {}
+UnixServerImpl::UnixServerImpl(const std::string &socketPath) : socketPath_(socketPath) {}
 
-UnixServer::~UnixServer()
+UnixServerImpl::~UnixServerImpl()
 {
+    NETWORK_LOGD("fd:%d", socket_);
     Stop();
 }
 
-bool UnixServer::Init()
+bool UnixServerImpl::Init()
 {
     socket_ = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("socket error: %s", strerror(errno));
         return false;
     }
+    NETWORK_LOGD("init path: %s, fd:%d", socketPath_.c_str(), socket_);
+
+    // Remove existing socket file if it exists
+    unlink(socketPath_.c_str());
+
     memset(&serverAddr_, 0, sizeof(serverAddr_));
     serverAddr_.sun_family = AF_UNIX;
     strncpy(serverAddr_.sun_path, socketPath_.c_str(), sizeof(serverAddr_.sun_path) - 1);
-    unlink(socketPath_.c_str());
 
     if (bind(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
         NETWORK_LOGE("bind error: %s", strerror(errno));
@@ -183,36 +205,54 @@ bool UnixServer::Init()
         NETWORK_LOGE("listen error: %s", strerror(errno));
         return false;
     }
+
     taskQueue_ = std::make_unique<TaskQueue>("UnixServerCb");
     return true;
 }
 
-bool UnixServer::Start()
+bool UnixServerImpl::Start()
 {
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("socket not initialized");
         return false;
     }
-    taskQueue_->Start();
-    serverHandler_ = std::make_shared<UnixServerHandler>(shared_from_this());
 
-    if (!EventReactor::GetInstance()->RegisterHandler(std::static_pointer_cast<EventHandler>(serverHandler_))) {
-        NETWORK_LOGE("Failed to register UNIX server handler");
+    taskQueue_->Start();
+
+    serverHandler_ = std::make_shared<UnixServerHandler>(shared_from_this());
+    if (!EventReactor::GetInstance()->RegisterHandler(serverHandler_)) {
+        NETWORK_LOGE("Failed to register server handler");
         return false;
     }
 
-    NETWORK_LOGD("UnixServer started with new EventHandler interface");
+    NETWORK_LOGD("UnixServerImpl started with new EventHandler interface");
     return true;
 }
 
-bool UnixServer::Stop()
+bool UnixServerImpl::Stop()
 {
+    auto reactor = EventReactor::GetInstance();
+
+    std::vector<int> clientFds;
+    for (const auto &pair : sessions_) {
+        clientFds.push_back(pair.first);
+    }
+
+    for (int clientFd : clientFds) {
+        NETWORK_LOGD("close client fd: %d", clientFd);
+        reactor->RemoveHandler(clientFd);
+        close(clientFd);
+
+        connectionHandlers_.erase(clientFd);
+    }
+    sessions_.clear();
+
     if (socket_ != INVALID_SOCKET && serverHandler_) {
-        EventReactor::GetInstance()->RemoveHandler(socket_);
+        NETWORK_LOGD("close server fd: %d", socket_);
+        reactor->RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
         serverHandler_.reset();
-        unlink(socketPath_.c_str());
     }
 
     if (taskQueue_) {
@@ -220,13 +260,17 @@ bool UnixServer::Stop()
         taskQueue_.reset();
     }
 
-    NETWORK_LOGD("UnixServer stopped");
+    // Remove socket file
+    unlink(socketPath_.c_str());
+
+    NETWORK_LOGD("UnixServerImpl stopped");
     return true;
 }
 
-bool UnixServer::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
+bool UnixServerImpl::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
 {
     if (!data || size == 0) {
+        NETWORK_LOGE("invalid data or size");
         return false;
     }
     auto buf = DataBuffer::PoolAlloc(size);
@@ -234,13 +278,17 @@ bool UnixServer::Send(int fd, std::string host, uint16_t port, const void *data,
     return Send(fd, host, port, buf);
 }
 
-bool UnixServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool UnixServerImpl::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
 {
-    (void)host;
-    (void)port;
     if (!buffer || buffer->Size() == 0) {
         return false;
     }
+
+    if (sessions_.find(fd) == sessions_.end()) {
+        NETWORK_LOGE("invalid session fd");
+        return false;
+    }
+
     auto handlerIt = connectionHandlers_.find(fd);
     if (handlerIt != connectionHandlers_.end()) {
         auto unixHandler = handlerIt->second;
@@ -253,9 +301,10 @@ bool UnixServer::Send(int fd, std::string host, uint16_t port, std::shared_ptr<D
     return false;
 }
 
-bool UnixServer::Send(int fd, std::string host, uint16_t port, const std::string &str)
+bool UnixServerImpl::Send(int fd, std::string host, uint16_t port, const std::string &str)
 {
     if (str.empty()) {
+        NETWORK_LOGE("invalid string data");
         return false;
     }
     auto buf = DataBuffer::PoolAlloc(str.size());
@@ -263,15 +312,11 @@ bool UnixServer::Send(int fd, std::string host, uint16_t port, const std::string
     return Send(fd, host, port, buf);
 }
 
-void UnixServer::Close()
+void UnixServerImpl::HandleAccept(int fd)
 {
-    Stop();
-}
-
-void UnixServer::HandleAccept(int fd)
-{
+    NETWORK_LOGD("enter");
     struct sockaddr_un clientAddr = {};
-    socklen_t addrLen = sizeof(clientAddr);
+    socklen_t addrLen = sizeof(struct sockaddr_un);
     int clientSocket = accept4(fd, (struct sockaddr *)&clientAddr, &addrLen, SOCK_NONBLOCK);
     if (clientSocket < 0) {
         NETWORK_LOGE("accept error: %s", strerror(errno));
@@ -279,85 +324,137 @@ void UnixServer::HandleAccept(int fd)
     }
 
     auto connectionHandler = std::make_shared<UnixConnectionHandler>(clientSocket, shared_from_this());
-    if (!EventReactor::GetInstance()->RegisterHandler(std::static_pointer_cast<EventHandler>(connectionHandler))) {
-        NETWORK_LOGE("Failed to register connection handler");
+    if (!EventReactor::GetInstance()->RegisterHandler(connectionHandler)) {
+        NETWORK_LOGE("Failed to register connection handler for fd: %d", clientSocket);
         close(clientSocket);
         return;
     }
+
     connectionHandlers_[clientSocket] = connectionHandler;
 
-    auto session = std::make_shared<SessionImpl>(clientSocket, "local", 0, shared_from_this());
+    NETWORK_LOGD("New Unix client connection client[%d]\n", clientSocket);
+
+    // Unix domain socket uses empty host and port
+    auto session = std::make_shared<SessionImpl>(clientSocket, socketPath_, 0, shared_from_this());
     sessions_.emplace(clientSocket, session);
+
     if (!listener_.expired()) {
-        auto listener = listener_.lock();
-        if (listener) {
-            listener->OnAccept(session);
+        auto listenerWeak = listener_;
+        auto sessionPtr = sessions_[clientSocket];
+        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, sessionPtr]() {
+            NETWORK_LOGD("invoke OnAccept callback");
+            auto listener = listenerWeak.lock();
+            if (listener) {
+                listener->OnAccept(sessionPtr);
+            } else {
+                NETWORK_LOGD("not found listener!");
+            }
+        });
+        if (taskQueue_) {
+            taskQueue_->EnqueueTask(task);
         }
+    } else {
+        NETWORK_LOGD("listener is null");
     }
 }
 
-void UnixServer::HandleReceive(int fd)
+void UnixServerImpl::HandleReceive(int fd)
 {
+    NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
-        readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
+        readBuffer_ = std::make_shared<DataBuffer>(RECV_BUFFER_MAX_SIZE);
     }
 
     while (true) {
         ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
+
         if (nbytes > 0) {
+            if (nbytes > RECV_BUFFER_MAX_SIZE) {
+                NETWORK_LOGE("recv %zd bytes", nbytes);
+                break;
+            }
+
             if (!listener_.expired()) {
-                auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
+                auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
-                auto sessionIt = sessions_.find(fd);
-                std::shared_ptr<Session> session = (sessionIt != sessions_.end()) ? sessionIt->second : nullptr;
-                auto listenerWeak = listener_;
-                auto task = std::make_shared<TaskHandler<void>>([listenerWeak, dataBuffer, session]() {
-                    auto listener = listenerWeak.lock();
-                    if (listener && session) {
-                        listener->OnReceive(session, dataBuffer);
+
+                std::shared_ptr<Session> session;
+                auto it = sessions_.find(fd);
+                if (it != sessions_.end()) {
+                    session = it->second;
+                }
+
+                if (session) {
+                    auto listenerWeak = listener_;
+                    auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session, dataBuffer]() {
+                        auto listener = listenerWeak.lock();
+                        if (listener != nullptr) {
+                            listener->OnReceive(session, dataBuffer);
+                        }
+                    });
+                    if (taskQueue_) {
+                        taskQueue_->EnqueueTask(task);
                     }
-                });
-                if (taskQueue_) {
-                    taskQueue_->EnqueueTask(task);
                 }
             }
             continue;
         } else if (nbytes == 0) {
             NETWORK_LOGW("Disconnect fd[%d]", fd);
+            // Do not call HandleConnectionClose directly; let the event system handle EPOLLHUP
             break;
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (errno == EAGAIN) {
                 break;
             }
+
             std::string info = strerror(errno);
             NETWORK_LOGE("recv error: %s(%d)", info.c_str(), errno);
+
+            if (errno == ETIMEDOUT) {
+                NETWORK_LOGE("ETIME: connection is timeout");
+                break;
+            }
+
             HandleConnectionClose(fd, true, info);
         }
+
         break;
     }
 }
 
-void UnixServer::HandleConnectionClose(int fd, bool isError, const std::string &reason)
+void UnixServerImpl::HandleConnectionClose(int fd, bool isError, const std::string &reason)
 {
-    NETWORK_LOGD("Closing UNIX connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
-                 isError ? "true" : "false");
+    NETWORK_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
+
     auto sessionIt = sessions_.find(fd);
     if (sessionIt == sessions_.end()) {
         NETWORK_LOGD("Connection fd: %d already cleaned up", fd);
         return;
     }
+
     EventReactor::GetInstance()->RemoveHandler(fd);
+
     close(fd);
 
     std::shared_ptr<Session> session = sessionIt->second;
     sessions_.erase(sessionIt);
+
     connectionHandlers_.erase(fd);
+
     if (!listener_.expired() && session) {
-        auto listener = listener_.lock();
-        if (isError) {
-            listener->OnError(session, reason);
-        } else {
-            listener->OnClose(session);
+        auto listenerWeak = listener_;
+        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session, reason, isError]() {
+            auto listener = listenerWeak.lock();
+            if (listener != nullptr) {
+                if (isError) {
+                    listener->OnError(session, reason);
+                } else {
+                    listener->OnClose(session);
+                }
+            }
+        });
+        if (taskQueue_) {
+            taskQueue_->EnqueueTask(task);
         }
     }
 }

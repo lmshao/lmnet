@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "tcp_client.h"
+#include "network/tcp_client.h"
 
 #include <assert.h>
 
