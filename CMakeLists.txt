@@ -2,9 +2,43 @@ cmake_minimum_required(VERSION 3.10)
 project(network VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 
-include_directories(${PROJECT_SOURCE_DIR}/include/network)
+# Determine target platform
+if(WIN32)
+    message(FATAL_ERROR "Windows platform is not supported yet")
+elseif(APPLE)
+    message(FATAL_ERROR "macOS platform is not supported yet")
+elseif(UNIX)
+    set(PLATFORM_DIR "platforms/linux")
+    set(PLATFORM_NAME "Linux")
+else()
+    message(FATAL_ERROR "Unsupported platform")
+endif()
 
-file(GLOB_RECURSE SOURCES "src/*.cpp")
+# Include directories
+include_directories(${PROJECT_SOURCE_DIR}/include/network)
+include_directories(${PROJECT_SOURCE_DIR}/src/common)
+include_directories(${PROJECT_SOURCE_DIR}/src/${PLATFORM_DIR})
+
+message(STATUS "Building for platform: ${PLATFORM_NAME}")
+message(STATUS "Platform source directory: src/${PLATFORM_DIR}")
+
+# Collect source files
+file(GLOB_RECURSE COMMON_SOURCES "src/common/*.cpp")
+file(GLOB_RECURSE PLATFORM_SOURCES "src/${PLATFORM_DIR}/*.cpp")
+
+# Check if platform sources exist
+list(LENGTH PLATFORM_SOURCES PLATFORM_SOURCES_COUNT)
+if(PLATFORM_SOURCES_COUNT EQUAL 0)
+    message(FATAL_ERROR "No platform-specific sources found in src/${PLATFORM_DIR}/")
+endif()
+
+set(SOURCES ${COMMON_SOURCES} ${PLATFORM_SOURCES})
+
+# Print source file summary
+list(LENGTH COMMON_SOURCES COMMON_COUNT)
+list(LENGTH PLATFORM_SOURCES PLATFORM_COUNT)
+message(STATUS "Found ${COMMON_COUNT} common source files")
+message(STATUS "Found ${PLATFORM_COUNT} platform-specific source files")
 
 # Set default build type to Release if not specified
 if(NOT CMAKE_BUILD_TYPE)
