@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(network)
+project(network VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 
 include_directories(${PROJECT_SOURCE_DIR}/include/network)
@@ -26,11 +26,65 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ flags: ${CMAKE_CXX_FLAGS}")
 message(STATUS "C++ flags for ${CMAKE_BUILD_TYPE}: ${CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE}}")
 
-add_library(${PROJECT_NAME} STATIC ${SOURCES})
+# Library build options
+option(BUILD_STATIC_LIBS "Build static libraries" ON)
+option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+
+if(NOT BUILD_STATIC_LIBS AND NOT BUILD_SHARED_LIBS)
+    message(FATAL_ERROR "At least one of BUILD_STATIC_LIBS or BUILD_SHARED_LIBS must be ON")
+endif()
 
 # Find and link pthread library
 find_package(Threads REQUIRED)
-target_link_libraries(${PROJECT_NAME} Threads::Threads)
+
+# Static library
+if(BUILD_STATIC_LIBS)
+    add_library(${PROJECT_NAME}_static STATIC ${SOURCES})
+    target_include_directories(${PROJECT_NAME}_static PUBLIC 
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(${PROJECT_NAME}_static Threads::Threads)
+    set_target_properties(${PROJECT_NAME}_static PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
+    set_target_properties(${PROJECT_NAME}_static PROPERTIES
+        VERSION ${PROJECT_VERSION}
+        SOVERSION ${PROJECT_VERSION_MAJOR}
+    )
+    
+    # Create alias for static library (for internal use)
+    add_library(${PROJECT_NAME}::static ALIAS ${PROJECT_NAME}_static)
+    message(STATUS "Building static library: lib${PROJECT_NAME}.a")
+endif()
+
+# Shared library
+if(BUILD_SHARED_LIBS)
+    add_library(${PROJECT_NAME}_shared SHARED ${SOURCES})
+    target_include_directories(${PROJECT_NAME}_shared PUBLIC 
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(${PROJECT_NAME}_shared Threads::Threads)
+    set_target_properties(${PROJECT_NAME}_shared PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
+    set_target_properties(${PROJECT_NAME}_shared PROPERTIES
+        VERSION ${PROJECT_VERSION}
+        SOVERSION ${PROJECT_VERSION_MAJOR}
+    )
+    
+    # Create alias for shared library
+    add_library(${PROJECT_NAME}::shared ALIAS ${PROJECT_NAME}_shared)
+    message(STATUS "Building shared library: lib${PROJECT_NAME}.so")
+endif()
+
+# Create a default alias that points to static library (for examples and tests)
+if(BUILD_STATIC_LIBS)
+    add_library(${PROJECT_NAME} ALIAS ${PROJECT_NAME}_static)
+    set(DEFAULT_LIBRARY_TYPE "static")
+else()
+    add_library(${PROJECT_NAME} ALIAS ${PROJECT_NAME}_shared)
+    set(DEFAULT_LIBRARY_TYPE "shared")
+endif()
+
+message(STATUS "Examples and tests will use ${DEFAULT_LIBRARY_TYPE} library")
 
 # Add examples subdirectory
 option(BUILD_EXAMPLES "Build examples" ON)
