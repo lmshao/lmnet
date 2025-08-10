@@ -14,7 +14,7 @@
 
 #ifdef __linux__
 #include "platforms/linux/udp_client_impl.h"
-#elif defined(_WIN32)
+#elif _WIN32
 #include "platforms/windows/udp_client_impl.h"
 #endif
 

@@ -21,13 +21,13 @@ public:
      * @brief Get an idle UDP port
      * @return Port number if found, 0 if failed
      */
-    static uint16_t GetIdleUdpPort() { return 0; }
+    static uint16_t GetIdleUdpPort();
 
     /**
      * @brief Get a pair of consecutive idle UDP ports
      * @return First port number of the pair if found, 0 if failed
      */
-    static uint16_t GetIdleUdpPortPair() { return 0; }
+    static uint16_t GetIdleUdpPortPair();
 
 private:
     static constexpr uint16_t UDP_PORT_START = 10000;

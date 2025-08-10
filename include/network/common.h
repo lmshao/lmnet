@@ -11,14 +11,18 @@
 #ifndef NETWORK_COMMON_H
 #define NETWORK_COMMON_H
 
+#include <memory>
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
+
 namespace lmshao::network {
 #ifdef __linux__
 inline constexpr int INVALID_SOCKET = -1;
-typedef int socket_t;
-#elif defined(_WIN32)
-#include <winsock2.h>
-typedef SOCKET socket_t;
-typedef DWORD pid_t;
+using socket_t = int;
+#elif _WIN32
+using socket_t = SOCKET;
+using pid_t = DWORD;
 #endif
 
 template <typename T>

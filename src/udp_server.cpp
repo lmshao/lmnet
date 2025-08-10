@@ -16,7 +16,8 @@
 #ifdef __linux__
 #include "platforms/linux/port_utils.h"
 #include "platforms/linux/udp_server_impl.h"
-#elif defined(_WIN32)
+#elif _WIN32
+#include "platforms/windows/port_utils.h"
 #include "platforms/windows/udp_server_impl.h"
 #endif
 
@@ -81,22 +82,12 @@ socket_t UdpServer::GetSocketFd() const
 
 uint16_t UdpServer::GetIdlePort()
 {
-#ifdef __linux__
     return PortUtils::GetIdleUdpPort();
-#else
-    // For non-Linux platforms, implement platform-specific port discovery
-    return 0;
-#endif
 }
 
 uint16_t UdpServer::GetIdlePortPair()
 {
-#ifdef __linux__
     return PortUtils::GetIdleUdpPortPair();
-#else
-    // For non-Linux platforms, implement platform-specific port pair discovery
-    return 0;
-#endif
 }
 
 } // namespace lmshao::network

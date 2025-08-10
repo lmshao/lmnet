@@ -201,9 +201,9 @@ size_t ThreadPool::GetThreadCount() const
 
 void ThreadPool::CreateWorkerThread()
 {
-    size_t threadIndex = threads_.size();
     auto p = std::make_unique<std::thread>(&ThreadPool::Worker, this);
 #ifndef _WIN32
+    size_t threadIndex = threads_.size();
     std::string threadName = threadName_ + "-" + std::to_string(threadIndex);
     pthread_setname_np(p->native_handle(), threadName.c_str());
 #endif

@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "common.h"
 #include "data_buffer.h"
@@ -28,24 +29,43 @@ class UdpServerImpl final : public IUdpServer,
     friend class Creatable<UdpServerImpl>;
 
 public:
-    ~UdpServerImpl() = default;
+    ~UdpServerImpl();
 
-    // IUdpServer interface - empty implementations
-    bool Init() override { return false; }
-    bool Start() override { return false; }
-    bool Stop() override { return false; }
-    void SetListener(std::shared_ptr<IServerListener> listener) override {}
-    bool Send(int fd, std::string ip, uint16_t port, const void *data, size_t len) override { return false; }
-    bool Send(int fd, std::string ip, uint16_t port, const std::string &str) override { return false; }
-    bool Send(int fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data) override { return false; }
-    socket_t GetSocketFd() const override { return INVALID_SOCKET; }
+    // IUdpServer interface
+    bool Init() override;  // create socket & bind
+    bool Start() override; // start IOCP worker & post recvs
+    bool Stop() override;  // stop worker
+    void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
+    bool Send(int fd, std::string ip, uint16_t port, const void *data, size_t len) override; // synchronous sendto
+    bool Send(int fd, std::string ip, uint16_t port, const std::string &str) override;
+    bool Send(int fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data) override;
+    socket_t GetSocketFd() const override { return socket_; }
+    bool SendTo(const sockaddr_in &to, const void *data, size_t len); // Helper for session replies
 
 protected:
-    // Constructor should be protected in IMPL pattern
-    UdpServerImpl(std::string ip, uint16_t port) {}
+    UdpServerImpl(std::string ip, uint16_t port);
 
 private:
     UdpServerImpl() = default;
+
+    // Internal helpers
+    void PostRecv();
+    void WorkerLoop();
+    void HandlePacket(const char *data, size_t len, const sockaddr_in &from);
+    void CloseSocket();
+
+    friend class UdpSessionWin; // Allow session to access SendTo
+
+    // State
+    std::string ip_;
+    uint16_t port_{0};
+    socket_t socket_{INVALID_SOCKET};
+    std::shared_ptr<IServerListener> listener_;
+
+    void *iocp_{nullptr}; // HANDLE stored as void*
+    bool running_{false};
+    std::thread worker_;
+    sockaddr_in ctxLastFrom_{}; // last peer for error/close callbacks
 };
 
 } // namespace lmshao::network

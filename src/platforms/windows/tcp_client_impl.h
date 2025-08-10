@@ -14,11 +14,16 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
 
-#include "../../itcp_client.h"
-#include "common.h"
+#include "common.h" // provides winsock2.h on Windows
+#include "itcp_client.h"
+// After winsock2.h is available we can include mswsock for LPFN_CONNECTEX
+#include <mswsock.h>
+
 #include "data_buffer.h"
 #include "iclient_listener.h"
+#include "iocp_base.h"
 
 namespace lmshao::network {
 
@@ -28,29 +33,36 @@ class TcpClientImpl final : public ITcpClient,
     friend class Creatable<TcpClientImpl>;
 
 public:
-    ~TcpClientImpl() = default;
+    TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
+    ~TcpClientImpl() override = default;
 
-    // ITcpClient interface - empty implementations
-    bool Init() override { return false; }
-    void SetListener(std::shared_ptr<IClientListener> listener) override {}
-    bool Connect() override { return false; }
-    bool Send(const std::string &str) override { return false; }
-    bool Send(const void *data, size_t len) override { return false; }
-    bool Send(std::shared_ptr<DataBuffer> data) override { return false; }
-    void Close() override {}
-    socket_t GetSocketFd() const override { return -1; }
+    bool Init() override;
+    void SetListener(std::shared_ptr<IClientListener> listener) override;
+    bool Connect() override;
+    bool Send(const std::string &str) override;
+    bool Send(const void *data, size_t len) override;
+    bool Send(std::shared_ptr<DataBuffer> data) override;
+    void Close() override;
+    socket_t GetSocketFd() const override;
 
 private:
     TcpClientImpl() = default;
-    TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0)
-        : remoteIp_(std::move(remoteIp)), remotePort_(remotePort), localIp_(std::move(localIp)), localPort_(localPort)
-    {
-    }
+    void PostRecv();
+    void PostSend(const void *data, size_t len);
+    void StartLoop();
+    void WorkerLoop();
+    bool LoadConnectEx();
 
     std::string remoteIp_;
-    uint16_t remotePort_;
+    uint16_t remotePort_{0};
     std::string localIp_;
-    uint16_t localPort_;
+    uint16_t localPort_{0};
+    SOCKET socket_{INVALID_SOCKET};
+    HANDLE iocp_{nullptr};
+    bool running_{false};
+    std::thread worker_;
+    LPFN_CONNECTEX fnConnectEx{nullptr};
+    std::shared_ptr<IClientListener> listener_;
 };
 
 } // namespace lmshao::network

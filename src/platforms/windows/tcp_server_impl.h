@@ -13,13 +13,20 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <unordered_map>
 
-#include "../../itcp_server.h"
 #include "common.h"
+#include "data_buffer.h"
 #include "iserver_listener.h"
+#include "itcp_server.h"
 
 namespace lmshao::network {
+
+// Forward declare the per-I/O context at namespace scope (defined in cpp)
+struct PerIoContextTCP;
 
 class TcpServerImpl final : public ITcpServer,
                             public std::enable_shared_from_this<TcpServerImpl>,
@@ -27,20 +34,28 @@ class TcpServerImpl final : public ITcpServer,
     friend class Creatable<TcpServerImpl>;
 
 public:
-    ~TcpServerImpl() = default;
+    TcpServerImpl(std::string listenIp, uint16_t listenPort);
+    explicit TcpServerImpl(uint16_t listenPort);
+    ~TcpServerImpl() override = default;
 
-    // ITcpServer interface - empty implementations
-    bool Init() override { return false; }
-    void SetListener(std::shared_ptr<IServerListener> listener) override {}
-    bool Start() override { return false; }
-    bool Stop() override { return false; }
-    socket_t GetSocketFd() const override { return -1; }
-
-    TcpServerImpl(std::string listenIp, uint16_t listenPort) {}
-    explicit TcpServerImpl(uint16_t listenPort) {}
+    bool Init() override;
+    void SetListener(std::shared_ptr<IServerListener> listener) override;
+    bool Start() override;
+    bool Stop() override;
+    socket_t GetSocketFd() const override;
 
 private:
     TcpServerImpl() = default;
+    void PostAccept();
+    void PostRecv(std::shared_ptr<class TcpSessionWin> session);
+    void WorkerLoop();
+    void HandleAccept(PerIoContextTCP *ctx, DWORD bytes);
+    void HandleRecv(PerIoContextTCP *ctx, DWORD bytes);
+
+    std::string ip_;
+    uint16_t port_{0};
+    std::shared_ptr<class TcpServerState> state_;
+    std::shared_ptr<IServerListener> listener_;
 };
 
 } // namespace lmshao::network

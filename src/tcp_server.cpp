@@ -14,7 +14,7 @@
 
 #ifdef __linux__
 #include "platforms/linux/tcp_server_impl.h"
-#elif defined(_WIN32)
+#elif _WIN32
 #include "platforms/windows/tcp_server_impl.h"
 #endif
 

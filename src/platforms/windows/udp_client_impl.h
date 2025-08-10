@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "common.h"
 #include "data_buffer.h"
@@ -28,21 +29,44 @@ class UdpClientImpl final : public IUdpClient,
     friend class Creatable<UdpClientImpl>;
 
 public:
-    ~UdpClientImpl() = default;
+    ~UdpClientImpl();
 
-    // IUdpClient interface - empty implementations
-    bool Init() override { return false; }
-    void SetListener(std::shared_ptr<IClientListener> listener) override {}
-    bool Send(const std::string &str) override { return false; }
-    bool Send(const void *data, size_t len) override { return false; }
-    bool Send(std::shared_ptr<DataBuffer> data) override { return false; }
-    void Close() override {}
-    socket_t GetSocketFd() const override { return INVALID_SOCKET; }
+    // IUdpClient interface
+    bool Init() override; // create socket, optional bind, prepare remote address, attach IOCP
+    void SetListener(std::shared_ptr<IClientListener> listener) override { listener_ = listener; }
+    bool Send(const std::string &str) override;       // convenience wrapper
+    bool Send(const void *data, size_t len) override; // synchronous sendto (later async)
+    bool Send(std::shared_ptr<DataBuffer> data) override;
+    void Close() override; // close socket & stop worker
+    socket_t GetSocketFd() const override { return socket_; }
 
-    UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0) {}
+    UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
+
+    // Internal callback helpers used by IOCP worker (not part of public API)
+    void HandleReceive(socket_t fd);
+    void HandleConnectionClose(socket_t fd, bool error, const std::string &info);
 
 private:
     UdpClientImpl() = default;
+
+    // --- internal state ---
+    std::string remoteIp_;
+    uint16_t remotePort_{0};
+    std::string localIp_;
+    uint16_t localPort_{0};
+    socket_t socket_{INVALID_SOCKET};
+    std::shared_ptr<IClientListener> listener_;
+
+    // IOCP specific state
+    struct sockaddr_in remoteAddr_{}; // peer
+    void *iocp_{nullptr};             // HANDLE (cast)
+    bool running_{false};             // worker loop flag
+    std::thread worker_;              // completion thread
+    // PerIoContext defined in iocp_utils.h (alias to win::UdpPerIoContext). Forward declaration not needed.
+    void PostRecv();    // post one WSARecvFrom overlapped
+    void WorkerLoop();  // GetQueuedCompletionStatus loop
+    void StartWorker(); // start loop
+    void StopWorker();  // stop loop
 };
 
 } // namespace lmshao::network

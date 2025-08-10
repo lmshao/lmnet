@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#if defined(_WIN32) || defined(_WIN64)
+#ifdef _WIN32
 #include <winsock2.h> // for ntohs, ntohl on Windows
 #else
 #include <arpa/inet.h> // for ntohs, ntohl on Unix/Linux
