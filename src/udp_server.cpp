@@ -16,6 +16,8 @@
 #ifdef __linux__
 #include "platforms/linux/port_utils.h"
 #include "platforms/linux/udp_server_impl.h"
+#elif defined(_WIN32)
+#include "platforms/windows/udp_server_impl.h"
 #endif
 
 namespace lmshao::network {

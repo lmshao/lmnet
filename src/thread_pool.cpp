@@ -203,8 +203,10 @@ void ThreadPool::CreateWorkerThread()
 {
     size_t threadIndex = threads_.size();
     auto p = std::make_unique<std::thread>(&ThreadPool::Worker, this);
+#ifndef _WIN32
     std::string threadName = threadName_ + "-" + std::to_string(threadIndex);
     pthread_setname_np(p->native_handle(), threadName.c_str());
+#endif
     threads_.emplace_back(std::move(p));
     NETWORK_LOGD("Created new thread, total: %zu/%d", threads_.size(), threadsMax_);
 }

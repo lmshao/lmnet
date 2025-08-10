@@ -21,9 +21,9 @@ namespace lmshao::network {
 class IClientListener {
 public:
     virtual ~IClientListener() = default;
-    virtual void OnReceive(int fd, std::shared_ptr<DataBuffer> buffer) = 0;
-    virtual void OnClose(int fd) = 0;
-    virtual void OnError(int fd, const std::string &errorInfo) = 0;
+    virtual void OnReceive(socket_t fd, std::shared_ptr<DataBuffer> buffer) = 0;
+    virtual void OnClose(socket_t fd) = 0;
+    virtual void OnError(socket_t fd, const std::string &errorInfo) = 0;
 };
 
 } // namespace lmshao::network

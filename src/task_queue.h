@@ -20,6 +20,13 @@
 #include <thread>
 #include <type_traits>
 
+#include "common.h"
+
+#ifndef _WIN32
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+
 namespace lmshao::network {
 class TaskQueue;
 template <typename T>

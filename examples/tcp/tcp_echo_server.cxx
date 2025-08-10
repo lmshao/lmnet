@@ -8,8 +8,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <unistd.h>
-
 #include <iostream>
 #include <thread>
 
@@ -75,7 +73,7 @@ int main(int argc, char **argv)
     printf("Listen on port 0.0.0.0:%d\n", port);
 
     while (true) {
-        sleep(100);
+        std::this_thread::sleep_for(std::chrono::seconds(10));
     }
     printf("Exit...\n");
     return 0;

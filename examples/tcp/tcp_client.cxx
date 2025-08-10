@@ -20,7 +20,7 @@ using namespace lmshao::network;
 bool gExit = false;
 class MyListener : public IClientListener {
 public:
-    void OnReceive(int fd, std::shared_ptr<DataBuffer> buffer) override
+    void OnReceive(socket_t fd, std::shared_ptr<DataBuffer> buffer) override
     {
         std::cout << "----------" << std::endl;
         std::cout << "pid: " << std::this_thread::get_id() << std::endl;
@@ -29,7 +29,7 @@ public:
         std::cout << "----------" << std::endl;
     }
 
-    void OnClose(int fd) override
+    void OnClose(socket_t fd) override
     {
         std::cout << "----------" << std::endl;
         std::cout << "pid: " << std::this_thread::get_id() << std::endl;
@@ -38,7 +38,7 @@ public:
         gExit = true;
     }
 
-    void OnError(int fd, const std::string &errorInfo) override
+    void OnError(socket_t fd, const std::string &errorInfo) override
     {
         std::cout << "----------" << std::endl;
         std::cout << "pid: " << std::this_thread::get_id() << std::endl;

@@ -14,6 +14,10 @@
 #include <iomanip>
 #include <sstream>
 
+#ifdef _WIN32
+#include <ctime>
+#endif
+
 namespace lmshao::network {
 
 std::string Time()
@@ -31,7 +35,11 @@ std::string Time()
 
         struct tm tm_buf;
 
+#ifdef _WIN32
+        localtime_s(&tm_buf, &tt);
+#else
         localtime_r(&tt, &tm_buf);
+#endif
 
         base_len =
             snprintf(cached_result, sizeof(cached_result), "%04d-%02d-%02d %02d:%02d:%02d.", tm_buf.tm_year + 1900,

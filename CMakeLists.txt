@@ -4,7 +4,8 @@ set(CMAKE_CXX_STANDARD 17)
 
 # Determine target platform
 if(WIN32)
-    message(FATAL_ERROR "Windows platform is not supported yet")
+    set(PLATFORM_DIR "platforms/windows")
+    set(PLATFORM_NAME "Windows")
 elseif(APPLE)
     message(FATAL_ERROR "macOS platform is not supported yet")
 elseif(UNIX)
@@ -52,13 +53,21 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Compiler flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error -Wno-format-truncation")
-
-# Debug-specific flags
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG")
-
-# Release-specific flags  
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -DRELEASE")
+if(MSVC)
+    # MSVC specific flags
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W3")
+    # Debug-specific flags for MSVC
+    set(CMAKE_CXX_FLAGS_DEBUG "/MDd /Zi /Od /DDEBUG")
+    # Release-specific flags for MSVC
+    set(CMAKE_CXX_FLAGS_RELEASE "/MD /O2 /DNDEBUG /DRELEASE")
+else()
+    # GCC/Clang flags for Linux/Unix
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error -Wno-format-truncation")
+    # Debug-specific flags for GCC/Clang
+    set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG")
+    # Release-specific flags for GCC/Clang
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -DRELEASE")
+endif()
 
 # Print build configuration
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
@@ -73,8 +82,20 @@ if(NOT BUILD_STATIC_LIBS AND NOT BUILD_SHARED_LIBS)
     message(FATAL_ERROR "At least one of BUILD_STATIC_LIBS or BUILD_SHARED_LIBS must be ON")
 endif()
 
-# Find and link pthread library
-find_package(Threads REQUIRED)
+# Find and link pthread library (not needed on Windows)
+if(NOT WIN32)
+    find_package(Threads REQUIRED)
+endif()
+
+# Platform-specific libraries
+if(WIN32)
+    # Windows socket libraries
+    set(PLATFORM_LIBS ws2_32 wsock32)
+else()
+    # Unix/Linux libraries
+    find_package(Threads REQUIRED)
+    set(PLATFORM_LIBS Threads::Threads)
+endif()
 
 # Static library
 if(BUILD_STATIC_LIBS)
@@ -83,7 +104,7 @@ if(BUILD_STATIC_LIBS)
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     )
-    target_link_libraries(${PROJECT_NAME}_static Threads::Threads)
+    target_link_libraries(${PROJECT_NAME}_static ${PLATFORM_LIBS})
     set_target_properties(${PROJECT_NAME}_static PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
     set_target_properties(${PROJECT_NAME}_static PROPERTIES
         VERSION ${PROJECT_VERSION}
@@ -102,7 +123,7 @@ if(BUILD_SHARED_LIBS)
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     )
-    target_link_libraries(${PROJECT_NAME}_shared Threads::Threads)
+    target_link_libraries(${PROJECT_NAME}_shared ${PLATFORM_LIBS})
     set_target_properties(${PROJECT_NAME}_shared PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
     set_target_properties(${PROJECT_NAME}_shared PROPERTIES
         VERSION ${PROJECT_VERSION}

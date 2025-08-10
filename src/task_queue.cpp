@@ -10,7 +10,15 @@
 
 #include "task_queue.h"
 
+#ifdef _WIN32
+#include <processthreadsapi.h>
+#include <windows.h>
+#else
+#include <pthread.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
 #include <unistd.h>
+#endif
 
 #include "log.h"
 
@@ -120,18 +128,23 @@ void TaskQueue::CancelNotExecutedTaskLocked()
 
 void TaskQueue::TaskProcessor()
 {
-    constexpr uint32_t nameSizeMax = 15;
-    tid_ = gettid();
-    NETWORK_LOGD("Enter TaskProcessor [%s], tid_: (%d)\n", name_.c_str(), tid_);
-    fflush(stdout);
+    NETWORK_LOGD("Enter TaskProcessor [%s], tid_: (%lu)\n", name_.c_str(), static_cast<unsigned long>(tid_));
 
+#ifdef _WIN32
+    tid_ = GetCurrentThreadId();
+    std::wstring wideName(name_.begin(), name_.end());
+    SetThreadDescription(GetCurrentThread(), wideName.c_str());
+#else
+    constexpr uint32_t nameSizeMax = 15;
+    tid_ = static_cast<pid_t>(syscall(SYS_gettid));
     pthread_setname_np(pthread_self(), name_.substr(0, nameSizeMax).c_str());
+#endif
 
     while (true) {
         std::unique_lock<std::mutex> lock(mutex_);
         cond_.wait(lock, [this] { return isExit_ || !taskList_.empty(); });
         if (isExit_) {
-            NETWORK_LOGD("Exit TaskProcessor [%s], tid_: (%d)\n", name_.c_str(), tid_);
+            NETWORK_LOGD("Exit TaskProcessor [%s], tid_: (%lu)\n", name_.c_str(), static_cast<unsigned long>(tid_));
             return;
         }
         TaskHandlerItem item = taskList_.front();

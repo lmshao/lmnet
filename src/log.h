@@ -16,14 +16,35 @@
 namespace lmshao::network {
 std::string Time();
 
+// Platform-specific macros
+#ifdef _WIN32
+// Windows compatibility
+#ifndef __PRETTY_FUNCTION__
+#define __PRETTY_FUNCTION__ __FUNCTION__
+#endif
+
+// Windows filename extraction (use backslash)
+#define FILENAME_ (strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__)
+
+// Windows log implementation (no colors)
+#define NETWORK_LOG_IMPL(color_start, color_end, fmt, ...)                                                             \
+    do {                                                                                                               \
+        auto timestamp = lmshao::network::Time();                                                                      \
+        printf("%s - %s:%d - %s: " fmt "\n", timestamp.c_str(), FILENAME_, __LINE__, __PRETTY_FUNCTION__,              \
+               ##__VA_ARGS__);                                                                                         \
+    } while (0)
+
+#else
+// Unix/Linux implementation
+#define FILENAME_ (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 : __FILE__)
+
 #define NETWORK_LOG_IMPL(color_start, color_end, fmt, ...)                                                             \
     do {                                                                                                               \
         auto timestamp = lmshao::network::Time();                                                                      \
         printf(color_start "%s - %s:%d - %s: " fmt color_end "\n", timestamp.c_str(), FILENAME_, __LINE__,             \
                __PRETTY_FUNCTION__, ##__VA_ARGS__);                                                                    \
     } while (0)
-
-#define FILENAME_ (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 : __FILE__)
+#endif
 
 #ifdef RELEASE
 

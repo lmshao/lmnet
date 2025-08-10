@@ -8,7 +8,11 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <arpa/inet.h> // for ntohs, ntohl
+#if defined(_WIN32) || defined(_WIN64)
+#include <winsock2.h> // for ntohs, ntohl on Windows
+#else
+#include <arpa/inet.h> // for ntohs, ntohl on Unix/Linux
+#endif
 
 #include <cstring>
 #include <string>

@@ -15,6 +15,10 @@ namespace lmshao::network {
 #ifdef __linux__
 inline constexpr int INVALID_SOCKET = -1;
 typedef int socket_t;
+#elif defined(_WIN32)
+#include <winsock2.h>
+typedef SOCKET socket_t;
+typedef DWORD pid_t;
 #endif
 
 template <typename T>

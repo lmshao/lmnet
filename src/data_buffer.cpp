@@ -10,7 +10,12 @@
 
 #include "data_buffer.h"
 
+#ifdef _WIN32
+#include <winsock2.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
 #include <arpa/inet.h>
+#endif
 
 #include <cstdio>
 #include <cstring>

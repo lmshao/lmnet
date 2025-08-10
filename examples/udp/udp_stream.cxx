@@ -8,7 +8,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <getopt.h>
+// #include <getopt.h>
+// Custom argument parser for cross-platform compatibility
 
 #include <cctype>
 #include <chrono>
@@ -18,8 +19,8 @@
 #include <string>
 #include <thread>
 
-#include "network/udp_client.h"
-#include "network/udp_server.h"
+#include "udp_client.h"
+#include "udp_server.h"
 
 using namespace lmshao::network;
 
@@ -91,7 +92,7 @@ private:
 
 class StreamClientListener : public IClientListener {
 public:
-    void OnReceive(int fd, std::shared_ptr<DataBuffer> buffer) override
+    void OnReceive(socket_t fd, std::shared_ptr<DataBuffer> buffer) override
     {
         std::string msg = buffer->ToString();
         if (msg.find("[server-stat]") == 0) {
@@ -101,11 +102,11 @@ public:
         }
     }
 
-    void OnClose(int fd) override { printf("[client] Connection closed, fd: %d\n", fd); }
+    void OnClose(socket_t fd) override { std::cout << "[client] Connection closed, fd: " << fd << std::endl; }
 
-    void OnError(int fd, const std::string &errorInfo) override
+    void OnError(socket_t fd, const std::string &errorInfo) override
     {
-        printf("[client] Error: %s, fd: %d\n", errorInfo.c_str(), fd);
+        std::cout << "[client] Error: " << errorInfo << ", fd: " << fd << std::endl;
     }
 };
 
@@ -131,6 +132,52 @@ struct ProgramOptions {
     std::string bitrateStr;
 };
 
+#if _WIN32
+// Windows: custom argument parser
+void ParseArgs(int argc, char *argv[], ProgramOptions &opts)
+{
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-s" || arg == "--server") {
+            opts.isServer = true;
+        } else if (arg == "-c" || arg == "--client") {
+            opts.isServer = false;
+        } else if ((arg == "-i" || arg == "--ip") && i + 1 < argc) {
+            opts.ip = argv[++i];
+        } else if ((arg == "-p" || arg == "--port") && i + 1 < argc) {
+            opts.port = std::stoi(argv[++i]);
+        } else if ((arg == "-z" || arg == "--size") && i + 1 < argc) {
+            opts.pktSize = std::stoi(argv[++i]);
+        } else if ((arg == "-b" || arg == "--bitrate") && i + 1 < argc) {
+            opts.bitrateStr = argv[++i];
+        } else if ((arg == "-t" || arg == "--interval") && i + 1 < argc) {
+            opts.interval = std::stoi(argv[++i]);
+        } else {
+            PrintUsage(argv[0]);
+            exit(1);
+        }
+    }
+
+    if (!opts.bitrateStr.empty()) {
+        size_t len = opts.bitrateStr.length();
+        int factor = 1;
+        if (len > 1 && std::isalpha(opts.bitrateStr[len - 1])) {
+            char unit = std::toupper(opts.bitrateStr[len - 1]);
+            if (unit == 'K') {
+                factor = 1024;
+            } else if (unit == 'M') {
+                factor = 1024 * 1024;
+            } else if (unit == 'G') {
+                factor = 1024 * 1024 * 1024;
+            }
+            opts.bitrateStr = opts.bitrateStr.substr(0, len - 1);
+        }
+        opts.bitrate = std::stoi(opts.bitrateStr) * factor;
+    }
+}
+#else
+// Linux: use getopt_long
+#include <getopt.h>
 void ParseArgs(int argc, char *argv[], ProgramOptions &opts)
 {
     static struct option long_options[] = {
@@ -138,7 +185,6 @@ void ParseArgs(int argc, char *argv[], ProgramOptions &opts)
         {"ip", required_argument, 0, 'i'},       {"port", required_argument, 0, 'p'},
         {"size", required_argument, 0, 'z'},     {"bitrate", required_argument, 0, 'b'},
         {"interval", required_argument, 0, 't'}, {0, 0, 0, 0}};
-
     int opt;
     int option_index = 0;
     while ((opt = getopt_long(argc, argv, "sci:p:z:b:t:", long_options, &option_index)) != -1) {
@@ -169,7 +215,6 @@ void ParseArgs(int argc, char *argv[], ProgramOptions &opts)
                 exit(1);
         }
     }
-
     if (!opts.bitrateStr.empty()) {
         size_t len = opts.bitrateStr.length();
         int factor = 1;
@@ -187,11 +232,11 @@ void ParseArgs(int argc, char *argv[], ProgramOptions &opts)
         }
     }
 }
+#endif
 
 int main(int argc, char *argv[])
 {
     printf("Build time: %s %s\n", __DATE__, __TIME__);
-    signal(SIGPIPE, SIG_IGN);
     ProgramOptions opts;
     ParseArgs(argc, argv, opts);
 
