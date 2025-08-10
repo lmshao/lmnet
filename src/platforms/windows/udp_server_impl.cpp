@@ -13,6 +13,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+#include "iocp_manager.h"
 #include "iocp_utils.h"
 #include "log.h"
 #include "session.h"
@@ -68,10 +69,6 @@ UdpServerImpl::~UdpServerImpl()
 {
     Stop();
     CloseSocket();
-    if (iocp_) {
-        CloseHandle((HANDLE)iocp_);
-        iocp_ = nullptr;
-    }
 }
 
 bool UdpServerImpl::Init()
@@ -108,19 +105,23 @@ bool UdpServerImpl::Start()
         return true;
     if (!socket_)
         return false;
-    iocp_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
-    if (!iocp_) {
-        NETWORK_LOGE("CreateIoCompletionPort failed: %d", (int)GetLastError());
+
+    // Initialize global IOCP manager
+    auto &manager = win::IocpManager::Instance();
+    if (!manager.Initialize()) {
+        NETWORK_LOGE("Failed to initialize IOCP manager");
         return false;
     }
-    if (!CreateIoCompletionPort((HANDLE)socket_, (HANDLE)iocp_, (ULONG_PTR)this, 0)) {
-        NETWORK_LOGE("Associate socket IOCP failed: %d", (int)GetLastError());
+
+    // Register this socket with the global IOCP manager
+    if (!manager.RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
+        NETWORK_LOGE("Failed to register socket with IOCP manager");
         return false;
     }
+
     running_ = true;
     for (int i = 0; i < 4; ++i)
         PostRecv();
-    worker_ = std::thread([this] { WorkerLoop(); });
     return true;
 }
 
@@ -128,10 +129,14 @@ bool UdpServerImpl::Stop()
 {
     if (!running_)
         return true;
+
     running_ = false;
-    PostQueuedCompletionStatus((HANDLE)iocp_, 0, 0, nullptr);
-    if (worker_.joinable())
-        worker_.join();
+
+    // Unregister from IOCP manager
+    if (socket_ != INVALID_SOCKET) {
+        win::IocpManager::Instance().UnregisterSocket((ULONG_PTR)socket_);
+    }
+
     return true;
 }
 
@@ -199,49 +204,34 @@ void UdpServerImpl::PostRecv()
     }
 }
 
-void UdpServerImpl::WorkerLoop()
+void UdpServerImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error)
 {
-    while (true) {
-        DWORD bytes = 0;
-        ULONG_PTR key = 0;
-        LPOVERLAPPED pov = nullptr;
-        BOOL ok = GetQueuedCompletionStatus((HANDLE)iocp_, &bytes, &key, &pov, INFINITE);
-        if (!ok) {
-            int gle = GetLastError();
-            if (!pov) { // wake or shutdown
-                if (!running_)
-                    break;
-                continue;
-            }
-            if (listener_) {
-                auto dummy = std::make_shared<UdpSessionWin>(ctxLastFrom_, socket_, this);
-                listener_->OnError(dummy, "GQCS error: " + std::to_string(gle));
-            }
+    if (!running_ || !ov) {
+        return;
+    }
+
+    auto *ctx = reinterpret_cast<PerIoContext *>(ov);
+
+    if (!success) {
+        if (listener_) {
+            auto dummy = std::make_shared<UdpSessionWin>(ctxLastFrom_, socket_, this);
+            listener_->OnError(dummy, "IOCP completion error: " + std::to_string(error));
         }
-        if (!pov) {
-            if (!running_)
-                break;
-            continue;
-        }
-        auto *ctx = reinterpret_cast<PerIoContext *>(pov);
-        if (!running_) {
-            delete ctx;
-            break;
-        }
-        if (bytes == 0) { // zero length datagram; recycle
-            delete ctx;
-            PostRecv();
-            continue;
-        }
-        ctxLastFrom_ = ctx->from;                  // remember last peer for error callbacks
-        HandlePacket(ctx->data, bytes, ctx->from); // deliver
+        delete ctx;
+        return;
+    }
+
+    if (bytes == 0) {
+        // Zero-length datagram - just repost
         delete ctx;
         PostRecv();
+        return;
     }
-    if (listener_) {
-        auto dummy = std::make_shared<UdpSessionWin>(ctxLastFrom_, socket_, this);
-        listener_->OnClose(dummy);
-    }
+
+    ctxLastFrom_ = ctx->from; // remember last peer for callbacks
+    HandlePacket(ctx->data, bytes, ctx->from);
+    delete ctx;
+    PostRecv(); // Post another receive
 }
 
 void UdpServerImpl::HandlePacket(const char *data, size_t len, const sockaddr_in &from)

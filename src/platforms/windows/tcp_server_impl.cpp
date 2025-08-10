@@ -13,6 +13,7 @@
 #include <mswsock.h>
 #include <ws2tcpip.h>
 
+#include "iocp_manager.h"
 #include "iocp_utils.h"
 #include "log.h"
 #include "session.h"
@@ -64,9 +65,7 @@ struct PerIoContextTCP {
 class TcpServerState {
 public:
     SOCKET listenSocket = INVALID_SOCKET;
-    HANDLE iocp = nullptr;
     bool running = false;
-    std::thread worker;
     std::mutex mtx;
     std::unordered_map<SOCKET, std::shared_ptr<TcpSessionWin>> sessions;
     LPFN_ACCEPTEX fnAcceptEx = nullptr;
@@ -105,13 +104,18 @@ bool TcpServerImpl::Init()
         NETWORK_LOGE("listen failed: %d", WSAGetLastError());
         return false;
     }
-    state_->iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
-    if (!state_->iocp) {
-        NETWORK_LOGE("CreateIoCompletionPort failed: %lu", GetLastError());
+
+    // Initialize global IOCP manager
+    auto &manager = win::IocpManager::Instance();
+    if (!manager.Initialize()) {
+        NETWORK_LOGE("Failed to initialize IOCP manager");
         return false;
     }
-    if (!CreateIoCompletionPort((HANDLE)state_->listenSocket, state_->iocp, (ULONG_PTR)state_->listenSocket, 0)) {
-        NETWORK_LOGE("Associate listen socket failed: %lu", GetLastError());
+
+    // Register socket with global IOCP
+    if (!manager.RegisterSocket((HANDLE)state_->listenSocket, (ULONG_PTR)state_->listenSocket,
+                                std::shared_ptr<win::IIocpHandler>(this, [](win::IIocpHandler *) {}))) {
+        NETWORK_LOGE("Associate listen socket to IOCP failed");
         return false;
     }
     // Load AcceptEx / GetAcceptExSockaddrs
@@ -144,7 +148,6 @@ bool TcpServerImpl::Start()
         return false;
     state_->running = true;
     PostAccept();
-    state_->worker = std::thread([this] { WorkerLoop(); });
     return true;
 }
 
@@ -153,10 +156,42 @@ bool TcpServerImpl::Stop()
     if (!state_ || !state_->running)
         return true;
     state_->running = false;
-    PostQueuedCompletionStatus(state_->iocp, 0, 0, nullptr);
-    if (state_->worker.joinable())
-        state_->worker.join();
+
+    // Unregister socket from global IOCP
+    win::IocpManager::Instance().UnregisterSocket((ULONG_PTR)state_->listenSocket);
+
     return true;
+}
+
+void TcpServerImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error)
+{
+    if (!ov) {
+        return;
+    }
+
+    auto *ctx = reinterpret_cast<PerIoContextTCP *>(ov);
+    if (!state_->running) {
+        delete ctx;
+        return;
+    }
+
+    if (!success) {
+        NETWORK_LOGE("IOCP operation failed, error: %lu", error);
+        delete ctx;
+        return;
+    }
+
+    switch (ctx->op) {
+        case PerIoContextTCP::Op::ACCEPT:
+            HandleAccept(ctx, bytes);
+            break;
+        case PerIoContextTCP::Op::RECV:
+            HandleRecv(ctx, bytes);
+            break;
+        case PerIoContextTCP::Op::SEND: /* future */
+            delete ctx;
+            break;
+    }
 }
 
 socket_t TcpServerImpl::GetSocketFd() const
@@ -207,42 +242,6 @@ void TcpServerImpl::PostRecv(std::shared_ptr<TcpSessionWin> session)
     }
 }
 
-void TcpServerImpl::WorkerLoop()
-{
-    while (true) {
-        DWORD bytes = 0;
-        ULONG_PTR key = 0;
-        LPOVERLAPPED pov = nullptr;
-        BOOL ok = GetQueuedCompletionStatus(state_->iocp, &bytes, &key, &pov, INFINITE);
-        if (!ok && !pov) {
-            if (!state_->running)
-                break;
-            continue;
-        }
-        if (!pov) {
-            if (!state_->running)
-                break;
-            continue;
-        }
-        auto *ctx = reinterpret_cast<PerIoContextTCP *>(pov);
-        if (!state_->running) {
-            delete ctx;
-            break;
-        }
-        switch (ctx->op) {
-            case PerIoContextTCP::Op::ACCEPT:
-                HandleAccept(ctx, bytes);
-                break;
-            case PerIoContextTCP::Op::RECV:
-                HandleRecv(ctx, bytes);
-                break;
-            case PerIoContextTCP::Op::SEND: /* future */
-                delete ctx;
-                break;
-        }
-    }
-}
-
 void TcpServerImpl::HandleAccept(PerIoContextTCP *ctx, DWORD)
 {
     if (!state_->running) {
@@ -250,7 +249,8 @@ void TcpServerImpl::HandleAccept(PerIoContextTCP *ctx, DWORD)
         delete ctx;
         return;
     } // associate new socket
-    CreateIoCompletionPort((HANDLE)ctx->acceptSocket, state_->iocp, (ULONG_PTR)ctx->acceptSocket, 0);
+    win::IocpManager::Instance().RegisterSocket((HANDLE)ctx->acceptSocket, (ULONG_PTR)ctx->acceptSocket,
+                                                std::shared_ptr<win::IIocpHandler>(this, [](win::IIocpHandler *) {}));
     // Extract addresses
     sockaddr *localSock = nullptr, *remoteSock = nullptr;
     int localLen = 0, remoteLen = 0;

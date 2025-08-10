@@ -18,6 +18,7 @@
 
 #include "common.h"
 #include "data_buffer.h"
+#include "iocp_manager.h"
 #include "iserver_listener.h"
 #include "iudp_server.h"
 
@@ -25,7 +26,8 @@ namespace lmshao::network {
 
 class UdpServerImpl final : public IUdpServer,
                             public std::enable_shared_from_this<UdpServerImpl>,
-                            public Creatable<UdpServerImpl> {
+                            public Creatable<UdpServerImpl>,
+                            public win::IIocpHandler {
     friend class Creatable<UdpServerImpl>;
 
 public:
@@ -42,6 +44,9 @@ public:
     socket_t GetSocketFd() const override { return socket_; }
     bool SendTo(const sockaddr_in &to, const void *data, size_t len); // Helper for session replies
 
+    // IIocpHandler interface
+    void OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error) override;
+
 protected:
     UdpServerImpl(std::string ip, uint16_t port);
 
@@ -50,7 +55,6 @@ private:
 
     // Internal helpers
     void PostRecv();
-    void WorkerLoop();
     void HandlePacket(const char *data, size_t len, const sockaddr_in &from);
     void CloseSocket();
 
@@ -61,10 +65,7 @@ private:
     uint16_t port_{0};
     socket_t socket_{INVALID_SOCKET};
     std::shared_ptr<IServerListener> listener_;
-
-    void *iocp_{nullptr}; // HANDLE stored as void*
     bool running_{false};
-    std::thread worker_;
     sockaddr_in ctxLastFrom_{}; // last peer for error/close callbacks
 };
 

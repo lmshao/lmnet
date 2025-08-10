@@ -29,7 +29,7 @@ TEST(UnixTest, ServerClientSendRecv)
     std::string server_recv_data, client_recv_data;
     int client_fd = -1;
 
-    // Server 监听器
+    // Server listener
     class ServerListener : public IServerListener {
     public:
         std::atomic<bool> &received;

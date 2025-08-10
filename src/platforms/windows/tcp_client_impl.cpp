@@ -13,6 +13,7 @@
 #include <mswsock.h>
 #include <ws2tcpip.h>
 
+#include "iocp_manager.h"
 #include "iocp_utils.h"
 #include "log.h"
 #pragma comment(lib, "ws2_32.lib")
@@ -77,14 +78,21 @@ bool TcpClientImpl::Init()
             return false;
         }
     }
-    HANDLE base = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
-    iocp_ = CreateIoCompletionPort((HANDLE)socket_, base, (ULONG_PTR)socket_, 0);
-    if (!iocp_) {
-        NETWORK_LOGE("CreateIoCompletionPort failed");
+
+    // Initialize global IOCP manager
+    auto &manager = win::IocpManager::Instance();
+    if (!manager.Initialize()) {
+        NETWORK_LOGE("Failed to initialize IOCP manager");
         return false;
     }
+
+    // Register this socket with the global IOCP manager
+    if (!manager.RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
+        NETWORK_LOGE("Failed to register socket with IOCP manager");
+        return false;
+    }
+
     running_ = true;
-    worker_ = std::thread([this] { WorkerLoop(); });
     LoadConnectEx();
     return true;
 }
@@ -194,83 +202,68 @@ void TcpClientImpl::PostRecv()
     }
 }
 
-void TcpClientImpl::WorkerLoop()
+void TcpClientImpl::Close()
 {
-    while (true) {
-        DWORD bytes = 0;
-        ULONG_PTR key = 0;
-        LPOVERLAPPED pov = nullptr;
-        BOOL ok = GetQueuedCompletionStatus(iocp_, &bytes, &key, &pov, INFINITE);
-        if (!ok) {
-            int gle = GetLastError();
-            if (!pov) {
-                if (!running_)
-                    break;
-                else
-                    continue;
-            }
-            if (listener_)
-                listener_->OnError(socket_, "GQCS error: " + std::to_string(gle));
+    if (running_) {
+        running_ = false;
+
+        // Unregister from IOCP manager
+        if (socket_ != INVALID_SOCKET) {
+            win::IocpManager::Instance().UnregisterSocket((ULONG_PTR)socket_);
         }
-        if (!pov) {
-            if (!running_)
-                break;
-            continue;
-        }
-        auto *ctx = reinterpret_cast<TcpClientPerIo *>(pov);
-        if (!running_) {
-            delete ctx;
-            break;
-        }
-        if (ctx->op == TcpClientPerIo::Op::CONNECT) { // treat connect completion
-            if (!ok) {
-                if (listener_)
-                    listener_->OnError(socket_, "ConnectEx completion error");
-                delete ctx;
-                break;
-            }
+    }
+
+    if (socket_ != INVALID_SOCKET) {
+        closesocket(socket_);
+        socket_ = INVALID_SOCKET;
+    }
+}
+
+void TcpClientImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error)
+{
+    if (!running_ || !ov) {
+        return;
+    }
+
+    auto *ctx = reinterpret_cast<TcpClientPerIo *>(ov);
+
+    if (!success) {
+        if (listener_)
+            listener_->OnError(socket_, "IOCP completion error: " + std::to_string(error));
+        delete ctx;
+        return;
+    }
+
+    switch (ctx->op) {
+        case TcpClientPerIo::Op::CONNECT:
+            // Connection established, start receiving
             delete ctx;
             PostRecv();
-            continue;
-        }
-        if (ctx->op == TcpClientPerIo::Op::SEND) { // send completion just release
+            break;
+
+        case TcpClientPerIo::Op::SEND:
+            // Send completion - just cleanup
             delete ctx;
-            continue;
-        }
-        if (ctx->op == TcpClientPerIo::Op::RECV) {
+            break;
+
+        case TcpClientPerIo::Op::RECV:
             if (bytes == 0) {
+                // Connection closed
                 if (listener_)
                     listener_->OnClose(socket_);
                 delete ctx;
-                break;
+                return;
             }
+
             if (listener_) {
                 auto buf = DataBuffer::Create(bytes);
                 buf->Assign(ctx->data, bytes);
                 listener_->OnReceive(socket_, buf);
             }
-            delete ctx;
-            PostRecv();
-        } else {
-            delete ctx;
-        }
-    }
-}
 
-void TcpClientImpl::Close()
-{
-    running_ = false;
-    if (iocp_)
-        PostQueuedCompletionStatus(iocp_, 0, 0, nullptr);
-    if (worker_.joinable())
-        worker_.join();
-    if (socket_ != INVALID_SOCKET) {
-        closesocket(socket_);
-        socket_ = INVALID_SOCKET;
-    }
-    if (iocp_) {
-        CloseHandle(iocp_);
-        iocp_ = nullptr;
+            delete ctx;
+            PostRecv(); // Continue receiving
+            break;
     }
 }
 

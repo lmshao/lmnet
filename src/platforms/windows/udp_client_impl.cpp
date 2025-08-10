@@ -13,6 +13,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+#include "iocp_manager.h"
 #include "iocp_utils.h"
 #include "log.h"
 #pragma comment(lib, "ws2_32.lib")
@@ -84,20 +85,22 @@ bool UdpClientImpl::Init()
         return false;
     }
 
-    // Associate IOCP + start worker + post recvs
-    iocp_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
-    if (!iocp_) {
-        NETWORK_LOGE("CreateIoCompletionPort failed: %lu", GetLastError());
+    // Initialize global IOCP manager
+    auto &manager = win::IocpManager::Instance();
+    if (!manager.Initialize()) {
+        NETWORK_LOGE("Failed to initialize IOCP manager");
         Close();
         return false;
     }
-    if (!CreateIoCompletionPort((HANDLE)socket_, (HANDLE)iocp_, (ULONG_PTR)this, 0)) {
-        NETWORK_LOGE("Associate socket IOCP failed: %lu", GetLastError());
+
+    // Register this socket with the global IOCP manager
+    if (!manager.RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
+        NETWORK_LOGE("Failed to register socket with IOCP manager");
         Close();
         return false;
     }
+
     running_ = true;
-    StartWorker();
     for (int i = 0; i < 4; ++i)
         PostRecv();
     NETWORK_LOGD("UDP client (IOCP) initialized: %s:%u", remoteIp_.c_str(), remotePort_);
@@ -145,14 +148,18 @@ bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 
 void UdpClientImpl::Close()
 {
-    StopWorker();
+    if (running_) {
+        running_ = false;
+
+        // Unregister from IOCP manager
+        if (socket_ != INVALID_SOCKET) {
+            win::IocpManager::Instance().UnregisterSocket((ULONG_PTR)socket_);
+        }
+    }
+
     if (socket_ != INVALID_SOCKET) {
         ::closesocket(socket_);
         socket_ = INVALID_SOCKET;
-    }
-    if (iocp_) {
-        CloseHandle((HANDLE)iocp_);
-        iocp_ = nullptr;
     }
 }
 
@@ -182,69 +189,43 @@ void UdpClientImpl::PostRecv()
     }
 }
 
-void UdpClientImpl::StartWorker()
+void UdpClientImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error)
 {
-    worker_ = std::thread([this] { WorkerLoop(); });
-}
-
-void UdpClientImpl::StopWorker()
-{
-    if (running_) {
-        running_ = false;
-        PostQueuedCompletionStatus((HANDLE)iocp_, 0, 0, nullptr);
+    if (!running_ || !ov) {
+        return;
     }
-    if (worker_.joinable())
-        worker_.join();
-}
 
-void UdpClientImpl::WorkerLoop()
-{
-    while (true) {
-        DWORD bytes = 0;
-        ULONG_PTR key = 0;
-        LPOVERLAPPED pov = nullptr;
-        BOOL ok = GetQueuedCompletionStatus((HANDLE)iocp_, &bytes, &key, &pov, INFINITE);
-        if (!ok) {
-            int gle = GetLastError();
-            if (!pov) { // possibly wake-up / shutdown
-                if (!running_)
-                    break;
-                continue;
-            }
-            if (listener_)
-                listener_->OnError(socket_, "GQCS error: " + std::to_string(gle));
-        }
-        if (!pov) {
-            if (!running_)
-                break;
-            continue;
-        }
-        auto *ctx = reinterpret_cast<PerIoContext *>(pov);
-        if (!running_) {
-            delete ctx;
-            break;
-        }
-        if (ctx->op == PerIoContext::Op::SEND) {
-            // nothing to do on success; errors already reported earlier
-            delete ctx;
-            continue;
-        }
-        // RECV op
-        if (bytes == 0) { // zero-length datagram or error; recycle recv
-            delete ctx;
-            PostRecv();
-            continue;
-        }
-        if (listener_) {
-            auto buf = DataBuffer::Create(bytes);
-            buf->Assign(ctx->data, bytes);
-            listener_->OnReceive(socket_, buf);
-        }
+    auto *ctx = reinterpret_cast<PerIoContext *>(ov);
+
+    if (!success) {
+        if (listener_)
+            listener_->OnError(socket_, "IOCP completion error: " + std::to_string(error));
         delete ctx;
-        PostRecv();
+        return;
     }
-    if (listener_)
-        listener_->OnClose(socket_);
+
+    if (ctx->op == PerIoContext::Op::SEND) {
+        // Send completion - just cleanup
+        delete ctx;
+        return;
+    }
+
+    // RECV operation
+    if (bytes == 0) {
+        // Zero-length datagram or connection closed
+        delete ctx;
+        PostRecv(); // Post another recv
+        return;
+    }
+
+    if (listener_) {
+        auto buf = DataBuffer::Create(bytes);
+        buf->Assign(ctx->data, bytes);
+        listener_->OnReceive(socket_, buf);
+    }
+
+    delete ctx;
+    PostRecv(); // Post another recv
 }
 
 void UdpClientImpl::HandleReceive(socket_t fd)

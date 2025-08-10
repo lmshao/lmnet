@@ -20,6 +20,7 @@
 
 #include "common.h"
 #include "data_buffer.h"
+#include "iocp_manager.h"
 #include "iserver_listener.h"
 #include "itcp_server.h"
 
@@ -30,7 +31,8 @@ struct PerIoContextTCP;
 
 class TcpServerImpl final : public ITcpServer,
                             public std::enable_shared_from_this<TcpServerImpl>,
-                            public Creatable<TcpServerImpl> {
+                            public Creatable<TcpServerImpl>,
+                            public win::IIocpHandler {
     friend class Creatable<TcpServerImpl>;
 
 public:
@@ -44,11 +46,13 @@ public:
     bool Stop() override;
     socket_t GetSocketFd() const override;
 
+    // IIocpHandler interface
+    void OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error) override;
+
 private:
     TcpServerImpl() = default;
     void PostAccept();
     void PostRecv(std::shared_ptr<class TcpSessionWin> session);
-    void WorkerLoop();
     void HandleAccept(PerIoContextTCP *ctx, DWORD bytes);
     void HandleRecv(PerIoContextTCP *ctx, DWORD bytes);
 

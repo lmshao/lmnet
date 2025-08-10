@@ -23,13 +23,14 @@
 
 #include "data_buffer.h"
 #include "iclient_listener.h"
-#include "iocp_base.h"
+#include "iocp_manager.h"
 
 namespace lmshao::network {
 
 class TcpClientImpl final : public ITcpClient,
                             public std::enable_shared_from_this<TcpClientImpl>,
-                            public Creatable<TcpClientImpl> {
+                            public Creatable<TcpClientImpl>,
+                            public win::IIocpHandler {
     friend class Creatable<TcpClientImpl>;
 
 public:
@@ -45,12 +46,13 @@ public:
     void Close() override;
     socket_t GetSocketFd() const override;
 
+    // IIocpHandler interface
+    void OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error) override;
+
 private:
     TcpClientImpl() = default;
     void PostRecv();
     void PostSend(const void *data, size_t len);
-    void StartLoop();
-    void WorkerLoop();
     bool LoadConnectEx();
 
     std::string remoteIp_;
@@ -58,9 +60,7 @@ private:
     std::string localIp_;
     uint16_t localPort_{0};
     SOCKET socket_{INVALID_SOCKET};
-    HANDLE iocp_{nullptr};
     bool running_{false};
-    std::thread worker_;
     LPFN_CONNECTEX fnConnectEx{nullptr};
     std::shared_ptr<IClientListener> listener_;
 };

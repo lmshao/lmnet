@@ -19,13 +19,15 @@
 #include "common.h"
 #include "data_buffer.h"
 #include "iclient_listener.h"
+#include "iocp_manager.h"
 #include "iudp_client.h"
 
 namespace lmshao::network {
 
 class UdpClientImpl final : public IUdpClient,
                             public std::enable_shared_from_this<UdpClientImpl>,
-                            public Creatable<UdpClientImpl> {
+                            public Creatable<UdpClientImpl>,
+                            public win::IIocpHandler {
     friend class Creatable<UdpClientImpl>;
 
 public:
@@ -46,6 +48,9 @@ public:
     void HandleReceive(socket_t fd);
     void HandleConnectionClose(socket_t fd, bool error, const std::string &info);
 
+    // IIocpHandler interface
+    void OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error) override;
+
 private:
     UdpClientImpl() = default;
 
@@ -59,14 +64,9 @@ private:
 
     // IOCP specific state
     struct sockaddr_in remoteAddr_{}; // peer
-    void *iocp_{nullptr};             // HANDLE (cast)
-    bool running_{false};             // worker loop flag
-    std::thread worker_;              // completion thread
+    bool running_{false};             // client state flag
     // PerIoContext defined in iocp_utils.h (alias to win::UdpPerIoContext). Forward declaration not needed.
-    void PostRecv();    // post one WSARecvFrom overlapped
-    void WorkerLoop();  // GetQueuedCompletionStatus loop
-    void StartWorker(); // start loop
-    void StopWorker();  // stop loop
+    void PostRecv(); // post one WSARecvFrom overlapped
 };
 
 } // namespace lmshao::network
