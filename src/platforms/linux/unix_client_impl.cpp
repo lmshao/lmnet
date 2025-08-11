@@ -31,21 +31,21 @@ constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
 class UnixClientHandler : public EventHandler {
 public:
-    UnixClientHandler(int fd, std::weak_ptr<UnixClientImpl> client)
+    UnixClientHandler(socket_t fd, std::weak_ptr<UnixClientImpl> client)
         : fd_(fd), client_(client), writeEventsEnabled_(false)
     {
     }
 
-    void HandleRead(int fd) override
+    void HandleRead(socket_t fd) override
     {
         if (auto client = client_.lock()) {
             client->HandleReceive(fd);
         }
     }
 
-    void HandleWrite(int fd) override { ProcessSendQueue(); }
+    void HandleWrite(socket_t fd) override { ProcessSendQueue(); }
 
-    void HandleError(int fd) override
+    void HandleError(socket_t fd) override
     {
         NETWORK_LOGE("Unix client connection error on fd: %d", fd);
         if (auto client = client_.lock()) {
@@ -53,7 +53,7 @@ public:
         }
     }
 
-    void HandleClose(int fd) override
+    void HandleClose(socket_t fd) override
     {
         NETWORK_LOGD("Unix client connection close on fd: %d", fd);
         if (auto client = client_.lock()) {
@@ -77,8 +77,9 @@ public:
 
     void QueueSend(std::shared_ptr<DataBuffer> buffer)
     {
-        if (!buffer || buffer->Size() == 0)
+        if (!buffer || buffer->Size() == 0) {
             return;
+        }
         sendQueue_.push(buffer);
         EnableWriteEvents();
     }
@@ -131,7 +132,7 @@ private:
     }
 
 private:
-    int fd_;
+    socket_t fd_;
     std::weak_ptr<UnixClientImpl> client_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
@@ -271,7 +272,7 @@ void UnixClientImpl::Close()
     }
 }
 
-void UnixClientImpl::HandleReceive(int fd)
+void UnixClientImpl::HandleReceive(socket_t fd)
 {
     NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
@@ -316,7 +317,7 @@ void UnixClientImpl::HandleReceive(int fd)
     }
 }
 
-void UnixClientImpl::HandleConnectionClose(int fd, bool isError, const std::string &reason)
+void UnixClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
     NETWORK_LOGD("Closing client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
                  isError ? "true" : "false");

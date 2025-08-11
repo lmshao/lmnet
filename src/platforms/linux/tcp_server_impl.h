@@ -44,9 +44,9 @@ public:
     void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
     bool Start() override;
     bool Stop() override;
-    bool Send(int fd, std::string host, uint16_t port, const void *data, size_t size) override;
-    bool Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
-    bool Send(int fd, std::string host, uint16_t port, const std::string &str) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
 
     socket_t GetSocketFd() const override { return socket_; }
 
@@ -54,10 +54,10 @@ protected:
     TcpServerImpl(std::string listenIp, uint16_t listenPort) : localPort_(listenPort), localIp_(listenIp) {}
     explicit TcpServerImpl(uint16_t listenPort) : localPort_(listenPort) {}
 
-    void HandleAccept(int fd);
-    void HandleReceive(int fd);
-    void HandleConnectionClose(int fd, bool isError, const std::string &reason);
-    void EnableKeepAlive(int fd);
+    void HandleAccept(socket_t fd);
+    void HandleReceive(socket_t fd);
+    void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+    void EnableKeepAlive(socket_t fd);
 
 private:
     uint16_t localPort_;

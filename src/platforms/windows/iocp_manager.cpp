@@ -22,14 +22,7 @@
 #undef min
 #endif
 
-namespace lmshao::network::win {
-
-IocpManager &IocpManager::Instance()
-{
-    static IocpManager instance;
-    return instance;
-}
-
+namespace lmshao::network {
 IocpManager::~IocpManager()
 {
     Shutdown();
@@ -214,4 +207,4 @@ void IocpManager::CleanupResources()
     }
 }
 
-} // namespace lmshao::network::win
+} // namespace lmshao::network

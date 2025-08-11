@@ -13,7 +13,7 @@
 
 #include "common.h"
 
-namespace lmshao::network::win {
+namespace lmshao::network {
 
 // Global WSA startup / cleanup using singleton pattern
 struct WsaGlobalInit {
@@ -61,12 +61,13 @@ inline int PostUdpRecv(SOCKET s, UdpPerIoContext *ctx)
     int r = WSARecvFrom(s, &ctx->wsaBuf, 1, &bytes, &flags, (sockaddr *)&ctx->from, &ctx->fromLen, &ctx->ov, nullptr);
     if (r == SOCKET_ERROR) {
         int err = WSAGetLastError();
-        if (err != WSA_IO_PENDING)
+        if (err != WSA_IO_PENDING) {
             return err;
+        }
     }
     return 0; // success or pending
 }
 
-} // namespace lmshao::network::win
+} // namespace lmshao::network
 
 #endif // NETWORK_IOCP_UTILS_H

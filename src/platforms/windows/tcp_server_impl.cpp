@@ -17,6 +17,7 @@
 #include "iocp_utils.h"
 #include "log.h"
 #include "session.h"
+#include "session_impl.h"
 #pragma comment(lib, "ws2_32.lib")
 
 #include <cstring>
@@ -27,20 +28,7 @@
 
 namespace lmshao::network {
 
-class TcpSessionWin final : public Session {
-public:
-    explicit TcpSessionWin(SOCKET s) { fd = (int)s; }
-    bool Send(std::shared_ptr<DataBuffer> data) const override { return Send(data->Data(), data->Size()); }
-    bool Send(const std::string &str) const override { return Send(str.data(), str.size()); }
-    bool Send(const void *data, size_t len) const override
-    {
-        if (fd < 0)
-            return false;
-        int ret = ::send((SOCKET)fd, (const char *)data, (int)len, 0);
-        return ret != SOCKET_ERROR;
-    }
-    std::string ClientInfo() const override { return host + ":" + std::to_string(port); }
-};
+// 复用 SessionImpl 作为 TCP 会话对象
 
 struct PerIoContextTCP {
     OVERLAPPED ov{};
@@ -67,7 +55,7 @@ public:
     SOCKET listenSocket = INVALID_SOCKET;
     bool running = false;
     std::mutex mtx;
-    std::unordered_map<SOCKET, std::shared_ptr<TcpSessionWin>> sessions;
+    std::unordered_map<SOCKET, std::shared_ptr<Session>> sessions;
     LPFN_ACCEPTEX fnAcceptEx = nullptr;
     LPFN_GETACCEPTEXSOCKADDRS fnGetAddrs = nullptr;
 };
@@ -77,10 +65,7 @@ TcpServerImpl::TcpServerImpl(uint16_t listenPort) : port_(listenPort) {}
 
 bool TcpServerImpl::Init()
 {
-    win::EnsureWsaInit();
-    // Redundant explicit WSAStartup to guard against linker GC of global init (safe: ref-counted)
-    WSADATA __wsa_tmp{};
-    WSAStartup(MAKEWORD(2, 2), &__wsa_tmp);
+    EnsureWsaInit();
     state_ = std::make_shared<TcpServerState>();
     state_->listenSocket = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (state_->listenSocket == INVALID_SOCKET) {
@@ -106,15 +91,15 @@ bool TcpServerImpl::Init()
     }
 
     // Initialize global IOCP manager
-    auto &manager = win::IocpManager::Instance();
-    if (!manager.Initialize()) {
+    auto manager = IocpManager::GetInstance();
+    if (!manager->Initialize()) {
         NETWORK_LOGE("Failed to initialize IOCP manager");
         return false;
     }
 
     // Register socket with global IOCP
-    if (!manager.RegisterSocket((HANDLE)state_->listenSocket, (ULONG_PTR)state_->listenSocket,
-                                std::shared_ptr<win::IIocpHandler>(this, [](win::IIocpHandler *) {}))) {
+    if (!manager->RegisterSocket((HANDLE)state_->listenSocket, (ULONG_PTR)state_->listenSocket,
+                                 std::shared_ptr<IIocpHandler>(this, [](IIocpHandler *) {}))) {
         NETWORK_LOGE("Associate listen socket to IOCP failed");
         return false;
     }
@@ -144,8 +129,9 @@ void TcpServerImpl::SetListener(std::shared_ptr<IServerListener> listener)
 
 bool TcpServerImpl::Start()
 {
-    if (!state_ || state_->running)
+    if (!state_ || state_->running) {
         return false;
+    }
     state_->running = true;
     PostAccept();
     return true;
@@ -153,12 +139,13 @@ bool TcpServerImpl::Start()
 
 bool TcpServerImpl::Stop()
 {
-    if (!state_ || !state_->running)
+    if (!state_ || !state_->running) {
         return true;
+    }
     state_->running = false;
 
     // Unregister socket from global IOCP
-    win::IocpManager::Instance().UnregisterSocket((ULONG_PTR)state_->listenSocket);
+    IocpManager::GetInstance()->UnregisterSocket((ULONG_PTR)state_->listenSocket);
 
     return true;
 }
@@ -224,7 +211,7 @@ void TcpServerImpl::PostAccept()
     }
 }
 
-void TcpServerImpl::PostRecv(std::shared_ptr<TcpSessionWin> session)
+void TcpServerImpl::PostRecv(std::shared_ptr<SessionImpl> session)
 {
     auto *ctx = new PerIoContextTCP();
     ctx->op = PerIoContextTCP::Op::RECV;
@@ -249,28 +236,31 @@ void TcpServerImpl::HandleAccept(PerIoContextTCP *ctx, DWORD)
         delete ctx;
         return;
     } // associate new socket
-    win::IocpManager::Instance().RegisterSocket((HANDLE)ctx->acceptSocket, (ULONG_PTR)ctx->acceptSocket,
-                                                std::shared_ptr<win::IIocpHandler>(this, [](win::IIocpHandler *) {}));
+    IocpManager::GetInstance()->RegisterSocket((HANDLE)ctx->acceptSocket, (ULONG_PTR)ctx->acceptSocket,
+                                               std::shared_ptr<IIocpHandler>(this, [](IIocpHandler *) {}));
     // Extract addresses
     sockaddr *localSock = nullptr, *remoteSock = nullptr;
     int localLen = 0, remoteLen = 0;
     state_->fnGetAddrs(ctx->data, 0, sizeof(sockaddr_in) + 16, sizeof(sockaddr_in) + 16, &localSock, &localLen,
                        &remoteSock, &remoteLen);
-    auto session = std::make_shared<TcpSessionWin>(ctx->acceptSocket);
+    std::string host;
+    uint16_t port = 0;
     if (remoteSock) {
         auto *rin = reinterpret_cast<sockaddr_in *>(remoteSock);
         char addrStr[INET_ADDRSTRLEN];
         if (inet_ntop(AF_INET, &rin->sin_addr, addrStr, INET_ADDRSTRLEN) != nullptr) {
-            session->host = addrStr;
+            host = addrStr;
         }
-        session->port = ntohs(rin->sin_port);
+        port = ntohs(rin->sin_port);
     }
+    auto session = std::make_shared<SessionImpl>((socket_t)ctx->acceptSocket, host, port, shared_from_this());
     {
         std::lock_guard<std::mutex> lk(state_->mtx);
         state_->sessions[ctx->acceptSocket] = session;
     }
-    if (listener_)
+    if (listener_) {
         listener_->OnAccept(session);
+    }
     PostRecv(session);
     delete ctx;
     PostAccept();
@@ -279,7 +269,7 @@ void TcpServerImpl::HandleAccept(PerIoContextTCP *ctx, DWORD)
 void TcpServerImpl::HandleRecv(PerIoContextTCP *ctx, DWORD bytes)
 {
     auto sock = ctx->sock;
-    std::shared_ptr<TcpSessionWin> session;
+    std::shared_ptr<Session> session;
     {
         std::lock_guard<std::mutex> lk(state_->mtx);
         auto it = state_->sessions.find(sock);
@@ -287,8 +277,9 @@ void TcpServerImpl::HandleRecv(PerIoContextTCP *ctx, DWORD bytes)
             session = it->second;
     }
     if (bytes == 0) {
-        if (session && listener_)
+        if (session && listener_) {
             listener_->OnClose(session);
+        }
         if (session) {
             std::lock_guard<std::mutex> lk(state_->mtx);
             state_->sessions.erase(sock);
@@ -303,9 +294,37 @@ void TcpServerImpl::HandleRecv(PerIoContextTCP *ctx, DWORD bytes)
         listener_->OnReceive(session, buf);
     }
     // repost recv
-    if (session)
-        PostRecv(session);
+    if (session) {
+        PostRecv(std::static_pointer_cast<SessionImpl>(session));
+    }
     delete ctx;
+}
+
+bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size)
+{
+    (void)host;
+    (void)port; // unused in TCP
+    if (!data || size == 0 || fd == INVALID_SOCKET) {
+        return false;
+    }
+    int ret = ::send((SOCKET)fd, (const char *)data, (int)size, 0);
+    return ret != SOCKET_ERROR;
+}
+
+bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+{
+    if (!buffer || buffer->Size() == 0) {
+        return false;
+    }
+    return Send(fd, std::move(host), port, buffer->Data(), buffer->Size());
+}
+
+bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std::string &str)
+{
+    if (str.empty()) {
+        return false;
+    }
+    return Send(fd, std::move(host), port, str.data(), str.size());
 }
 
 } // namespace lmshao::network

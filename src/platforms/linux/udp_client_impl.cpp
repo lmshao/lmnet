@@ -61,7 +61,7 @@ public:
     }
 
 private:
-    int fd_;
+    socket_t fd_;
     std::weak_ptr<UdpClientImpl> client_;
 };
 
@@ -164,12 +164,13 @@ bool UdpClientImpl::Send(const std::string &str)
 
 bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
-    if (!data)
+    if (!data) {
         return false;
+    }
     return Send(data->Data(), data->Size());
 }
 
-void UdpClientImpl::HandleReceive(int fd)
+void UdpClientImpl::HandleReceive(socket_t fd)
 {
     NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {

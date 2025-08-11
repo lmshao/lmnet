@@ -13,6 +13,7 @@
 #include <mutex>
 
 #include "common.h"
+#include "iocp_utils.h"
 
 namespace lmshao {
 namespace network {
@@ -26,10 +27,7 @@ uint16_t PortUtils::GetIdleUdpPort()
     std::lock_guard<std::mutex> lock(portMutex);
 
     // Initialize Winsock
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        return 0;
-    }
+    EnsureWsaInit();
 
     for (int attempts = 0; attempts < 1000; ++attempts) {
         uint16_t port = nextPort_++;
@@ -49,14 +47,12 @@ uint16_t PortUtils::GetIdleUdpPort()
 
         if (bind(sock, (sockaddr *)&addr, sizeof(addr)) == 0) {
             closesocket(sock);
-            WSACleanup();
             return port;
         }
 
         closesocket(sock);
     }
 
-    WSACleanup();
     return 0;
 }
 
@@ -64,11 +60,7 @@ uint16_t PortUtils::GetIdleUdpPortPair()
 {
     std::lock_guard<std::mutex> lock(portMutex);
 
-    // Initialize Winsock
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        return 0;
-    }
+    EnsureWsaInit();
 
     for (int attempts = 0; attempts < 1000; ++attempts) {
         uint16_t port = nextPort_;
@@ -82,10 +74,12 @@ uint16_t PortUtils::GetIdleUdpPortPair()
         SOCKET sock2 = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
         if (sock1 == INVALID_SOCKET || sock2 == INVALID_SOCKET) {
-            if (sock1 != INVALID_SOCKET)
+            if (sock1 != INVALID_SOCKET) {
                 closesocket(sock1);
-            if (sock2 != INVALID_SOCKET)
+            }
+            if (sock2 != INVALID_SOCKET) {
                 closesocket(sock2);
+            }
             continue;
         }
 
@@ -99,7 +93,6 @@ uint16_t PortUtils::GetIdleUdpPortPair()
             bind(sock2, (sockaddr *)&addr2, sizeof(addr2)) == 0) {
             closesocket(sock1);
             closesocket(sock2);
-            WSACleanup();
             return port;
         }
 
@@ -107,7 +100,6 @@ uint16_t PortUtils::GetIdleUdpPortPair()
         closesocket(sock2);
     }
 
-    WSACleanup();
     return 0;
 }
 

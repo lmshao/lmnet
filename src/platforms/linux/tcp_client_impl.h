@@ -53,8 +53,8 @@ public:
 protected:
     TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
 
-    void HandleReceive(int fd);
-    void HandleConnectionClose(int fd, bool isError, const std::string &reason);
+    void HandleReceive(socket_t fd);
+    void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
     void ReInit();
 
 private:

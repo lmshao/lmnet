@@ -23,7 +23,7 @@
 
 namespace lmshao::network {
 
-using PerIoContext = win::UdpPerIoContext;
+using PerIoContext = UdpPerIoContext;
 
 UdpClientImpl::UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(std::move(remoteIp)), remotePort_(remotePort), localIp_(std::move(localIp)), localPort_(localPort)
@@ -37,9 +37,7 @@ UdpClientImpl::~UdpClientImpl()
 
 bool UdpClientImpl::Init()
 {
-    win::EnsureWsaInit();
-    WSADATA __wsa_tmp{};
-    WSAStartup(MAKEWORD(2, 2), &__wsa_tmp);
+    EnsureWsaInit();
     socket_ = ::WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("WSASocket failed: %d", WSAGetLastError());
@@ -86,15 +84,15 @@ bool UdpClientImpl::Init()
     }
 
     // Initialize global IOCP manager
-    auto &manager = win::IocpManager::Instance();
-    if (!manager.Initialize()) {
+    auto manager = IocpManager::GetInstance();
+    if (!manager->Initialize()) {
         NETWORK_LOGE("Failed to initialize IOCP manager");
         Close();
         return false;
     }
 
     // Register this socket with the global IOCP manager
-    if (!manager.RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
+    if (!manager->RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
         NETWORK_LOGE("Failed to register socket with IOCP manager");
         Close();
         return false;
@@ -114,8 +112,9 @@ bool UdpClientImpl::Send(const std::string &str)
 
 bool UdpClientImpl::Send(const void *data, size_t len)
 {
-    if (socket_ == INVALID_SOCKET || len == 0)
+    if (socket_ == INVALID_SOCKET || len == 0) {
         return false;
+    }
     // Async send using overlapped WSASendTo
     auto *ctx = new PerIoContext();
     ctx->op = PerIoContext::Op::SEND;
@@ -129,8 +128,9 @@ bool UdpClientImpl::Send(const void *data, size_t len)
     if (r == SOCKET_ERROR) {
         int err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            if (listener_)
+            if (listener_) {
                 listener_->OnError(socket_, "WSASendTo error: " + std::to_string(err));
+            }
             NETWORK_LOGE("WSASendTo failed: %d", err);
             delete ctx;
             return false;
@@ -141,8 +141,9 @@ bool UdpClientImpl::Send(const void *data, size_t len)
 
 bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
-    if (!data)
+    if (!data) {
         return false;
+    }
     return Send(data->Data(), data->Size());
 }
 
@@ -153,7 +154,7 @@ void UdpClientImpl::Close()
 
         // Unregister from IOCP manager
         if (socket_ != INVALID_SOCKET) {
-            win::IocpManager::Instance().UnregisterSocket((ULONG_PTR)socket_);
+            IocpManager::GetInstance()->UnregisterSocket((ULONG_PTR)socket_);
         }
     }
 
@@ -165,8 +166,9 @@ void UdpClientImpl::Close()
 
 void UdpClientImpl::PostRecv()
 {
-    if (!running_ || socket_ == INVALID_SOCKET)
+    if (!running_ || socket_ == INVALID_SOCKET) {
         return;
+    }
     auto *ctx = new PerIoContext();
     ZeroMemory(&ctx->ov, sizeof(ctx->ov));
     ctx->wsaBuf.buf = ctx->data;
@@ -182,8 +184,9 @@ void UdpClientImpl::PostRecv()
         int err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
             NETWORK_LOGE("WSARecvFrom failed: %d", err);
-            if (listener_)
+            if (listener_) {
                 listener_->OnError(socket_, "WSARecvFrom error: " + std::to_string(err));
+            }
             delete ctx;
         }
     }
@@ -198,8 +201,9 @@ void UdpClientImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, 
     auto *ctx = reinterpret_cast<PerIoContext *>(ov);
 
     if (!success) {
-        if (listener_)
+        if (listener_) {
             listener_->OnError(socket_, "IOCP completion error: " + std::to_string(error));
+        }
         delete ctx;
         return;
     }

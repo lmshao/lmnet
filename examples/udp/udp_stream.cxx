@@ -44,10 +44,11 @@ public:
         bytesReceived += size;
         totalPackets++;
         if (seq != lastSeq + 1 && lastSeq != 0) {
-            if (seq > lastSeq + 1)
+            if (seq > lastSeq + 1) {
                 lostPackets += (seq - lastSeq - 1);
-            else
+            } else {
                 outOfOrderPackets++;
+            }
         }
         lastSeq = seq;
         auto now = std::chrono::steady_clock::now();
@@ -294,8 +295,9 @@ int main(int argc, char *argv[])
         auto lastReportTime = std::chrono::steady_clock::now();
         auto next = std::chrono::steady_clock::now();
         int packetsPerBatch = (int)((bitrate / 8.0 * (interval / 1000.0)) / pktSize);
-        if (packetsPerBatch < 1)
+        if (packetsPerBatch < 1) {
             packetsPerBatch = 1;
+        }
         while (true) {
             for (int i = 0; i < packetsPerBatch; ++i) {
                 client->Send(buffer->Data(), buffer->Size());

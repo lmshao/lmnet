@@ -23,19 +23,19 @@ using namespace lmshao::network;
 bool gExit = false;
 class EchoClientListener : public IClientListener {
 public:
-    void OnReceive(int fd, std::shared_ptr<DataBuffer> data) override
+    void OnReceive(socket_t fd, std::shared_ptr<DataBuffer> data) override
     {
         std::string msg((char *)data->Data(), data->Size());
         std::cout << "Received from server: " << msg << std::endl;
     }
 
-    void OnClose(int fd) override
+    void OnClose(socket_t fd) override
     {
         std::cout << "Connection closed: fd=" << fd << std::endl;
         gExit = true;
     }
 
-    void OnError(int fd, const std::string &reason) override
+    void OnError(socket_t fd, const std::string &reason) override
     {
         std::cout << "Error: fd=" << fd << ", reason=" << reason << std::endl;
         gExit = true;

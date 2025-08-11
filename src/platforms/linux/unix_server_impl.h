@@ -50,18 +50,18 @@ public:
     void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
     bool Start() override;
     bool Stop() override;
-    bool Send(int fd, std::string host, uint16_t port, const void *data, size_t size) override;
-    bool Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
-    bool Send(int fd, std::string host, uint16_t port, const std::string &str) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
 
     socket_t GetSocketFd() const override { return socket_; }
 
 protected:
     UnixServerImpl(const std::string &socketPath);
 
-    void HandleAccept(int fd);
-    void HandleReceive(int fd);
-    void HandleConnectionClose(int fd, bool isError, const std::string &reason);
+    void HandleAccept(socket_t fd);
+    void HandleReceive(socket_t fd);
+    void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
 
 private:
     std::string socketPath_;

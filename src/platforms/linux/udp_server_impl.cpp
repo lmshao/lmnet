@@ -38,22 +38,25 @@ public:
 
     bool Send(std::shared_ptr<DataBuffer> buffer) const override
     {
-        if (!server_)
+        if (!server_) {
             return false;
+        }
         return server_->Send(fd_, host, port, buffer->Data(), buffer->Size());
     }
 
     bool Send(const std::string &str) const override
     {
-        if (!server_)
+        if (!server_) {
             return false;
+        }
         return server_->Send(fd_, host, port, str);
     }
 
     bool Send(const void *data, size_t size) const override
     {
-        if (!server_)
+        if (!server_) {
             return false;
+        }
         return server_->Send(fd_, host, port, data, size);
     }
 
@@ -69,16 +72,16 @@ class UdpServerHandler : public EventHandler {
 public:
     UdpServerHandler(socket_t fd, std::weak_ptr<UdpServerImpl> server) : fd_(fd), server_(server) {}
 
-    void HandleRead(int fd) override
+    void HandleRead(socket_t fd) override
     {
         if (auto server = server_.lock()) {
             server->HandleReceive(fd);
         }
     }
 
-    void HandleWrite(int fd) override {}
+    void HandleWrite(socket_t fd) override {}
 
-    void HandleError(int fd) override
+    void HandleError(socket_t fd) override
     {
         NETWORK_LOGE("UDP server connection error on fd: %d", fd);
         if (auto server = server_.lock()) {
@@ -86,7 +89,7 @@ public:
         }
     }
 
-    void HandleClose(int fd) override
+    void HandleClose(socket_t fd) override
     {
         NETWORK_LOGD("UDP server connection close on fd: %d", fd);
         if (auto server = server_.lock()) {
@@ -269,7 +272,7 @@ void UdpServerImpl::HandleReceive(socket_t fd)
     }
 }
 
-bool UdpServerImpl::Send(int fd, std::string ip, uint16_t port, const void *data, size_t len)
+bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, const void *data, size_t len)
 {
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("Socket is not initialized");
@@ -302,12 +305,12 @@ bool UdpServerImpl::Send(int fd, std::string ip, uint16_t port, const void *data
     return true;
 }
 
-bool UdpServerImpl::Send(int fd, std::string ip, uint16_t port, const std::string &str)
+bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, const std::string &str)
 {
     return Send(fd, std::move(ip), port, str.data(), str.size());
 }
 
-bool UdpServerImpl::Send(int fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data)
+bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data)
 {
     if (!data) {
         NETWORK_LOGE("DataBuffer is null");

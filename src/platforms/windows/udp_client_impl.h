@@ -27,7 +27,7 @@ namespace lmshao::network {
 class UdpClientImpl final : public IUdpClient,
                             public std::enable_shared_from_this<UdpClientImpl>,
                             public Creatable<UdpClientImpl>,
-                            public win::IIocpHandler {
+                            public IIocpHandler {
     friend class Creatable<UdpClientImpl>;
 
 public:
@@ -63,8 +63,8 @@ private:
     std::shared_ptr<IClientListener> listener_;
 
     // IOCP specific state
-    struct sockaddr_in remoteAddr_{}; // peer
-    bool running_{false};             // client state flag
+    struct sockaddr_in remoteAddr_ {}; // peer
+    bool running_{false};              // client state flag
     // PerIoContext defined in iocp_utils.h (alias to win::UdpPerIoContext). Forward declaration not needed.
     void PostRecv(); // post one WSARecvFrom overlapped
 };

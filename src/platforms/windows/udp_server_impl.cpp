@@ -28,7 +28,7 @@ class UdpSessionWin final : public Session {
 public:
     UdpSessionWin(const sockaddr_in &addr, socket_t s, UdpServerImpl *server) : server_(server)
     {
-        fd = (int)s;
+        fd = (socket_t)s;
         char addrStr[INET_ADDRSTRLEN];
         if (inet_ntop(AF_INET, &addr.sin_addr, addrStr, INET_ADDRSTRLEN) != nullptr) {
             host = addrStr;
@@ -39,20 +39,23 @@ public:
     }
     bool Send(std::shared_ptr<DataBuffer> data) const override
     {
-        if (!data || !server_)
+        if (!data || !server_) {
             return false;
+        }
         return server_->SendTo(clientAddr_, data->Data(), data->Size());
     }
     bool Send(const std::string &str) const override
     {
-        if (!server_)
+        if (!server_) {
             return false;
+        }
         return server_->SendTo(clientAddr_, str.data(), str.size());
     }
     bool Send(const void *data, size_t len) const override
     {
-        if (!server_)
+        if (!server_) {
             return false;
+        }
         return server_->SendTo(clientAddr_, data, len);
     }
     std::string ClientInfo() const override { return host + ":" + std::to_string(port); }
@@ -62,7 +65,7 @@ private:
     sockaddr_in clientAddr_;
 };
 
-using PerIoContext = win::UdpPerIoContext;
+using PerIoContext = UdpPerIoContext;
 
 UdpServerImpl::UdpServerImpl(std::string ip, uint16_t port) : ip_(std::move(ip)), port_(port) {}
 UdpServerImpl::~UdpServerImpl()
@@ -73,9 +76,7 @@ UdpServerImpl::~UdpServerImpl()
 
 bool UdpServerImpl::Init()
 {
-    win::EnsureWsaInit();
-    WSADATA __wsa_tmp{};
-    WSAStartup(MAKEWORD(2, 2), &__wsa_tmp);
+    EnsureWsaInit();
     socket_ = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (socket_ == INVALID_SOCKET) {
         NETWORK_LOGE("WSASocket failed: %d", (int)WSAGetLastError());
@@ -101,20 +102,22 @@ bool UdpServerImpl::Init()
 
 bool UdpServerImpl::Start()
 {
-    if (running_)
+    if (running_) {
         return true;
-    if (!socket_)
+    }
+    if (!socket_) {
         return false;
+    }
 
     // Initialize global IOCP manager
-    auto &manager = win::IocpManager::Instance();
-    if (!manager.Initialize()) {
+    auto manager = IocpManager::GetInstance();
+    if (!manager->Initialize()) {
         NETWORK_LOGE("Failed to initialize IOCP manager");
         return false;
     }
 
     // Register this socket with the global IOCP manager
-    if (!manager.RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
+    if (!manager->RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
         NETWORK_LOGE("Failed to register socket with IOCP manager");
         return false;
     }
@@ -127,14 +130,15 @@ bool UdpServerImpl::Start()
 
 bool UdpServerImpl::Stop()
 {
-    if (!running_)
+    if (!running_) {
         return true;
+    }
 
     running_ = false;
 
     // Unregister from IOCP manager
     if (socket_ != INVALID_SOCKET) {
-        win::IocpManager::Instance().UnregisterSocket((ULONG_PTR)socket_);
+        IocpManager::GetInstance()->UnregisterSocket((ULONG_PTR)socket_);
     }
 
     return true;
@@ -148,11 +152,12 @@ void UdpServerImpl::CloseSocket()
     }
 }
 
-bool UdpServerImpl::Send(int fd, std::string ip, uint16_t port, const void *data, size_t len)
+bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, const void *data, size_t len)
 {
     (void)fd;
-    if (socket_ == INVALID_SOCKET)
+    if (socket_ == INVALID_SOCKET) {
         return false;
+    }
     sockaddr_in to{};
     to.sin_family = AF_INET;
     to.sin_port = htons(port);
@@ -162,30 +167,33 @@ bool UdpServerImpl::Send(int fd, std::string ip, uint16_t port, const void *data
     return ret != SOCKET_ERROR;
 }
 
-bool UdpServerImpl::Send(int fd, std::string ip, uint16_t port, const std::string &str)
+bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, const std::string &str)
 {
     return Send(fd, std::move(ip), port, str.data(), str.size());
 }
 
-bool UdpServerImpl::Send(int fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data)
+bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data)
 {
-    if (!data)
+    if (!data) {
         return false;
+    }
     return Send(fd, std::move(ip), port, data->Data(), data->Size());
 }
 
 bool UdpServerImpl::SendTo(const sockaddr_in &to, const void *data, size_t len)
 {
-    if (socket_ == INVALID_SOCKET || !data || len == 0)
+    if (socket_ == INVALID_SOCKET || !data || len == 0) {
         return false;
+    }
     int ret = sendto(socket_, (const char *)data, (int)len, 0, (const sockaddr *)&to, sizeof(to));
     return ret != SOCKET_ERROR;
 }
 
 void UdpServerImpl::PostRecv()
 {
-    if (socket_ == INVALID_SOCKET)
+    if (socket_ == INVALID_SOCKET) {
         return;
+    }
     auto *ctx = new PerIoContext();
     ZeroMemory(&ctx->ov, sizeof(ctx->ov));
     ctx->wsaBuf.buf = ctx->data;
@@ -236,8 +244,9 @@ void UdpServerImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, 
 
 void UdpServerImpl::HandlePacket(const char *data, size_t len, const sockaddr_in &from)
 {
-    if (!listener_)
+    if (!listener_) {
         return;
+    }
     auto buf = DataBuffer::Create(len);
     buf->Assign(data, len);
     auto session = std::make_shared<UdpSessionWin>(from, socket_, this);

@@ -27,7 +27,7 @@ namespace lmshao::network {
 class UdpServerImpl final : public IUdpServer,
                             public std::enable_shared_from_this<UdpServerImpl>,
                             public Creatable<UdpServerImpl>,
-                            public win::IIocpHandler {
+                            public IIocpHandler {
     friend class Creatable<UdpServerImpl>;
 
 public:
@@ -38,9 +38,9 @@ public:
     bool Start() override; // start IOCP worker & post recvs
     bool Stop() override;  // stop worker
     void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
-    bool Send(int fd, std::string ip, uint16_t port, const void *data, size_t len) override; // synchronous sendto
-    bool Send(int fd, std::string ip, uint16_t port, const std::string &str) override;
-    bool Send(int fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data) override;
+    bool Send(socket_t fd, std::string ip, uint16_t port, const void *data, size_t len) override; // synchronous sendto
+    bool Send(socket_t fd, std::string ip, uint16_t port, const std::string &str) override;
+    bool Send(socket_t fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data) override;
     socket_t GetSocketFd() const override { return socket_; }
     bool SendTo(const sockaddr_in &to, const void *data, size_t len); // Helper for session replies
 

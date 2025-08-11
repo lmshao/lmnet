@@ -30,7 +30,7 @@ namespace lmshao::network {
 class TcpClientImpl final : public ITcpClient,
                             public std::enable_shared_from_this<TcpClientImpl>,
                             public Creatable<TcpClientImpl>,
-                            public win::IIocpHandler {
+                            public IIocpHandler {
     friend class Creatable<TcpClientImpl>;
 
 public:

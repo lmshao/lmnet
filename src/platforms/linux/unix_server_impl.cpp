@@ -34,7 +34,7 @@ class UnixServerHandler : public EventHandler {
 public:
     explicit UnixServerHandler(std::weak_ptr<UnixServerImpl> server) : server_(server) {}
 
-    void HandleRead(int fd) override
+    void HandleRead(socket_t fd) override
     {
         if (auto server = server_.lock()) {
             server->HandleAccept(fd);
@@ -43,9 +43,9 @@ public:
 
     void HandleWrite(int) override {}
 
-    void HandleError(int fd) override { NETWORK_LOGE("Unix server socket error on fd: %d", fd); }
+    void HandleError(socket_t fd) override { NETWORK_LOGE("Unix server socket error on fd: %d", fd); }
 
-    void HandleClose(int fd) override { NETWORK_LOGD("Unix server socket close on fd: %d", fd); }
+    void HandleClose(socket_t fd) override { NETWORK_LOGD("Unix server socket close on fd: %d", fd); }
 
     int GetHandle() const override
     {
@@ -67,21 +67,21 @@ private:
 
 class UnixConnectionHandler : public EventHandler {
 public:
-    UnixConnectionHandler(int fd, std::weak_ptr<UnixServerImpl> server)
+    UnixConnectionHandler(socket_t fd, std::weak_ptr<UnixServerImpl> server)
         : fd_(fd), server_(server), writeEventsEnabled_(false)
     {
     }
 
-    void HandleRead(int fd) override
+    void HandleRead(socket_t fd) override
     {
         if (auto server = server_.lock()) {
             server->HandleReceive(fd);
         }
     }
 
-    void HandleWrite(int fd) override { ProcessSendQueue(); }
+    void HandleWrite(socket_t fd) override { ProcessSendQueue(); }
 
-    void HandleError(int fd) override
+    void HandleError(socket_t fd) override
     {
         NETWORK_LOGE("Unix connection error on fd: %d", fd);
         if (auto server = server_.lock()) {
@@ -89,7 +89,7 @@ public:
         }
     }
 
-    void HandleClose(int fd) override
+    void HandleClose(socket_t fd) override
     {
         NETWORK_LOGD("Unix connection close on fd: %d", fd);
         if (auto server = server_.lock()) {
@@ -113,8 +113,9 @@ public:
 
     void QueueSend(std::shared_ptr<DataBuffer> buffer)
     {
-        if (!buffer || buffer->Size() == 0)
+        if (!buffer || buffer->Size() == 0) {
             return;
+        }
         sendQueue_.push(buffer);
         EnableWriteEvents();
     }
@@ -166,7 +167,7 @@ private:
     }
 
 private:
-    int fd_;
+    socket_t fd_;
     std::weak_ptr<UnixServerImpl> server_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
@@ -267,7 +268,7 @@ bool UnixServerImpl::Stop()
     return true;
 }
 
-bool UnixServerImpl::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
+bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size)
 {
     if (!data || size == 0) {
         NETWORK_LOGE("invalid data or size");
@@ -278,7 +279,7 @@ bool UnixServerImpl::Send(int fd, std::string host, uint16_t port, const void *d
     return Send(fd, host, port, buf);
 }
 
-bool UnixServerImpl::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
 {
     if (!buffer || buffer->Size() == 0) {
         return false;
@@ -301,7 +302,7 @@ bool UnixServerImpl::Send(int fd, std::string host, uint16_t port, std::shared_p
     return false;
 }
 
-bool UnixServerImpl::Send(int fd, std::string host, uint16_t port, const std::string &str)
+bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std::string &str)
 {
     if (str.empty()) {
         NETWORK_LOGE("invalid string data");
@@ -312,7 +313,7 @@ bool UnixServerImpl::Send(int fd, std::string host, uint16_t port, const std::st
     return Send(fd, host, port, buf);
 }
 
-void UnixServerImpl::HandleAccept(int fd)
+void UnixServerImpl::HandleAccept(socket_t fd)
 {
     NETWORK_LOGD("enter");
     struct sockaddr_un clientAddr = {};
@@ -358,7 +359,7 @@ void UnixServerImpl::HandleAccept(int fd)
     }
 }
 
-void UnixServerImpl::HandleReceive(int fd)
+void UnixServerImpl::HandleReceive(socket_t fd)
 {
     NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
@@ -422,7 +423,7 @@ void UnixServerImpl::HandleReceive(int fd)
     }
 }
 
-void UnixServerImpl::HandleConnectionClose(int fd, bool isError, const std::string &reason)
+void UnixServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
     NETWORK_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
 

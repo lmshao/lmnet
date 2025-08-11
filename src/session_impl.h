@@ -16,7 +16,7 @@
 namespace lmshao::network {
 class SessionImpl : public Session {
 public:
-    SessionImpl(int fd, std::string host, uint16_t port, std::shared_ptr<BaseServer> server) : server_(server)
+    SessionImpl(socket_t fd, std::string host, uint16_t port, std::shared_ptr<BaseServer> server) : server_(server)
     {
         this->host = host;
         this->port = port;

@@ -18,6 +18,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "base_server.h"
 #include "common.h"
 #include "data_buffer.h"
 #include "iocp_manager.h"
@@ -30,9 +31,10 @@ namespace lmshao::network {
 struct PerIoContextTCP;
 
 class TcpServerImpl final : public ITcpServer,
+                            public BaseServer,
                             public std::enable_shared_from_this<TcpServerImpl>,
                             public Creatable<TcpServerImpl>,
-                            public win::IIocpHandler {
+                            public IIocpHandler {
     friend class Creatable<TcpServerImpl>;
 
 public:
@@ -44,6 +46,9 @@ public:
     void SetListener(std::shared_ptr<IServerListener> listener) override;
     bool Start() override;
     bool Stop() override;
+    bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
     socket_t GetSocketFd() const override;
 
     // IIocpHandler interface
@@ -52,7 +57,7 @@ public:
 private:
     TcpServerImpl() = default;
     void PostAccept();
-    void PostRecv(std::shared_ptr<class TcpSessionWin> session);
+    void PostRecv(std::shared_ptr<class SessionImpl> session);
     void HandleAccept(PerIoContextTCP *ctx, DWORD bytes);
     void HandleRecv(PerIoContextTCP *ctx, DWORD bytes);
 

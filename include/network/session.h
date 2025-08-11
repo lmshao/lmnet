@@ -17,6 +17,7 @@
 #include <string>
 
 #include "base_server.h"
+#include "common.h"
 #include "data_buffer.h"
 
 namespace lmshao::network {
@@ -25,7 +26,7 @@ class Session {
 public:
     std::string host;
     uint16_t port;
-    int fd = 0;
+    socket_t fd = INVALID_SOCKET;
 
     virtual bool Send(std::shared_ptr<DataBuffer> buffer) const = 0;
     virtual bool Send(const std::string &str) const = 0;

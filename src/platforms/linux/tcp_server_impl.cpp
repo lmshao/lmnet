@@ -31,18 +31,18 @@ class TcpServerHandler : public EventHandler {
 public:
     explicit TcpServerHandler(std::weak_ptr<TcpServerImpl> server) : server_(server) {}
 
-    void HandleRead(int fd) override
+    void HandleRead(socket_t fd) override
     {
         if (auto server = server_.lock()) {
             server->HandleAccept(fd);
         }
     }
 
-    void HandleWrite(int fd) override {}
+    void HandleWrite(socket_t fd) override {}
 
-    void HandleError(int fd) override { NETWORK_LOGE("Server socket error on fd: %d", fd); }
+    void HandleError(socket_t fd) override { NETWORK_LOGE("Server socket error on fd: %d", fd); }
 
-    void HandleClose(int fd) override { NETWORK_LOGD("Server socket close on fd: %d", fd); }
+    void HandleClose(socket_t fd) override { NETWORK_LOGD("Server socket close on fd: %d", fd); }
 
     int GetHandle() const override
     {
@@ -64,21 +64,21 @@ private:
 
 class TcpConnectionHandler : public EventHandler {
 public:
-    TcpConnectionHandler(int fd, std::weak_ptr<TcpServerImpl> server)
+    TcpConnectionHandler(socket_t fd, std::weak_ptr<TcpServerImpl> server)
         : fd_(fd), server_(server), writeEventsEnabled_(false)
     {
     }
 
-    void HandleRead(int fd) override
+    void HandleRead(socket_t fd) override
     {
         if (auto server = server_.lock()) {
             server->HandleReceive(fd);
         }
     }
 
-    void HandleWrite(int fd) override { ProcessSendQueue(); }
+    void HandleWrite(socket_t fd) override { ProcessSendQueue(); }
 
-    void HandleError(int fd) override
+    void HandleError(socket_t fd) override
     {
         NETWORK_LOGE("Connection error on fd: %d", fd);
         if (auto server = server_.lock()) {
@@ -86,7 +86,7 @@ public:
         }
     }
 
-    void HandleClose(int fd) override
+    void HandleClose(socket_t fd) override
     {
         NETWORK_LOGD("Connection close on fd: %d", fd);
         if (auto server = server_.lock()) {
@@ -110,8 +110,9 @@ public:
 
     void QueueSend(std::shared_ptr<DataBuffer> buffer)
     {
-        if (!buffer || buffer->Size() == 0)
+        if (!buffer || buffer->Size() == 0) {
             return;
+        }
         sendQueue_.push(buffer);
         EnableWriteEvents();
     }
@@ -163,7 +164,7 @@ private:
     }
 
 private:
-    int fd_;
+    socket_t fd_;
     std::weak_ptr<TcpServerImpl> server_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
@@ -263,7 +264,7 @@ bool TcpServerImpl::Stop()
     return true;
 }
 
-bool TcpServerImpl::Send(int fd, std::string host, uint16_t port, const void *data, size_t size)
+bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size)
 {
     if (!data || size == 0) {
         NETWORK_LOGD("invalid data or size");
@@ -274,7 +275,7 @@ bool TcpServerImpl::Send(int fd, std::string host, uint16_t port, const void *da
     return Send(fd, host, port, buf);
 }
 
-bool TcpServerImpl::Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
 {
     if (!buffer || buffer->Size() == 0) {
         return false;
@@ -297,7 +298,7 @@ bool TcpServerImpl::Send(int fd, std::string host, uint16_t port, std::shared_pt
     return false;
 }
 
-bool TcpServerImpl::Send(int fd, std::string host, uint16_t port, const std::string &str)
+bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std::string &str)
 {
     if (str.empty()) {
         NETWORK_LOGD("invalid string data");
@@ -308,7 +309,7 @@ bool TcpServerImpl::Send(int fd, std::string host, uint16_t port, const std::str
     return Send(fd, host, port, buf);
 }
 
-void TcpServerImpl::HandleAccept(int fd)
+void TcpServerImpl::HandleAccept(socket_t fd)
 {
     NETWORK_LOGD("enter");
     struct sockaddr_in clientAddr = {};
@@ -359,7 +360,7 @@ void TcpServerImpl::HandleAccept(int fd)
     }
 }
 
-void TcpServerImpl::HandleReceive(int fd)
+void TcpServerImpl::HandleReceive(socket_t fd)
 {
     NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
@@ -423,7 +424,7 @@ void TcpServerImpl::HandleReceive(int fd)
     }
 }
 
-void TcpServerImpl::EnableKeepAlive(int fd)
+void TcpServerImpl::EnableKeepAlive(socket_t fd)
 {
     int keepAlive = 1;
     constexpr int TCP_KEEP_IDLE = 3;     // Start probing after 3 seconds of no data interaction
@@ -435,7 +436,7 @@ void TcpServerImpl::EnableKeepAlive(int fd)
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &TCP_KEEP_COUNT, sizeof(TCP_KEEP_COUNT));
 }
 
-void TcpServerImpl::HandleConnectionClose(int fd, bool isError, const std::string &reason)
+void TcpServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
     NETWORK_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
 

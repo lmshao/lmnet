@@ -26,20 +26,21 @@ constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
 class TcpClientHandler : public EventHandler {
 public:
-    TcpClientHandler(int fd, std::weak_ptr<TcpClientImpl> client) : fd_(fd), client_(client), writeEventsEnabled_(false)
+    TcpClientHandler(socket_t fd, std::weak_ptr<TcpClientImpl> client)
+        : fd_(fd), client_(client), writeEventsEnabled_(false)
     {
     }
 
-    void HandleRead(int fd) override
+    void HandleRead(socket_t fd) override
     {
         if (auto client = client_.lock()) {
             client->HandleReceive(fd);
         }
     }
 
-    void HandleWrite(int fd) override { ProcessSendQueue(); }
+    void HandleWrite(socket_t fd) override { ProcessSendQueue(); }
 
-    void HandleError(int fd) override
+    void HandleError(socket_t fd) override
     {
         NETWORK_LOGE("Client connection error on fd: %d", fd);
         if (auto client = client_.lock()) {
@@ -47,7 +48,7 @@ public:
         }
     }
 
-    void HandleClose(int fd) override
+    void HandleClose(socket_t fd) override
     {
         NETWORK_LOGD("Client connection close on fd: %d", fd);
         if (auto client = client_.lock()) {
@@ -125,7 +126,7 @@ private:
     }
 
 private:
-    int fd_;
+    socket_t fd_;
     std::weak_ptr<TcpClientImpl> client_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
@@ -306,7 +307,7 @@ void TcpClientImpl::Close()
     }
 }
 
-void TcpClientImpl::HandleReceive(int fd)
+void TcpClientImpl::HandleReceive(socket_t fd)
 {
     NETWORK_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
@@ -351,7 +352,7 @@ void TcpClientImpl::HandleReceive(int fd)
     }
 }
 
-void TcpClientImpl::HandleConnectionClose(int fd, bool isError, const std::string &reason)
+void TcpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
     NETWORK_LOGD("Closing client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
                  isError ? "true" : "false");

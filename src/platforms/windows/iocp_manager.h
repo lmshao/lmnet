@@ -20,8 +20,9 @@
 #include <vector>
 
 #include "common.h"
+#include "singleton.h"
 
-namespace lmshao::network::win {
+namespace lmshao::network {
 
 // Forward declaration for IOCP completion callback
 class IIocpHandler {
@@ -40,10 +41,8 @@ public:
  * - Simplified socket lifecycle management
  * - Consistent error handling
  */
-class IocpManager {
+class IocpManager : public Singleton<IocpManager> {
 public:
-    static IocpManager &Instance();
-
     ~IocpManager();
 
     // Initialize the IOCP manager with specified worker thread count
@@ -65,9 +64,8 @@ public:
     bool IsRunning() const { return running_.load(); }
 
 private:
+    friend class Singleton<IocpManager>;
     IocpManager() = default;
-    IocpManager(const IocpManager &) = delete;
-    IocpManager &operator=(const IocpManager &) = delete;
 
     void WorkerLoop();
     void CleanupResources();
@@ -85,6 +83,6 @@ private:
     int workerThreadCount_{0};
 };
 
-} // namespace lmshao::network::win
+} // namespace lmshao::network
 
 #endif // NETWORK_IOCP_MANAGER_H

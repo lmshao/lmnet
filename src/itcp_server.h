@@ -29,9 +29,9 @@ public:
     virtual void SetListener(std::shared_ptr<IServerListener> listener) = 0;
     virtual bool Start() = 0;
     virtual bool Stop() = 0;
-    // virtual bool Send(int fd, std::string host, uint16_t port, const void *data, size_t size) = 0;
-    // virtual bool Send(int fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) = 0;
-    // virtual bool Send(int fd, std::string host, uint16_t port, const std::string &str) = 0;
+    // virtual bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) = 0;
+    // virtual bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) = 0;
+    // virtual bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) = 0;
     virtual socket_t GetSocketFd() const = 0;
 };
 

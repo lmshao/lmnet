@@ -148,8 +148,9 @@ std::shared_ptr<DataBuffer> DataBuffer::PoolAlloc(size_t len)
 
 void DataBuffer::PoolFree(DataBuffer *buf)
 {
-    if (!buf)
+    if (!buf) {
         return;
+    }
     if (buf->capacity_ != POOL_BLOCK_SIZE) {
         delete buf;
         return;

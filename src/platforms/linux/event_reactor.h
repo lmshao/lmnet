@@ -18,6 +18,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "common.h"
 #include "singleton.h"
 
 namespace lmshao::network {
@@ -32,10 +33,10 @@ class EventHandler {
 public:
     virtual ~EventHandler() = default;
 
-    virtual void HandleRead(int fd) = 0;
-    virtual void HandleWrite(int fd) = 0;
-    virtual void HandleError(int fd) = 0;
-    virtual void HandleClose(int fd) = 0;
+    virtual void HandleRead(socket_t fd) = 0;
+    virtual void HandleWrite(socket_t fd) = 0;
+    virtual void HandleError(socket_t fd) = 0;
+    virtual void HandleClose(socket_t fd) = 0;
 
     virtual int GetHandle() const = 0;
     virtual int GetEvents() const { return static_cast<int>(EventType::READ); }
@@ -49,14 +50,14 @@ public:
     ~EventReactor();
 
     bool RegisterHandler(std::shared_ptr<EventHandler> handler);
-    bool RemoveHandler(int fd);
-    bool ModifyHandler(int fd, int events);
+    bool RemoveHandler(socket_t fd);
+    bool ModifyHandler(socket_t fd, int events);
 
     void SetThreadName(const std::string &name);
 
 private:
     void Run();
-    void DispatchEvent(int fd, int events);
+    void DispatchEvent(socket_t fd, int events);
 
     int epollFd_ = -1;
     int wakeupFd_ = -1;

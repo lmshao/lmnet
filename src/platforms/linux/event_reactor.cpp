@@ -136,7 +136,7 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
         return false;
     }
 
-    int fd = handler->GetHandle();
+    socket_t fd = handler->GetHandle();
     int events = handler->GetEvents();
     NETWORK_LOGD("[%p] Register handler for fd:%d, events:0x%x", this, fd, events);
 
@@ -177,7 +177,7 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
     return true;
 }
 
-bool EventReactor::RemoveHandler(int fd)
+bool EventReactor::RemoveHandler(socket_t fd)
 {
     NETWORK_LOGD("Remove handler for fd(%d)", fd);
 
@@ -205,7 +205,7 @@ bool EventReactor::RemoveHandler(int fd)
     return true;
 }
 
-bool EventReactor::ModifyHandler(int fd, int events)
+bool EventReactor::ModifyHandler(socket_t fd, int events)
 {
     NETWORK_LOGD("Modify handler for fd(%d), events:0x%x", fd, events);
 
@@ -250,7 +250,7 @@ bool EventReactor::ModifyHandler(int fd, int events)
     return true;
 }
 
-void EventReactor::DispatchEvent(int fd, int events)
+void EventReactor::DispatchEvent(socket_t fd, int events)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = handlers_.find(fd);
