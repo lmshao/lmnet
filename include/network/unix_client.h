@@ -27,13 +27,9 @@ namespace lmshao::network {
 
 class IUnixClient;
 
-class UnixClient {
+class UnixClient : public Creatable<UnixClient> {
 public:
-    static std::shared_ptr<UnixClient> Create(const std::string &socketPath)
-    {
-        return std::shared_ptr<UnixClient>(new UnixClient(socketPath));
-    }
-
+    explicit UnixClient(const std::string &socketPath);
     ~UnixClient();
 
     bool Init();
@@ -44,9 +40,6 @@ public:
     bool Send(std::shared_ptr<DataBuffer> data);
     void Close();
     socket_t GetSocketFd() const;
-
-protected:
-    explicit UnixClient(const std::string &socketPath);
 
 private:
     std::shared_ptr<IUnixClient> impl_;

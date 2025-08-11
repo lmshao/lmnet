@@ -20,11 +20,10 @@
 #include "data_buffer.h"
 #include "iocp_manager.h"
 #include "iserver_listener.h"
-#include "iudp_server.h"
 
 namespace lmshao::network {
 
-class UdpServerImpl final : public IUdpServer,
+class UdpServerImpl final : public BaseServer,
                             public std::enable_shared_from_this<UdpServerImpl>,
                             public Creatable<UdpServerImpl>,
                             public IIocpHandler {

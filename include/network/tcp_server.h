@@ -21,7 +21,7 @@
 
 namespace lmshao::network {
 
-class ITcpServer;
+class BaseServer;
 class TcpServer final : public Creatable<TcpServer> {
 public:
     TcpServer(std::string listenIp, uint16_t listenPort);
@@ -36,7 +36,7 @@ public:
     socket_t GetSocketFd() const;
 
 private:
-    std::shared_ptr<class ITcpServer> impl_;
+    std::shared_ptr<BaseServer> impl_;
 };
 
 } // namespace lmshao::network

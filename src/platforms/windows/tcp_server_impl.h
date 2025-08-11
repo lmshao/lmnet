@@ -23,15 +23,13 @@
 #include "data_buffer.h"
 #include "iocp_manager.h"
 #include "iserver_listener.h"
-#include "itcp_server.h"
 
 namespace lmshao::network {
 
 // Forward declare the per-I/O context at namespace scope (defined in cpp)
 struct PerIoContextTCP;
 
-class TcpServerImpl final : public ITcpServer,
-                            public BaseServer,
+class TcpServerImpl final : public BaseServer,
                             public std::enable_shared_from_this<TcpServerImpl>,
                             public Creatable<TcpServerImpl>,
                             public IIocpHandler {

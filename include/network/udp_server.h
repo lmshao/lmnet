@@ -21,7 +21,7 @@
 
 namespace lmshao::network {
 
-class IUdpServer;
+class BaseServer;
 class UdpServer final : public Creatable<UdpServer> {
 public:
     UdpServer(std::string listenIp, uint16_t listenPort);
@@ -39,7 +39,7 @@ public:
     static uint16_t GetIdlePortPair();
 
 private:
-    std::shared_ptr<IUdpServer> impl_;
+    std::shared_ptr<BaseServer> impl_;
 };
 
 } // namespace lmshao::network

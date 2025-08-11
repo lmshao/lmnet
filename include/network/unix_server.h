@@ -24,15 +24,11 @@
 
 namespace lmshao::network {
 
-class IUnixServer;
+class BaseServer;
 
-class UnixServer {
+class UnixServer : public Creatable<UnixServer> {
 public:
-    static std::shared_ptr<UnixServer> Create(const std::string &socketPath)
-    {
-        return std::shared_ptr<UnixServer>(new UnixServer(socketPath));
-    }
-
+    explicit UnixServer(const std::string &socketPath);
     ~UnixServer();
 
     bool Init();
@@ -41,11 +37,8 @@ public:
     bool Stop();
     socket_t GetSocketFd() const;
 
-protected:
-    explicit UnixServer(const std::string &socketPath);
-
 private:
-    std::shared_ptr<IUnixServer> impl_;
+    std::shared_ptr<BaseServer> impl_;
 };
 
 } // namespace lmshao::network

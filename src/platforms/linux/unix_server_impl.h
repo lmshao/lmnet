@@ -26,7 +26,6 @@
 #include "base_server.h"
 #include "common.h"
 #include "iserver_listener.h"
-#include "iunix_server.h"
 #include "session.h"
 #include "task_queue.h"
 
@@ -34,8 +33,7 @@ namespace lmshao::network {
 class EventHandler;
 class UnixConnectionHandler;
 
-class UnixServerImpl final : public IUnixServer,
-                             public BaseServer,
+class UnixServerImpl final : public BaseServer,
                              public std::enable_shared_from_this<UnixServerImpl>,
                              public Creatable<UnixServerImpl> {
     friend class EventProcessor;

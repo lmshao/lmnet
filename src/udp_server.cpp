@@ -10,7 +10,6 @@
 
 #include "udp_server.h"
 
-#include "iudp_server.h"
 #include "log.h"
 
 #ifdef __linux__

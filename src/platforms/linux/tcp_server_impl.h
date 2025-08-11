@@ -20,7 +20,6 @@
 #include "base_server.h"
 #include "common.h"
 #include "iserver_listener.h"
-#include "itcp_server.h"
 #include "session.h"
 #include "task_queue.h"
 
@@ -28,8 +27,7 @@ namespace lmshao::network {
 class EventHandler;
 class TcpConnectionHandler;
 
-class TcpServerImpl final : public ITcpServer,
-                            public BaseServer,
+class TcpServerImpl final : public BaseServer,
                             public std::enable_shared_from_this<TcpServerImpl>,
                             public Creatable<TcpServerImpl> {
     friend class EventProcessor;

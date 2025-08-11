@@ -21,7 +21,6 @@
 #include "common.h"
 #include "data_buffer.h"
 #include "iserver_listener.h"
-#include "iudp_server.h"
 #include "session.h"
 #include "task_queue.h"
 
@@ -29,8 +28,7 @@ namespace lmshao::network {
 
 class EventHandler;
 
-class UdpServerImpl final : public IUdpServer,
-                            public BaseServer,
+class UdpServerImpl final : public BaseServer,
                             public std::enable_shared_from_this<UdpServerImpl>,
                             public Creatable<UdpServerImpl> {
     friend class UdpServerHandler;

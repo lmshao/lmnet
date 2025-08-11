@@ -15,7 +15,6 @@
 
 #include "unix_server.h"
 
-#include "iunix_server.h"
 #include "log.h"
 
 #ifdef __linux__
