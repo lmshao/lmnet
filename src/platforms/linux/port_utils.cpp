@@ -16,7 +16,7 @@
 
 #include <cstring>
 
-#include "log.h"
+#include "network_log.h"
 
 namespace lmshao::network {
 

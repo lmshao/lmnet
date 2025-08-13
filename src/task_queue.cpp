@@ -20,7 +20,7 @@
 #include <unistd.h>
 #endif
 
-#include "log.h"
+#include "network_log.h"
 
 namespace lmshao::network {
 TaskQueue::~TaskQueue()

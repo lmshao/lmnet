@@ -15,7 +15,7 @@
 
 #include "unix_server.h"
 
-#include "log.h"
+#include "network_log.h"
 
 #ifdef __linux__
 #include "platforms/linux/unix_server_impl.h"

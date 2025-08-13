@@ -10,7 +10,7 @@
 
 #include "udp_server.h"
 
-#include "log.h"
+#include "network_log.h"
 
 #ifdef __linux__
 #include "platforms/linux/port_utils.h"

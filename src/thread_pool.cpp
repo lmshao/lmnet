@@ -13,7 +13,7 @@
 #include <string>
 #include <utility>
 
-#include "log.h"
+#include "network_log.h"
 
 namespace lmshao::network {
 constexpr size_t POOL_SIZE_MAX = 100;

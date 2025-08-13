@@ -12,12 +12,6 @@ target_link_libraries(test_task_queue network)
 add_test(NAME TaskQueueTests COMMAND $<TARGET_FILE:test_task_queue>)
 set_tests_properties(TaskQueueTests PROPERTIES LABELS "unit")
 
-# Log unit tests
-add_executable(test_log test_log.cpp)
-target_link_libraries(test_log network)
-add_test(NAME LogTests COMMAND $<TARGET_FILE:test_log>)
-set_tests_properties(LogTests PROPERTIES LABELS "unit")
-
 # ThreadPool unit tests
 add_executable(test_thread_pool test_thread_pool.cpp)
 target_link_libraries(test_thread_pool network ${PLATFORM_LIBS})

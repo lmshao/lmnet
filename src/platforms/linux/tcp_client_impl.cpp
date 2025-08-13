@@ -19,7 +19,7 @@
 #include <queue>
 
 #include "event_reactor.h"
-#include "log.h"
+#include "network_log.h"
 
 namespace lmshao::network {
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;

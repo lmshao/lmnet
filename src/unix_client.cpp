@@ -16,7 +16,7 @@
 #include "unix_client.h"
 
 #include "iunix_client.h"
-#include "log.h"
+#include "network_log.h"
 
 #ifdef __linux__
 #include "platforms/linux/unix_client_impl.h"

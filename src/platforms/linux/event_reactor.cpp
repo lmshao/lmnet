@@ -18,7 +18,7 @@
 
 #include <cstring>
 
-#include "log.h"
+#include "network_log.h"
 
 namespace {
 constexpr int INVALID_WAKEUP_FD = -1;

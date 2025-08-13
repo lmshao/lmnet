@@ -10,7 +10,7 @@
 
 #include "tcp_client.h"
 
-#include "log.h"
+#include "network_log.h"
 
 #ifdef __linux__
 #include "platforms/linux/tcp_client_impl.h"

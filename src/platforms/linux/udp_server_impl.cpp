@@ -20,7 +20,7 @@
 #include <cstring>
 
 #include "event_reactor.h"
-#include "log.h"
+#include "network_log.h"
 #include "session.h"
 
 namespace lmshao::network {
