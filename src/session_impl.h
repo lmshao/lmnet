@@ -11,6 +11,7 @@
 #ifndef NETWORK_SESSION_IMPL_H
 #define NETWORK_SESSION_IMPL_H
 
+#include "base_server.h"
 #include "session.h"
 
 namespace lmshao::network {

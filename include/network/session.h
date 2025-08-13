@@ -16,7 +16,6 @@
 #include <sstream>
 #include <string>
 
-#include "base_server.h"
 #include "common.h"
 #include "data_buffer.h"
 
