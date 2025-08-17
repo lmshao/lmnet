@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
-project(network VERSION 1.1.0 LANGUAGES CXX)
+project(network VERSION 1.2.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Determine target platform
 if(WIN32)
@@ -19,6 +20,9 @@ endif()
 include_directories(${PROJECT_SOURCE_DIR}/include/network)
 include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${PROJECT_SOURCE_DIR}/src/${PLATFORM_DIR})
+
+# Add core-utils subdirectory first
+add_subdirectory(core-utils)
 
 message(STATUS "Building for platform: ${PLATFORM_NAME}")
 message(STATUS "Platform source directory: src/${PLATFORM_DIR}")
@@ -62,7 +66,7 @@ if(MSVC)
     set(CMAKE_CXX_FLAGS_RELEASE "/MD /O2 /DNDEBUG /DRELEASE")
 else()
     # GCC/Clang flags for Linux/Unix
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error -Wno-format-truncation")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error -Wno-format-truncation -Wno-unused-result")
     # Debug-specific flags for GCC/Clang
     set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG")
     # Release-specific flags for GCC/Clang
@@ -104,7 +108,14 @@ if(BUILD_STATIC_LIBS)
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     )
-    target_link_libraries(${PROJECT_NAME}_static ${PLATFORM_LIBS})
+    target_include_directories(${PROJECT_NAME}_static PUBLIC 
+        ${CMAKE_CURRENT_SOURCE_DIR}/core-utils/include
+    )
+    # Link to core-utils and platform libraries
+    target_link_libraries(${PROJECT_NAME}_static PUBLIC 
+        $<IF:$<TARGET_EXISTS:coreutils::static>,coreutils::static,coreutils> 
+        ${PLATFORM_LIBS}
+    )
     set_target_properties(${PROJECT_NAME}_static PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
     set_target_properties(${PROJECT_NAME}_static PROPERTIES
         VERSION ${PROJECT_VERSION}
@@ -123,7 +134,14 @@ if(BUILD_SHARED_LIBS)
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     )
-    target_link_libraries(${PROJECT_NAME}_shared ${PLATFORM_LIBS})
+    target_include_directories(${PROJECT_NAME}_shared PUBLIC 
+        ${CMAKE_CURRENT_SOURCE_DIR}/core-utils/include
+    )
+    # Link to core-utils and platform libraries
+    target_link_libraries(${PROJECT_NAME}_shared PUBLIC 
+        $<IF:$<TARGET_EXISTS:coreutils::shared>,coreutils::shared,coreutils> 
+        ${PLATFORM_LIBS}
+    )
     set_target_properties(${PROJECT_NAME}_shared PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
     set_target_properties(${PROJECT_NAME}_shared PROPERTIES
         VERSION ${PROJECT_VERSION}

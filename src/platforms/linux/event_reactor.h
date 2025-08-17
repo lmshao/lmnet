@@ -19,9 +19,11 @@
 #include <unordered_map>
 
 #include "common.h"
-#include "singleton.h"
+#include "core-utils/singleton.h"
 
 namespace lmshao::network {
+using namespace lmshao::coreutils;
+
 enum class EventType {
     READ = 0x01,
     WRITE = 0x02,

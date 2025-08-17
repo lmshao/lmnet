@@ -17,9 +17,10 @@
 #include <string>
 
 #include "common.h"
-#include "data_buffer.h"
+#include "core-utils/data_buffer.h"
 
 namespace lmshao::network {
+using namespace lmshao::coreutils;
 
 class Session {
 public:

@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "common.h"
-#include "singleton.h"
+#include "core-utils/singleton.h"
 
 namespace lmshao::network {
 

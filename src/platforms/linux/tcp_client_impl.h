@@ -18,17 +18,16 @@
 #include <string>
 
 #include "common.h"
-#include "data_buffer.h"
+#include "core-utils/data_buffer.h"
+#include "core-utils/task_queue.h"
 #include "iclient_listener.h"
 #include "itcp_client.h"
-#include "task_queue.h"
 
 namespace lmshao::network {
+using namespace lmshao::coreutils;
 
 class TcpClientHandler;
-
 class EventHandler;
-
 class TcpClientImpl final : public ITcpClient,
                             public std::enable_shared_from_this<TcpClientImpl>,
                             public Creatable<TcpClientImpl> {

@@ -27,9 +27,6 @@
 #include <vector>
 
 namespace lmshao::network {
-
-// 复用 SessionImpl 作为 TCP 会话对象
-
 struct PerIoContextTCP {
     OVERLAPPED ov{};
     WSABUF buf{};

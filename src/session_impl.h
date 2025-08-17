@@ -15,6 +15,8 @@
 #include "session.h"
 
 namespace lmshao::network {
+using namespace lmshao::coreutils;
+
 class SessionImpl : public Session {
 public:
     SessionImpl(socket_t fd, std::string host, uint16_t port, std::shared_ptr<BaseServer> server) : server_(server)

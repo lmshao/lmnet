@@ -24,8 +24,9 @@
 #include "session_impl.h"
 
 namespace lmshao::network {
-constexpr int TCP_BACKLOG = 10;
-constexpr int RECV_BUFFER_MAX_SIZE = 4096;
+
+const int TCP_BACKLOG = 10;
+const int RECV_BUFFER_MAX_SIZE = 4096;
 
 class TcpServerHandler : public EventHandler {
 public:

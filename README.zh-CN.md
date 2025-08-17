@@ -16,12 +16,27 @@
 
 ## 安装
 
-### Linux
+### 克隆仓库和依赖
 
-克隆仓库并用 CMake 构建：
+**推荐方式**：使用 `--recursive` 参数一次性获取所有代码和依赖：
+
+```bash
+git clone --recursive https://github.com/lmshao/network.git
+```
+
+**或者分步操作**：如果已经克隆了仓库，需要单独下载子模块：
 
 ```bash
 git clone https://github.com/lmshao/network.git
+cd network
+git submodule update --init --recursive
+```
+
+### Linux
+
+使用 CMake 构建：
+
+```bash
 cd network
 mkdir build && cd build
 cmake ..
@@ -30,14 +45,13 @@ make
 
 ### Windows
 
-前提条件：
+**前提条件：**
 - Visual Studio 2019 或更高版本（支持 C++17）
 - CMake 3.16 或更高版本
 
-使用 Visual Studio 构建：
+**构建步骤：**
 
 ```powershell
-git clone https://github.com/lmshao/network.git
 cd network
 mkdir build
 cd build

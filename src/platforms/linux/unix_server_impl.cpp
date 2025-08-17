@@ -28,6 +28,7 @@
 #include "session_impl.h"
 
 namespace lmshao::network {
+
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
 class UnixServerHandler : public EventHandler {

@@ -16,12 +16,27 @@ A modern C++ cross-platform asynchronous network library with high performance. 
 
 ## Installation
 
-### Linux
+### Clone Repository and Dependencies
 
-Clone the repository and build with CMake:
+**Recommended approach**: Use the `--recursive` flag to get all code and dependencies in one step:
+
+```bash
+git clone --recursive https://github.com/lmshao/network.git
+```
+
+**Alternative approach**: If you've already cloned the repository, download submodules separately:
 
 ```bash
 git clone https://github.com/lmshao/network.git
+cd network
+git submodule update --init --recursive
+```
+
+### Linux
+
+Build with CMake:
+
+```bash
 cd network
 mkdir build && cd build
 cmake ..
@@ -30,14 +45,13 @@ make
 
 ### Windows
 
-Prerequisites:
+**Prerequisites:**
 - Visual Studio 2019 or later (with C++17 support)
 - CMake 3.16 or later
 
-Build using Visual Studio:
+**Build steps:**
 
 ```powershell
-git clone https://github.com/lmshao/network.git
 cd network
 mkdir build
 cd build
