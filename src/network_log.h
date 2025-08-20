@@ -42,7 +42,7 @@ namespace lmshao::network {
 #define COLOR_RED "\033[31m"
 #define COLOR_YELLOW "\033[33m"
 #define COLOR_RESET "\033[0m"
-#define FUNC_NAME_ __PRETTY_FUNCTION__
+#define FUNC_NAME_ __FUNCTION__
 #define FILENAME_ (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 : __FILE__)
 #define NETWORK_LOG_TIME_STR                                                                                           \
     ([]() -> const char * {                                                                                            \
