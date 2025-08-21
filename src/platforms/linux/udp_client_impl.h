@@ -18,8 +18,8 @@
 #include <string>
 
 #include "common.h"
-#include "core-utils/data_buffer.h"
-#include "core-utils/task_queue.h"
+#include "coreutils/data_buffer.h"
+#include "coreutils/task_queue.h"
 #include "iclient_listener.h"
 #include "iudp_client.h"
 

@@ -1,0 +1,29 @@
+# Network library configuration file
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# Network version information
+set(NETWORK_VERSION @PROJECT_VERSION@)
+
+# Find required dependencies
+find_dependency(Threads)
+find_dependency(coreutils)
+
+# Include target definitions
+include("${CMAKE_CURRENT_LIST_DIR}/networkTargets.cmake")
+
+# Create aliases for compatibility
+if(TARGET network::network_static AND NOT TARGET network::network)
+    add_library(network::network ALIAS network::network_static)
+endif()
+
+if(TARGET network::network_static AND NOT TARGET network)
+    add_library(network ALIAS network::network_static)
+endif()
+
+if(TARGET network::network_shared AND NOT TARGET network_shared)
+    add_library(network_shared ALIAS network::network_shared)
+endif()
+
+check_required_components(network)

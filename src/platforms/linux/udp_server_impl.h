@@ -19,8 +19,8 @@
 
 #include "base_server.h"
 #include "common.h"
-#include "core-utils/data_buffer.h"
-#include "core-utils/task_queue.h"
+#include "coreutils/data_buffer.h"
+#include "coreutils/task_queue.h"
 #include "iserver_listener.h"
 #include "session.h"
 

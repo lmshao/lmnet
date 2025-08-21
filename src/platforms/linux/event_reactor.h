@@ -19,7 +19,7 @@
 #include <unordered_map>
 
 #include "common.h"
-#include "core-utils/singleton.h"
+#include "coreutils/singleton.h"
 
 namespace lmshao::network {
 using namespace lmshao::coreutils;
