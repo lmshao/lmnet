@@ -1,15 +1,15 @@
 /**
- * @file iocp_manager.h
- * @brief Global IOCP Manager - Centralized IOCP management for all sockets
+ * Global IOCP Manager - Centralized IOCP management for all sockets
+ *
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_IOCP_MANAGER_H
-#define NETWORK_IOCP_MANAGER_H
+#ifndef LMSHAO_NETWORK_IOCP_MANAGER_H
+#define LMSHAO_NETWORK_IOCP_MANAGER_H
 
 #include <atomic>
 #include <functional>
@@ -19,8 +19,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "common.h"
 #include "coreutils/singleton.h"
+#include "network/common.h"
 
 namespace lmshao::network {
 
@@ -85,4 +85,4 @@ private:
 
 } // namespace lmshao::network
 
-#endif // NETWORK_IOCP_MANAGER_H
+#endif // LMSHAO_NETWORK_IOCP_MANAGER_H

@@ -1,15 +1,13 @@
 /**
- * @file unix_server.h
- * @brief Unix Domain Socket Server Header
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_UNIX_SERVER_H
-#define NETWORK_UNIX_SERVER_H
+#ifndef LMSHAO_NETWORK_UNIX_SERVER_H
+#define LMSHAO_NETWORK_UNIX_SERVER_H
 
 // Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
 #if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
@@ -43,4 +41,4 @@ private:
 
 } // namespace lmshao::network
 
-#endif // NETWORK_UNIX_SERVER_H
+#endif // LMSHAO_NETWORK_UNIX_SERVER_H

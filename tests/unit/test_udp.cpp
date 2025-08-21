@@ -2,7 +2,7 @@
  * @file test_udp.cpp
  * @brief UDP Unit Tests
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT

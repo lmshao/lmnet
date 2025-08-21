@@ -1,8 +1,6 @@
 /**
- * @file unix_client.cpp
- * @brief Unix Client Implementation
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
@@ -13,7 +11,7 @@
 #error "Unix domain sockets are not supported on this platform"
 #endif
 
-#include "unix_client.h"
+#include "network/unix_client.h"
 
 #include "iunix_client.h"
 #include "network_log.h"

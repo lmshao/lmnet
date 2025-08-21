@@ -1,8 +1,8 @@
 /**
- * @file port_utils.cpp
- * @brief Port Discovery Utilities Implementation for Windows Platform
+ * Port Discovery Utilities Implementation for Windows Platform
+ *
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
@@ -12,8 +12,8 @@
 
 #include <mutex>
 
-#include "common.h"
 #include "iocp_utils.h"
+#include "network/common.h"
 
 namespace lmshao {
 namespace network {

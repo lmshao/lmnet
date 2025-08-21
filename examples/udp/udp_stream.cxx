@@ -2,7 +2,7 @@
  * @file udp_stream.cxx
  * @brief UDP Stream Example
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
@@ -19,8 +19,8 @@
 #include <string>
 #include <thread>
 
-#include "udp_client.h"
-#include "udp_server.h"
+#include "network/udp_client.h"
+#include "network/udp_server.h"
 
 using namespace lmshao::network;
 

@@ -1,8 +1,6 @@
 /**
- * @file udp_server_impl.cpp
- * @brief UDP Server Linux Implementation
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
@@ -20,8 +18,8 @@
 #include <cstring>
 
 #include "event_reactor.h"
+#include "network/session.h"
 #include "network_log.h"
-#include "session.h"
 
 namespace lmshao::network {
 

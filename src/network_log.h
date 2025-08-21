@@ -1,6 +1,4 @@
 /**
- * @file network_log.h
- * @brief Logging System Header
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
@@ -8,8 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_LOG_H
-#define NETWORK_LOG_H
+#ifndef LMSHAO_NETWORK_LOG_H
+#define LMSHAO_NETWORK_LOG_H
 
 #include <chrono>
 #include <cstdio>
@@ -77,4 +75,4 @@ namespace lmshao::network {
 
 } // namespace lmshao::network
 
-#endif // NETWORK_LOG_H
+#endif // LMSHAO_NETWORK_LOG_H

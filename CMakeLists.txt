@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
-project(network VERSION 1.2.0 LANGUAGES CXX)
+project(network VERSION 1.2.1 LANGUAGES CXX)
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Export compile commands for tools like clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Build options
@@ -71,7 +73,7 @@ else()
 endif()
 
 # Source files and include directories
-include_directories(${PROJECT_SOURCE_DIR}/include/network)
+include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${PROJECT_SOURCE_DIR}/src/${PLATFORM_DIR})
 
@@ -170,50 +172,6 @@ message(STATUS "C++ flags: ${CMAKE_CXX_FLAGS}")
 message(STATUS "C++ flags for ${CMAKE_BUILD_TYPE}: ${CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE}}")
 
 # Library build options validation
-if(NOT BUILD_STATIC_LIBS AND NOT BUILD_SHARED_LIBS)
-    message(FATAL_ERROR "At least one of BUILD_STATIC_LIBS or BUILD_SHARED_LIBS must be ON")
-endif()
-
-set(SOURCES ${COMMON_SOURCES} ${PLATFORM_SOURCES})
-
-# Print source file summary
-list(LENGTH COMMON_SOURCES COMMON_COUNT)
-list(LENGTH PLATFORM_SOURCES PLATFORM_COUNT)
-message(STATUS "Found ${COMMON_COUNT} common source files")
-message(STATUS "Found ${PLATFORM_COUNT} platform-specific source files")
-
-# Set default build type to Release if not specified
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build" FORCE)
-    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
-endif()
-
-# Compiler flags
-if(MSVC)
-    # MSVC specific flags
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W3")
-    # Debug-specific flags for MSVC
-    set(CMAKE_CXX_FLAGS_DEBUG "/MDd /Zi /Od /DDEBUG")
-    # Release-specific flags for MSVC
-    set(CMAKE_CXX_FLAGS_RELEASE "/MD /O2 /DNDEBUG /DRELEASE")
-else()
-    # GCC/Clang flags for Linux/Unix
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error -Wno-format-truncation -Wno-unused-result")
-    # Debug-specific flags for GCC/Clang
-    set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG")
-    # Release-specific flags for GCC/Clang
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -DRELEASE")
-endif()
-
-# Print build configuration
-message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "C++ flags: ${CMAKE_CXX_FLAGS}")
-message(STATUS "C++ flags for ${CMAKE_BUILD_TYPE}: ${CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE}}")
-
-# Library build options
-option(BUILD_STATIC_LIBS "Build static libraries" ON)
-option(BUILD_SHARED_LIBS "Build shared libraries" ON)
-
 if(NOT BUILD_STATIC_LIBS AND NOT BUILD_SHARED_LIBS)
     message(FATAL_ERROR "At least one of BUILD_STATIC_LIBS or BUILD_SHARED_LIBS must be ON")
 endif()

@@ -1,22 +1,21 @@
 /**
- * @file iudp_client.h
- * @brief UDP Client Interface Header
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_I_UDP_CLIENT_H
-#define NETWORK_I_UDP_CLIENT_H
+#ifndef LMSHAO_NETWORK_I_UDP_CLIENT_H
+#define LMSHAO_NETWORK_I_UDP_CLIENT_H
+
+#include <coreutils/data_buffer.h>
 
 #include <cstdint>
 #include <memory>
 #include <string>
 
-#include "coreutils/data_buffer.h"
-#include "iclient_listener.h"
+#include "network/iclient_listener.h"
 
 namespace lmshao::network {
 using namespace lmshao::coreutils;
@@ -36,4 +35,4 @@ public:
 
 } // namespace lmshao::network
 
-#endif // NETWORK_I_UDP_CLIENT_H
+#endif // LMSHAO_NETWORK_I_UDP_CLIENT_H

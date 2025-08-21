@@ -1,15 +1,15 @@
 /**
- * @file port_utils.h
- * @brief Port Discovery Utilities for Windows Platform
+ * Port Discovery Utilities for Windows Platform
+ *
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_WINDOWS_PORT_UTILS_H
-#define NETWORK_WINDOWS_PORT_UTILS_H
+#ifndef LMSHAO_NETWORK_WINDOWS_PORT_UTILS_H
+#define LMSHAO_NETWORK_WINDOWS_PORT_UTILS_H
 
 #include <cstdint>
 
@@ -36,4 +36,4 @@ private:
 
 } // namespace lmshao::network
 
-#endif // NETWORK_WINDOWS_PORT_UTILS_H
+#endif // LMSHAO_NETWORK_WINDOWS_PORT_UTILS_H

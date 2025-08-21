@@ -1,20 +1,19 @@
 /**
- * @file iclient_listener.h
- * @brief Client Listener Interface
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_ICLIENT_LISTENER_H
-#define NETWORK_ICLIENT_LISTENER_H
+#ifndef LMSHAO_NETWORK_ICLIENT_LISTENER_H
+#define LMSHAO_NETWORK_ICLIENT_LISTENER_H
+
+#include <coreutils/data_buffer.h>
 
 #include <memory>
 
 #include "common.h"
-#include "coreutils/data_buffer.h"
 
 namespace lmshao::network {
 
@@ -30,4 +29,4 @@ public:
 
 } // namespace lmshao::network
 
-#endif // NETWORK_ICLIENT_LISTENER_H
+#endif // LMSHAO_NETWORK_ICLIENT_LISTENER_H

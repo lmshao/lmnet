@@ -1,18 +1,16 @@
 /**
- * @file session_impl.h
- * @brief Session Implementation Header
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_SESSION_IMPL_H
-#define NETWORK_SESSION_IMPL_H
+#ifndef LMSHAO_NETWORK_SESSION_IMPL_H
+#define LMSHAO_NETWORK_SESSION_IMPL_H
 
 #include "base_server.h"
-#include "session.h"
+#include "network/session.h"
 
 namespace lmshao::network {
 using namespace lmshao::coreutils;
@@ -67,4 +65,4 @@ private:
 };
 
 } // namespace lmshao::network
-#endif // NETWORK_SESSION_IMPL_H
+#endif // LMSHAO_NETWORK_SESSION_IMPL_H

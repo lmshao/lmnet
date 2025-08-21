@@ -1,17 +1,17 @@
 /**
- * @file iocp_utils.h
- * @brief Common IOCP utilities shared by Windows UDP server & client
+ * Common IOCP utilities shared by Windows UDP server & client
+ *
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_IOCP_UTILS_H
-#define NETWORK_IOCP_UTILS_H
+#ifndef LMSHAO_NETWORK_IOCP_UTILS_H
+#define LMSHAO_NETWORK_IOCP_UTILS_H
 
-#include "common.h"
+#include "network/common.h"
 
 namespace lmshao::network {
 
@@ -70,4 +70,4 @@ inline int PostUdpRecv(SOCKET s, UdpPerIoContext *ctx)
 
 } // namespace lmshao::network
 
-#endif // NETWORK_IOCP_UTILS_H
+#endif // LMSHAO_NETWORK_IOCP_UTILS_H

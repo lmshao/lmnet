@@ -1,8 +1,8 @@
 /**
- * @file tcp_client_impl.cpp
- * @brief Windows TCP Client IOCP implementation
+ * Windows TCP Client IOCP implementation
+ *
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT

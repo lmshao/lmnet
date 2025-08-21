@@ -1,6 +1,4 @@
 /**
- * @file common.h
- * @brief Common Header
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
@@ -8,8 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_COMMON_H
-#define NETWORK_COMMON_H
+#ifndef LMSHAO_NETWORK_COMMON_H
+#define LMSHAO_NETWORK_COMMON_H
 
 #include <memory>
 #ifdef _WIN32
@@ -39,4 +37,4 @@ protected:
 };
 } // namespace lmshao::network
 
-#endif // NETWORK_COMMON_H
+#endif // LMSHAO_NETWORK_COMMON_H

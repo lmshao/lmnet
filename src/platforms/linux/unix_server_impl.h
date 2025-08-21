@@ -1,21 +1,20 @@
 /**
- * @file unix_server_impl.h
- * @brief Unix Server Linux Implementation Header
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_LINUX_UNIX_SERVER_IMPL_H
-#define NETWORK_LINUX_UNIX_SERVER_IMPL_H
+#ifndef LMSHAO_NETWORK_LINUX_UNIX_SERVER_IMPL_H
+#define LMSHAO_NETWORK_LINUX_UNIX_SERVER_IMPL_H
 
 // Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
 #if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
 #error "Unix domain sockets are not supported on this platform"
 #endif
 
+#include <coreutils/task_queue.h>
 #include <sys/un.h>
 
 #include <cstdint>
@@ -24,10 +23,9 @@
 #include <unordered_map>
 
 #include "base_server.h"
-#include "common.h"
-#include "coreutils/task_queue.h"
-#include "iserver_listener.h"
-#include "session.h"
+#include "network/common.h"
+#include "network/iserver_listener.h"
+#include "network/session.h"
 
 namespace lmshao::network {
 using namespace lmshao::coreutils;
@@ -78,4 +76,4 @@ private:
 
 } // namespace lmshao::network
 
-#endif // NETWORK_LINUX_UNIX_SERVER_IMPL_H
+#endif // LMSHAO_NETWORK_LINUX_UNIX_SERVER_IMPL_H

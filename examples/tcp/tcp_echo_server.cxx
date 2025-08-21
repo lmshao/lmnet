@@ -2,7 +2,7 @@
  * @file tcp_echo_server.cxx
  * @brief TCP Echo Server Example
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT

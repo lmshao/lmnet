@@ -1,25 +1,23 @@
 /**
- * @file event_reactor.h
- * @brief Event Reactor Header for Network I/O
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_EVENT_REACTOR_H
-#define NETWORK_EVENT_REACTOR_H
+#ifndef LMSHAO_NETWORK_EVENT_REACTOR_H
+#define LMSHAO_NETWORK_EVENT_REACTOR_H
+
+#include <coreutils/singleton.h>
 
 #include <condition_variable>
-#include <functional>
 #include <memory>
 #include <shared_mutex>
 #include <thread>
 #include <unordered_map>
 
-#include "common.h"
-#include "coreutils/singleton.h"
+#include "network/common.h"
 
 namespace lmshao::network {
 using namespace lmshao::coreutils;
@@ -76,4 +74,4 @@ private:
 
 } // namespace lmshao::network
 
-#endif // NETWORK_EVENT_REACTOR_H
+#endif // LMSHAO_NETWORK_EVENT_REACTOR_H

@@ -1,23 +1,23 @@
 /**
- * @file tcp_client_impl.h
- * @brief TCP Client Windows Implementation Header
+ * TCP Client Windows Implementation Header
+ *
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_WINDOWS_TCP_CLIENT_IMPL_H
-#define NETWORK_WINDOWS_TCP_CLIENT_IMPL_H
+#ifndef LMSHAO_NETWORK_WINDOWS_TCP_CLIENT_IMPL_H
+#define LMSHAO_NETWORK_WINDOWS_TCP_CLIENT_IMPL_H
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <thread>
 
-#include "common.h" // provides winsock2.h on Windows
 #include "itcp_client.h"
+#include "network/common.h" // provides winsock2.h on Windows
 // After winsock2.h is available we can include mswsock for LPFN_CONNECTEX
 #include <mswsock.h>
 
@@ -67,4 +67,4 @@ private:
 
 } // namespace lmshao::network
 
-#endif // NETWORK_WINDOWS_TCP_CLIENT_IMPL_H
+#endif // LMSHAO_NETWORK_WINDOWS_TCP_CLIENT_IMPL_H

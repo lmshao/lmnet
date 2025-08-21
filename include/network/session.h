@@ -1,15 +1,15 @@
 /**
- * @file session.h
- * @brief Session Management Header
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_SESSION_H
-#define NETWORK_SESSION_H
+#ifndef LMSHAO_NETWORK_SESSION_H
+#define LMSHAO_NETWORK_SESSION_H
+
+#include <coreutils/data_buffer.h>
 
 #include <cstdint>
 #include <memory>
@@ -17,7 +17,6 @@
 #include <string>
 
 #include "common.h"
-#include "coreutils/data_buffer.h"
 
 namespace lmshao::network {
 using namespace lmshao::coreutils;
@@ -40,4 +39,4 @@ protected:
 
 } // namespace lmshao::network
 
-#endif // NETWORK_SESSION_H
+#endif // LMSHAO_NETWORK_SESSION_H

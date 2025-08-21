@@ -1,26 +1,25 @@
 /**
- * @file unix_client.h
- * @brief Unix Domain Socket Client Header
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef NETWORK_UNIX_CLIENT_H
-#define NETWORK_UNIX_CLIENT_H
+#ifndef LMSHAO_NETWORK_UNIX_CLIENT_H
+#define LMSHAO_NETWORK_UNIX_CLIENT_H
 
 // Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
 #if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
 #error "Unix domain sockets are not supported on this platform"
 #endif
 
+#include <coreutils/data_buffer.h>
+
 #include <memory>
 #include <string>
 
 #include "common.h"
-#include "coreutils/data_buffer.h"
 #include "iclient_listener.h"
 
 namespace lmshao::network {
@@ -47,4 +46,4 @@ private:
 
 } // namespace lmshao::network
 
-#endif // NETWORK_UNIX_CLIENT_H
+#endif // LMSHAO_NETWORK_UNIX_CLIENT_H

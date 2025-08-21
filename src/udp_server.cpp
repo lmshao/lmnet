@@ -1,14 +1,12 @@
 /**
- * @file udp_server.cpp
- * @brief UDP Server Public Interface Implementation
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
  */
 
-#include "udp_server.h"
+#include "network/udp_server.h"
 
 #include "network_log.h"
 

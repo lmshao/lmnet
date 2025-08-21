@@ -1,8 +1,6 @@
 /**
- * @file unix_server_impl.cpp
- * @brief Unix Server Linux Implementation
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT

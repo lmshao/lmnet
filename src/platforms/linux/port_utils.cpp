@@ -1,8 +1,6 @@
 /**
- * @file port_utils.cpp
- * @brief Port Discovery Utilities Implementation for Linux Platform
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2024-2025 SHAO Liming
+ * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
