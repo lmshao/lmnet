@@ -22,9 +22,31 @@ using namespace lmshao::coreutils;
 class IServerListener {
 public:
     virtual ~IServerListener() = default;
+
+    /**
+     * @brief Called when an error occurs
+     * @param session Session that encountered the error
+     * @param errorInfo Error information
+     */
     virtual void OnError(std::shared_ptr<Session> session, const std::string &errorInfo) = 0;
+
+    /**
+     * @brief Called when a session is closed
+     * @param session Closed session
+     */
     virtual void OnClose(std::shared_ptr<Session> session) = 0;
+
+    /**
+     * @brief Called when a new connection is accepted
+     * @param session New session
+     */
     virtual void OnAccept(std::shared_ptr<Session> session) = 0;
+
+    /**
+     * @brief Called when data is received
+     * @param session Session that received data
+     * @param buffer Received data buffer
+     */
     virtual void OnReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer) = 0;
 };
 

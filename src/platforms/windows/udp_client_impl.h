@@ -36,6 +36,7 @@ public:
     // IUdpClient interface
     bool Init() override; // create socket, optional bind, prepare remote address, attach IOCP
     void SetListener(std::shared_ptr<IClientListener> listener) override { listener_ = listener; }
+    bool EnableBroadcast() override;                  // Enable UDP broadcast functionality
     bool Send(const std::string &str) override;       // convenience wrapper
     bool Send(const void *data, size_t len) override; // synchronous sendto (later async)
     bool Send(std::shared_ptr<DataBuffer> data) override;

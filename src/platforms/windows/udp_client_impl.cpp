@@ -104,6 +104,23 @@ bool UdpClientImpl::Init()
     return true;
 }
 
+bool UdpClientImpl::EnableBroadcast()
+{
+    if (socket_ == INVALID_SOCKET) {
+        NETWORK_LOGE("Socket not initialized, call Init() first");
+        return false;
+    }
+
+    BOOL broadcast = TRUE;
+    if (setsockopt(socket_, SOL_SOCKET, SO_BROADCAST, (const char *)&broadcast, sizeof(broadcast)) == SOCKET_ERROR) {
+        NETWORK_LOGE("Failed to enable broadcast: %d", WSAGetLastError());
+        return false;
+    }
+
+    NETWORK_LOGD("Broadcast enabled successfully");
+    return true;
+}
+
 bool UdpClientImpl::Send(const std::string &str)
 {
     return Send(str.data(), str.size());

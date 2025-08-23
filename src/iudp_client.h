@@ -26,6 +26,7 @@ public:
 
     virtual bool Init() = 0;
     virtual void SetListener(std::shared_ptr<IClientListener> listener) = 0;
+    virtual bool EnableBroadcast() = 0;
     virtual bool Send(const std::string &str) = 0;
     virtual bool Send(const void *data, size_t len) = 0;
     virtual bool Send(std::shared_ptr<DataBuffer> data) = 0;

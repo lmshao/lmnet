@@ -26,13 +26,45 @@ class BaseServer;
 
 class UnixServer : public Creatable<UnixServer> {
 public:
+    /**
+     * @brief Constructor
+     * @param socketPath Unix domain socket path
+     */
     explicit UnixServer(const std::string &socketPath);
+
+    /**
+     * @brief Destructor
+     */
     ~UnixServer();
 
+    /**
+     * @brief Initialize the Unix server
+     * @return true on success, false on failure
+     */
     bool Init();
+
+    /**
+     * @brief Set the server listener for receiving callbacks
+     * @param listener Listener for handling events
+     */
     void SetListener(std::shared_ptr<IServerListener> listener);
+
+    /**
+     * @brief Start the Unix server
+     * @return true on success, false on failure
+     */
     bool Start();
+
+    /**
+     * @brief Stop the Unix server
+     * @return true on success, false on failure
+     */
     bool Stop();
+
+    /**
+     * @brief Get the socket file descriptor
+     * @return Socket file descriptor
+     */
     socket_t GetSocketFd() const;
 
 private:

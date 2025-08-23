@@ -25,9 +25,9 @@ namespace lmshao::network {
 using namespace lmshao::coreutils;
 class EventHandler;
 
-class UdpClientImpl final : public IUdpClient,
-                            public std::enable_shared_from_this<UdpClientImpl>,
-                            public Creatable<UdpClientImpl> {
+class UdpClientImpl : public IUdpClient,
+                      public std::enable_shared_from_this<UdpClientImpl>,
+                      public Creatable<UdpClientImpl> {
     friend class UdpClientHandler;
     friend class Creatable<UdpClientImpl>;
 
@@ -37,6 +37,7 @@ public:
     // impl IUdpClient
     bool Init() override;
     void SetListener(std::shared_ptr<IClientListener> listener) override { listener_ = listener; }
+    bool EnableBroadcast() override;
 
     bool Send(const std::string &str) override;
     bool Send(const void *data, size_t len) override;

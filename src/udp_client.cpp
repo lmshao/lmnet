@@ -47,6 +47,15 @@ void UdpClient::SetListener(std::shared_ptr<IClientListener> listener)
     impl_->SetListener(std::move(listener));
 }
 
+bool UdpClient::EnableBroadcast()
+{
+    if (!impl_) {
+        NETWORK_LOGE("UDP client implementation is not initialized");
+        return false;
+    }
+    return impl_->EnableBroadcast();
+}
+
 bool UdpClient::Send(const std::string &str)
 {
     if (!impl_) {
