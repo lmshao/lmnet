@@ -15,7 +15,7 @@
 
 #include "iocp_manager.h"
 #include "iocp_utils.h"
-#include "network_log.h"
+#include "network/network_logger.h"
 #pragma comment(lib, "ws2_32.lib")
 
 #include <cstring>

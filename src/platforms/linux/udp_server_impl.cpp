@@ -18,8 +18,8 @@
 #include <cstring>
 
 #include "event_reactor.h"
+#include "network/network_logger.h"
 #include "network/session.h"
-#include "network_log.h"
 
 namespace lmshao::network {
 

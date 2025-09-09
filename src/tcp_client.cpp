@@ -8,7 +8,7 @@
 
 #include "network/tcp_client.h"
 
-#include "network_log.h"
+#include "network/network_logger.h"
 
 #ifdef __linux__
 #include "platforms/linux/tcp_client_impl.h"

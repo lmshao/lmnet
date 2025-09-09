@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "network/udp_server.h"
+#include "network/network_logger.h"
 
 using namespace lmshao::network;
 
@@ -51,7 +52,7 @@ public:
 int main(int argc, char **argv)
 {
     printf("Built at %s on %s.\n", __TIME__, __DATE__);
-
+    lmshao::network::InitNetworkLogger(lmshao::coreutils::LogLevel::kDebug);
     uint16_t port = 7777;
     if (argc == 2) {
         port = atoi(argv[1]);

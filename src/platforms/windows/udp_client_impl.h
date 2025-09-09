@@ -17,10 +17,10 @@
 #include <thread>
 
 #include "coreutils/data_buffer.h"
-#include "network/iclient_listener.h"
 #include "iocp_manager.h"
 #include "iudp_client.h"
 #include "network/common.h"
+#include "network/iclient_listener.h"
 
 namespace lmshao::network {
 
@@ -64,8 +64,8 @@ private:
     std::shared_ptr<IClientListener> listener_;
 
     // IOCP specific state
-    struct sockaddr_in remoteAddr_ {}; // peer
-    bool running_{false};              // client state flag
+    struct sockaddr_in remoteAddr_{}; // peer
+    bool running_{false};             // client state flag
     // PerIoContext defined in iocp_utils.h (alias to win::UdpPerIoContext). Forward declaration not needed.
     void PostRecv(); // post one WSARecvFrom overlapped
 };

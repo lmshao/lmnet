@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "network/tcp_server.h"
+#include "network/network_logger.h"
 
 using namespace lmshao::network;
 

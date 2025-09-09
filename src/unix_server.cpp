@@ -13,7 +13,7 @@
 
 #include "network/unix_server.h"
 
-#include "network_log.h"
+#include "network/network_logger.h"
 
 #ifdef __linux__
 #include "platforms/linux/unix_server_impl.h"
