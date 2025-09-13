@@ -147,8 +147,12 @@ void IocpManager::WorkerLoop()
         BOOL success = GetQueuedCompletionStatus(iocp_, &bytes, &key, &overlapped, INFINITE);
         DWORD error = success ? 0 : GetLastError();
 
+        NETWORK_LOGD("IOCP event received: success=%d, bytes=%lu, key=%llu, overlapped=%p, error=%lu", success, bytes,
+                     static_cast<unsigned long long>(key), overlapped, error);
+
         // Check for shutdown signal
         if (!running_.load() && !overlapped) {
+            NETWORK_LOGD("IOCP worker thread shutting down");
             break;
         }
 

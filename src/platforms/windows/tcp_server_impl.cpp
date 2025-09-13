@@ -149,6 +149,7 @@ bool TcpServerImpl::Stop()
 
 void TcpServerImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error)
 {
+    NETWORK_LOGD("OnIoCompletion called: key=%lu, bytes=%lu, success=%d, error=%lu", key, bytes, success, error);
     if (!ov) {
         return;
     }
@@ -185,20 +186,29 @@ socket_t TcpServerImpl::GetSocketFd() const
 
 void TcpServerImpl::PostAccept()
 {
+    NETWORK_LOGD("PostAccept called");
     auto *ctx = new PerIoContextTCP();
     ctx->op = PerIoContextTCP::Op::ACCEPT;
     ctx->acceptSocket = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (ctx->acceptSocket == INVALID_SOCKET) {
+        NETWORK_LOGE("WSASocketW failed: %d", WSAGetLastError());
         delete ctx;
         return;
     }
+    NETWORK_LOGD("Accept socket created: %llu", (unsigned long long)ctx->acceptSocket);
+
+    // Note: AcceptEx operations complete on the listen socket's IOCP, not the accept socket
+    // The accept socket will be registered with IOCP after the connection is accepted
+
     DWORD bytes = 0;
     // Buffer: local + remote addresses + initial data 0
     ctx->buf.len = 0; // we manage raw buffer ourselves
     BOOL r = state_->fnAcceptEx(state_->listenSocket, ctx->acceptSocket, ctx->data, 0, sizeof(sockaddr_in) + 16,
                                 sizeof(sockaddr_in) + 16, &bytes, &ctx->ov);
+    NETWORK_LOGD("AcceptEx returned: %d", r);
     if (!r) {
         int err = WSAGetLastError();
+        NETWORK_LOGD("AcceptEx error: %d", err);
         if (err != ERROR_IO_PENDING) {
             NETWORK_LOGE("AcceptEx failed: %d", err);
             closesocket(ctx->acceptSocket);
@@ -206,6 +216,7 @@ void TcpServerImpl::PostAccept()
             return;
         }
     }
+    NETWORK_LOGD("PostAccept completed successfully");
 }
 
 void TcpServerImpl::PostRecv(std::shared_ptr<SessionImpl> session)
@@ -232,7 +243,19 @@ void TcpServerImpl::HandleAccept(PerIoContextTCP *ctx, DWORD)
         closesocket(ctx->acceptSocket);
         delete ctx;
         return;
-    } // associate new socket
+    }
+
+    // Update accept socket context - required after AcceptEx
+    if (setsockopt(ctx->acceptSocket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char *)&state_->listenSocket,
+                   sizeof(state_->listenSocket)) == SOCKET_ERROR) {
+        NETWORK_LOGE("setsockopt SO_UPDATE_ACCEPT_CONTEXT failed: %d", WSAGetLastError());
+        closesocket(ctx->acceptSocket);
+        delete ctx;
+        PostAccept();
+        return;
+    }
+
+    // associate new socket
     IocpManager::GetInstance()->RegisterSocket((HANDLE)ctx->acceptSocket, (ULONG_PTR)ctx->acceptSocket,
                                                std::shared_ptr<IIocpHandler>(this, [](IIocpHandler *) {}));
     // Extract addresses
@@ -256,7 +279,10 @@ void TcpServerImpl::HandleAccept(PerIoContextTCP *ctx, DWORD)
         state_->sessions[ctx->acceptSocket] = session;
     }
     if (listener_) {
+        NETWORK_LOGD("Calling OnAccept for session %s:%d", host.c_str(), port);
         listener_->OnAccept(session);
+    } else {
+        NETWORK_LOGD("No listener set for OnAccept");
     }
     PostRecv(session);
     delete ctx;
@@ -274,12 +300,14 @@ void TcpServerImpl::HandleRecv(PerIoContextTCP *ctx, DWORD bytes)
             session = it->second;
     }
     if (bytes == 0) {
-        if (session && listener_) {
-            listener_->OnClose(session);
-        }
+        // Remove session from map first to avoid deadlock
         if (session) {
             std::lock_guard<std::mutex> lk(state_->mtx);
             state_->sessions.erase(sock);
+        }
+        // Then notify listener (which may trigger cleanup)
+        if (session && listener_) {
+            listener_->OnClose(session);
         }
         closesocket(sock);
         delete ctx;
