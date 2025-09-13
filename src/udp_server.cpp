@@ -8,7 +8,7 @@
 
 #include "network/udp_server.h"
 
-#include "network/network_logger.h"
+#include "internal_logger.h"
 
 #ifdef __linux__
 #include "platforms/linux/port_utils.h"

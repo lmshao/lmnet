@@ -13,9 +13,9 @@
 #include <mswsock.h>
 #include <ws2tcpip.h>
 
+#include "../../internal_logger.h"
 #include "iocp_manager.h"
 #include "iocp_utils.h"
-#include "network/network_logger.h"
 #include "network/session.h"
 #include "session_impl.h"
 #pragma comment(lib, "ws2_32.lib")

@@ -11,8 +11,8 @@
 #include <iostream>
 #include <thread>
 
-#include "network/udp_server.h"
 #include "network/network_logger.h"
+#include "network/udp_server.h"
 
 using namespace lmshao::network;
 

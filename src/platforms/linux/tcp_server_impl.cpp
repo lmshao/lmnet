@@ -17,8 +17,8 @@
 #include <cerrno>
 #include <queue>
 
+#include "../../internal_logger.h"
 #include "event_reactor.h"
-#include "network/network_logger.h"
 #include "session_impl.h"
 
 namespace lmshao::network {

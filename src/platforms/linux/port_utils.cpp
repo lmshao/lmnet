@@ -14,7 +14,7 @@
 
 #include <cstring>
 
-#include "network/network_logger.h"
+#include "../../internal_logger.h"
 
 namespace lmshao::network {
 

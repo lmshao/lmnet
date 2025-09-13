@@ -12,7 +12,7 @@
 
 #include <algorithm>
 
-#include "network/network_logger.h"
+#include "../../internal_logger.h"
 
 // Windows max/min macros conflict with std::min/std::max
 #ifdef max

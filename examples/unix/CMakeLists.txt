@@ -1,5 +1,8 @@
-add_executable(unix_echo_server unix_echo_server.cxx)
-target_link_libraries(unix_echo_server network)
-
-add_executable(unix_client unix_client.cxx)
-target_link_libraries(unix_client network)
+# TCP Examples
+file(GLOB TCP_EXAMPLES "*.cpp")
+foreach(src IN LISTS TCP_EXAMPLES)
+    string(REGEX REPLACE "^.*/([^/.]+).cpp" "\\1" target ${src})
+    message(STATUS "TCP Example target: " ${target})
+    add_executable(${target} ${src})
+    target_link_libraries(${target} network)
+endforeach(src)

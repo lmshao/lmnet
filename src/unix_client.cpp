@@ -13,8 +13,8 @@
 
 #include "network/unix_client.h"
 
+#include "internal_logger.h"
 #include "iunix_client.h"
-#include "network/network_logger.h"
 
 #ifdef __linux__
 #include "platforms/linux/unix_client_impl.h"

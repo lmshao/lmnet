@@ -16,7 +16,7 @@
 
 #include <cstring>
 
-#include "network/network_logger.h"
+#include "../../internal_logger.h"
 
 namespace {
 constexpr int INVALID_WAKEUP_FD = -1;
