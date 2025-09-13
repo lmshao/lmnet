@@ -6,10 +6,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_TCP_CLIENT_H
-#define LMSHAO_NETWORK_TCP_CLIENT_H
+#ifndef LMSHAO_LMNET_UDP_CLIENT_H
+#define LMSHAO_LMNET_UDP_CLIENT_H
 
-#include <coreutils/data_buffer.h>
+#include <lmcore/data_buffer.h>
 
 #include <cstdint>
 #include <memory>
@@ -18,10 +18,10 @@
 #include "common.h"
 #include "iclient_listener.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
-class ITcpClient;
-class TcpClient final : public Creatable<TcpClient> {
+class IUdpClient;
+class UdpClient final : public Creatable<UdpClient> {
 public:
     /**
      * @brief Constructor
@@ -30,15 +30,15 @@ public:
      * @param localIp Local IP address (optional)
      * @param localPort Local port number (optional)
      */
-    TcpClient(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
+    UdpClient(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
 
     /**
      * @brief Destructor
      */
-    ~TcpClient();
+    ~UdpClient();
 
     /**
-     * @brief Initialize the TCP client
+     * @brief Initialize the UDP client
      * @return true on success, false on failure
      */
     bool Init();
@@ -50,10 +50,10 @@ public:
     void SetListener(std::shared_ptr<IClientListener> listener);
 
     /**
-     * @brief Connect to the remote server
+     * @brief Enable UDP broadcast functionality
      * @return true on success, false on failure
      */
-    bool Connect();
+    bool EnableBroadcast();
 
     /**
      * @brief Send string data
@@ -78,7 +78,7 @@ public:
     bool Send(std::shared_ptr<DataBuffer> data);
 
     /**
-     * @brief Close the TCP client
+     * @brief Close the UDP client
      */
     void Close();
 
@@ -89,9 +89,9 @@ public:
     socket_t GetSocketFd() const;
 
 private:
-    std::shared_ptr<ITcpClient> impl_;
+    std::shared_ptr<IUdpClient> impl_;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_TCP_CLIENT_H
+#endif // LMSHAO_LMNET_UDP_CLIENT_H

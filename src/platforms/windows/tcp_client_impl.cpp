@@ -21,7 +21,7 @@
 #include <cstring>
 #include <thread>
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 struct TcpClientPerIo {
     OVERLAPPED ov{};
@@ -51,7 +51,7 @@ bool TcpClientImpl::Init()
     EnsureWsaInit();
     socket_ = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("WSASocket failed: %d", WSAGetLastError());
+        LMNET_LOGE("WSASocket failed: %d", WSAGetLastError());
         return false;
     }
     if (!localIp_.empty() || localPort_ != 0) {
@@ -62,7 +62,7 @@ bool TcpClientImpl::Init()
             localIp_ = "0.0.0.0";
         inet_pton(AF_INET, localIp_.c_str(), &local.sin_addr);
         if (bind(socket_, (sockaddr *)&local, sizeof(local)) != 0) {
-            NETWORK_LOGE("bind failed: %d", WSAGetLastError());
+            LMNET_LOGE("bind failed: %d", WSAGetLastError());
             return false;
         }
     } else {
@@ -72,7 +72,7 @@ bool TcpClientImpl::Init()
         local.sin_addr.s_addr = htonl(INADDR_ANY);
         local.sin_port = 0; // Let system choose port
         if (bind(socket_, (sockaddr *)&local, sizeof(local)) != 0) {
-            NETWORK_LOGE("Auto-bind for ConnectEx failed: %d", WSAGetLastError());
+            LMNET_LOGE("Auto-bind for ConnectEx failed: %d", WSAGetLastError());
             return false;
         }
     }
@@ -80,13 +80,13 @@ bool TcpClientImpl::Init()
     // Initialize global IOCP manager
     auto manager = IocpManager::GetInstance();
     if (!manager->Initialize()) {
-        NETWORK_LOGE("Failed to initialize IOCP manager");
+        LMNET_LOGE("Failed to initialize IOCP manager");
         return false;
     }
 
     // Register this socket with the global IOCP manager
     if (!manager->RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
-        NETWORK_LOGE("Failed to register socket with IOCP manager");
+        LMNET_LOGE("Failed to register socket with IOCP manager");
         return false;
     }
 
@@ -102,7 +102,7 @@ bool TcpClientImpl::LoadConnectEx()
     int r = WSAIoctl(socket_, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid), &fnConnectEx,
                      sizeof(fnConnectEx), &bytes, nullptr, nullptr);
     if (r == SOCKET_ERROR || !fnConnectEx) {
-        NETWORK_LOGE("Load ConnectEx failed: %d", WSAGetLastError());
+        LMNET_LOGE("Load ConnectEx failed: %d", WSAGetLastError());
         return false;
     }
     return true;
@@ -114,7 +114,7 @@ bool TcpClientImpl::Connect()
     remote.sin_family = AF_INET;
     remote.sin_port = htons(remotePort_);
     if (inet_pton(AF_INET, remoteIp_.c_str(), &remote.sin_addr) != 1) {
-        NETWORK_LOGE("inet_pton remote failed");
+        LMNET_LOGE("inet_pton remote failed");
         return false;
     }
     if (fnConnectEx) {
@@ -124,7 +124,7 @@ bool TcpClientImpl::Connect()
         if (!ok) {
             int err = WSAGetLastError();
             if (err != ERROR_IO_PENDING) {
-                NETWORK_LOGE("ConnectEx failed: %d", err);
+                LMNET_LOGE("ConnectEx failed: %d", err);
                 delete ctx;
                 return false;
             }
@@ -133,7 +133,7 @@ bool TcpClientImpl::Connect()
     } else {
         int r = ::connect(socket_, (sockaddr *)&remote, sizeof(remote));
         if (r != 0) {
-            NETWORK_LOGE("connect failed: %d", WSAGetLastError());
+            LMNET_LOGE("connect failed: %d", WSAGetLastError());
             return false;
         }
         PostRecv();
@@ -197,7 +197,7 @@ void TcpClientImpl::PostRecv()
     if (r == SOCKET_ERROR) {
         int err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            NETWORK_LOGE("WSARecv failed: %d", err);
+            LMNET_LOGE("WSARecv failed: %d", err);
             delete ctx;
         }
     }
@@ -275,4 +275,4 @@ socket_t TcpClientImpl::GetSocketFd() const
     return socket_;
 }
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

@@ -8,21 +8,21 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_WINDOWS_UDP_CLIENT_IMPL_H
-#define LMSHAO_NETWORK_WINDOWS_UDP_CLIENT_IMPL_H
+#ifndef LMSHAO_LMNET_WINDOWS_UDP_CLIENT_IMPL_H
+#define LMSHAO_LMNET_WINDOWS_UDP_CLIENT_IMPL_H
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <thread>
 
-#include "coreutils/data_buffer.h"
 #include "iocp_manager.h"
 #include "iudp_client.h"
-#include "network/common.h"
-#include "network/iclient_listener.h"
+#include "lmcore/data_buffer.h"
+#include "lmnet/common.h"
+#include "lmnet/iclient_listener.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 class UdpClientImpl final : public IUdpClient,
                             public std::enable_shared_from_this<UdpClientImpl>,
@@ -70,6 +70,6 @@ private:
     void PostRecv(); // post one WSARecvFrom overlapped
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_WINDOWS_UDP_CLIENT_IMPL_H
+#endif // LMSHAO_LMNET_WINDOWS_UDP_CLIENT_IMPL_H

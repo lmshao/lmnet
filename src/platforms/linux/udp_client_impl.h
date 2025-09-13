@@ -6,11 +6,11 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_LINUX_UDP_CLIENT_IMPL_H
-#define LMSHAO_NETWORK_LINUX_UDP_CLIENT_IMPL_H
+#ifndef LMSHAO_LMNET_LINUX_UDP_CLIENT_IMPL_H
+#define LMSHAO_LMNET_LINUX_UDP_CLIENT_IMPL_H
 
-#include <coreutils/data_buffer.h>
-#include <coreutils/task_queue.h>
+#include <lmcore/data_buffer.h>
+#include <lmcore/task_queue.h>
 #include <netinet/in.h>
 
 #include <cstdint>
@@ -18,11 +18,11 @@
 #include <string>
 
 #include "../../iudp_client.h"
-#include "network/common.h"
-#include "network/iclient_listener.h"
+#include "lmnet/common.h"
+#include "lmnet/iclient_listener.h"
 
-namespace lmshao::network {
-using namespace lmshao::coreutils;
+namespace lmshao::lmnet {
+using namespace lmshao::lmcore;
 class EventHandler;
 
 class UdpClientImpl : public IUdpClient,
@@ -70,6 +70,6 @@ private:
     std::shared_ptr<EventHandler> clientHandler_;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_LINUX_UDP_CLIENT_IMPL_H
+#endif // LMSHAO_LMNET_LINUX_UDP_CLIENT_IMPL_H

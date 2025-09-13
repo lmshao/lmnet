@@ -19,10 +19,10 @@
 #include <string>
 #include <thread>
 
-#include "network/udp_client.h"
-#include "network/udp_server.h"
+#include "lmnet/udp_client.h"
+#include "lmnet/udp_server.h"
 
-using namespace lmshao::network;
+using namespace lmshao::lmnet;
 
 class StreamServerListener : public IServerListener {
 public:

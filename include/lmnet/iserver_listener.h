@@ -6,18 +6,18 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_ISERVER_LISTENER_H
-#define LMSHAO_NETWORK_ISERVER_LISTENER_H
+#ifndef LMSHAO_LMNET_ISERVER_LISTENER_H
+#define LMSHAO_LMNET_ISERVER_LISTENER_H
 
-#include <coreutils/data_buffer.h>
+#include <lmcore/data_buffer.h>
 
 #include <memory>
 
 #include "session.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
-using namespace lmshao::coreutils;
+using namespace lmshao::lmcore;
 
 class IServerListener {
 public:
@@ -50,6 +50,6 @@ public:
     virtual void OnReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer) = 0;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_ISERVER_LISTENER_H
+#endif // LMSHAO_LMNET_ISERVER_LISTENER_H

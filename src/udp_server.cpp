@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "network/udp_server.h"
+#include "lmnet/udp_server.h"
 
 #include "internal_logger.h"
 
@@ -18,13 +18,13 @@
 #include "platforms/windows/udp_server_impl.h"
 #endif
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 UdpServer::UdpServer(std::string listenIp, uint16_t listenPort)
 {
     impl_ = UdpServerImpl::Create(std::move(listenIp), listenPort);
     if (!impl_) {
-        NETWORK_LOGE("Failed to create UDP server implementation");
+        LMNET_LOGE("Failed to create UDP server implementation");
     }
 }
 
@@ -35,7 +35,7 @@ UdpServer::~UdpServer() = default;
 bool UdpServer::Init()
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP server implementation is not initialized");
+        LMNET_LOGE("UDP server implementation is not initialized");
         return false;
     }
     return impl_->Init();
@@ -44,7 +44,7 @@ bool UdpServer::Init()
 bool UdpServer::Start()
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP server implementation is not initialized");
+        LMNET_LOGE("UDP server implementation is not initialized");
         return false;
     }
     return impl_->Start();
@@ -53,7 +53,7 @@ bool UdpServer::Start()
 bool UdpServer::Stop()
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP server implementation is not initialized");
+        LMNET_LOGE("UDP server implementation is not initialized");
         return false;
     }
     return impl_->Stop();
@@ -62,7 +62,7 @@ bool UdpServer::Stop()
 void UdpServer::SetListener(std::shared_ptr<IServerListener> listener)
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP server implementation is not initialized");
+        LMNET_LOGE("UDP server implementation is not initialized");
         return;
     }
     impl_->SetListener(listener);
@@ -71,7 +71,7 @@ void UdpServer::SetListener(std::shared_ptr<IServerListener> listener)
 socket_t UdpServer::GetSocketFd() const
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP server implementation is not initialized");
+        LMNET_LOGE("UDP server implementation is not initialized");
         return INVALID_SOCKET;
     }
     return impl_->GetSocketFd();
@@ -87,4 +87,4 @@ uint16_t UdpServer::GetIdlePortPair()
     return PortUtils::GetIdleUdpPortPair();
 }
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

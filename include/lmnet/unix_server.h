@@ -6,8 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_UNIX_SERVER_H
-#define LMSHAO_NETWORK_UNIX_SERVER_H
+#ifndef LMSHAO_LMNET_UNIX_SERVER_H
+#define LMSHAO_LMNET_UNIX_SERVER_H
 
 // Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
 #if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
@@ -20,7 +20,7 @@
 #include "common.h"
 #include "iserver_listener.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 class BaseServer;
 
@@ -71,6 +71,6 @@ private:
     std::shared_ptr<BaseServer> impl_;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_UNIX_SERVER_H
+#endif // LMSHAO_LMNET_UNIX_SERVER_H

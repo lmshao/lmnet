@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "network/tcp_server.h"
+#include "lmnet/tcp_server.h"
 
 #include "internal_logger.h"
 
@@ -16,12 +16,12 @@
 #include "platforms/windows/tcp_server_impl.h"
 #endif
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 TcpServer::TcpServer(std::string listenIp, uint16_t listenPort)
 {
     impl_ = TcpServerImpl::Create(std::move(listenIp), listenPort);
     if (!impl_) {
-        NETWORK_LOGE("Failed to create TCP server implementation");
+        LMNET_LOGE("Failed to create TCP server implementation");
     }
 }
 
@@ -29,7 +29,7 @@ TcpServer::TcpServer(uint16_t listenPort)
 {
     impl_ = TcpServerImpl::Create(listenPort);
     if (!impl_) {
-        NETWORK_LOGE("Failed to create TCP server implementation");
+        LMNET_LOGE("Failed to create TCP server implementation");
     }
 }
 
@@ -38,7 +38,7 @@ TcpServer::~TcpServer() = default;
 bool TcpServer::Init()
 {
     if (!impl_) {
-        NETWORK_LOGE("TCP server implementation is not initialized");
+        LMNET_LOGE("TCP server implementation is not initialized");
         return false;
     }
     return impl_->Init();
@@ -47,7 +47,7 @@ bool TcpServer::Init()
 void TcpServer::SetListener(std::shared_ptr<IServerListener> listener)
 {
     if (!impl_) {
-        NETWORK_LOGE("TCP server implementation is not initialized");
+        LMNET_LOGE("TCP server implementation is not initialized");
         return;
     }
     impl_->SetListener(std::move(listener));
@@ -56,7 +56,7 @@ void TcpServer::SetListener(std::shared_ptr<IServerListener> listener)
 bool TcpServer::Start()
 {
     if (!impl_) {
-        NETWORK_LOGE("TCP server implementation is not initialized");
+        LMNET_LOGE("TCP server implementation is not initialized");
         return false;
     }
     return impl_->Start();
@@ -65,7 +65,7 @@ bool TcpServer::Start()
 bool TcpServer::Stop()
 {
     if (!impl_) {
-        NETWORK_LOGE("TCP server implementation is not initialized");
+        LMNET_LOGE("TCP server implementation is not initialized");
         return false;
     }
     return impl_->Stop();
@@ -74,9 +74,9 @@ bool TcpServer::Stop()
 socket_t TcpServer::GetSocketFd() const
 {
     if (!impl_) {
-        NETWORK_LOGE("TCP server implementation is not initialized");
+        LMNET_LOGE("TCP server implementation is not initialized");
         return -1;
     }
     return impl_->GetSocketFd();
 }
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

@@ -1,6 +1,6 @@
-# Network
+# Lmnet
 
-A modern C++ cross-platform asynchronous network library with high performance. It provides TCP, UDP, and UNIX domain socket support across Linux and Windows platforms, focusing on event-driven programming, resource management, and scalable network applications. Suitable for learning, prototyping, and building real-world network services.
+A modern C++ cross-platform asynchronous lmnet library with high performance. It provides TCP, UDP, and UNIX domain socket support across Linux and Windows platforms, focusing on event-driven programming, resource management, and scalable network applications. Suitable for learning, prototyping, and building real-world network services.
 
 ## Features
 
@@ -16,31 +16,69 @@ A modern C++ cross-platform asynchronous network library with high performance. 
 
 ## Installation
 
-### Clone Repository and Dependencies
+### Prerequisites
 
-**Recommended approach**: Use the `--recursive` flag to get all code and dependencies in one step:
+Lmnet depends on the [lmcore library](https://github.com/lmshao/lmcore). You have two options to satisfy this dependency:
 
-```bash
-git clone --recursive https://github.com/lmshao/network.git
-```
+#### Option 1: System Installation (Recommended)
 
-**Alternative approach**: If you've already cloned the repository, download submodules separately:
+Install lmcore to your system first:
 
 ```bash
-git clone https://github.com/lmshao/network.git
-cd network
-git submodule update --init --recursive
+# Clone and install lmcore
+git clone https://github.com/lmshao/lmcore.git
+cd lmcore
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+sudo make install  # Install to /usr/local
 ```
+
+Then build lmnet:
+
+```bash
+git clone https://github.com/lmshao/lmnet.git
+cd lmnet
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+```
+
+#### Option 2: Local Development Setup
+
+Place lmcore and lmnet in the same parent directory:
+
+```bash
+# Directory structure should be:
+# parent_directory/
+# ├── lmcore/     (clone lmcore here)
+# └── lmnet/      (clone lmnet here)
+
+git clone https://github.com/lmshao/lmcore.git
+git clone https://github.com/lmshao/lmnet.git
+
+cd lmnet
+mkdir build && cd build
+cmake ..  # Will automatically find lmcore in sibling directory
+make -j$(nproc)
+```
+
+### Build Configuration
+
+The CMake build system will automatically:
+1. First try to find system-installed lmcore (`find_package(lmcore)`)
+2. If not found, look for lmcore in the sibling directory `../lmcore`
+3. If neither is found, display helpful error messages with installation instructions
 
 ### Linux
 
 Build with CMake:
 
 ```bash
-cd network
+cd lmnet  # After setting up lmcore dependency as described above
 mkdir build && cd build
 cmake ..
-make
+make -j$(nproc)
 ```
 
 ### Windows
@@ -52,7 +90,7 @@ make
 **Build steps:**
 
 ```powershell
-cd network
+cd lmnet  # After setting up lmcore dependency as described above
 mkdir build
 cd build
 cmake .. -G "Visual Studio 16 2019" -A x64
@@ -76,7 +114,7 @@ cmake --build . --config Release
 Create a simple TCP echo server:
 
 ```cpp
-#include <network/tcp_server.h>
+#include <lmnet/tcp_server.h>
 
 #include <iostream>
 #include <memory>
@@ -118,7 +156,7 @@ More examples can be found in the [`examples/`](examples/) directory.
 
 ## API Reference
 
-- See header files in [`include/network/`](include/network/) for detailed API documentation.
+- See header files in [`include/lmnet/`](include/lmnet/) for detailed API documentation.
 - Key classes: `TcpServer`, `TcpClient`, `UdpServer`, `UdpClient`, `EventReactor`, `Session`, etc.
 
 ## Testing
@@ -159,7 +197,7 @@ For development on Windows, you can use Visual Studio IDE:
 - Set breakpoints in your event handlers (`OnAccept`, `OnReceive`, etc.)
 - Monitor IOCP worker threads in the debugger
 - Use Visual Studio's diagnostic tools to analyze performance
-- Check the Output window for network library logs
+- Check the Output window for lmnet library logs
 
 **Windows-specific considerations:**
 - IOCP manager automatically initializes when the first network component starts
@@ -176,14 +214,14 @@ For development on Windows, you can use Visual Studio IDE:
 
 ```plantuml
 ```plantuml
-@startuml NetworkLibraryArchitecture
+@startuml LmnetLibraryArchitecture
 !theme plain
 
 package "User Application" {
     [YourApp]
 }
 
-package "Network Library" {
+package "Lmnet Library" {
     [TcpServer] --> [EventReactor/IocpManager]
     [TcpClient] --> [EventReactor/IocpManager]
     [UdpServer] --> [EventReactor/IocpManager]

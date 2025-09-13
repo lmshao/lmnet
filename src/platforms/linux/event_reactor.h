@@ -6,10 +6,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_EVENT_REACTOR_H
-#define LMSHAO_NETWORK_EVENT_REACTOR_H
+#ifndef LMSHAO_LMNET_EVENT_REACTOR_H
+#define LMSHAO_LMNET_EVENT_REACTOR_H
 
-#include <coreutils/singleton.h>
+#include <lmcore/singleton.h>
 
 #include <condition_variable>
 #include <memory>
@@ -17,10 +17,10 @@
 #include <thread>
 #include <unordered_map>
 
-#include "network/common.h"
+#include "lmnet/common.h"
 
-namespace lmshao::network {
-using namespace lmshao::coreutils;
+namespace lmshao::lmnet {
+using namespace lmshao::lmcore;
 
 enum class EventType {
     READ = 0x01,
@@ -72,6 +72,6 @@ private:
     std::unique_ptr<std::thread> epollThread_;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_EVENT_REACTOR_H
+#endif // LMSHAO_LMNET_EVENT_REACTOR_H

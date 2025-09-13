@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(network VERSION 1.2.1 LANGUAGES CXX)
+project(lmnet VERSION 1.3.0 LANGUAGES CXX)
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -22,7 +22,7 @@ endif()
 
 # Display configuration options for developers
 message(STATUS "")
-message(STATUS "========== Network Library Configuration Options ==========")
+message(STATUS "========== Lmnet Library Configuration Options ==========")
 message(STATUS "")
 message(STATUS "Build Type Configuration:")
 message(STATUS "  Current build type: ${CMAKE_BUILD_TYPE}")
@@ -42,7 +42,7 @@ message(STATUS "")
 message(STATUS "Usage Examples:")
 message(STATUS "  Debug build:     cmake -DCMAKE_BUILD_TYPE=Debug ..")
 message(STATUS "  User install:    cmake -DINSTALL_TO_USER_LOCAL=ON ..")
-message(STATUS "  Custom prefix:   cmake -DCMAKE_INSTALL_PREFIX=/opt/network ..")
+message(STATUS "  Custom prefix:   cmake -DCMAKE_INSTALL_PREFIX=/opt/lmnet ..")
 message(STATUS "  Minimal build:   cmake -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF ..")
 message(STATUS "")
 message(STATUS "========================================================")
@@ -77,42 +77,42 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${PROJECT_SOURCE_DIR}/src/${PLATFORM_DIR})
 
-# Try to find installed coreutils first, fallback to local source if not found
-find_package(coreutils QUIET)
-if(coreutils_FOUND)
-    message(STATUS "Using system-installed coreutils library")
-    set(COREUTILS_SOURCE "system")
+# Try to find installed lmcore first, fallback to local source if not found
+find_package(lmcore QUIET)
+if(lmcore_FOUND)
+    message(STATUS "Using system-installed lmcore library")
+    set(LMCORE_SOURCE "system")
 else()
-    # Check if local coreutils directory exists
-    set(COREUTILS_LOCAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../coreutils")
-    if(EXISTS "${COREUTILS_LOCAL_DIR}/CMakeLists.txt")
-        if(NOT TARGET coreutils)
-            add_subdirectory(../coreutils coreutils_build)
+    # Check if local lmcore directory exists
+    set(LMCORE_LOCAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lmcore")
+    if(EXISTS "${LMCORE_LOCAL_DIR}/CMakeLists.txt")
+        if(NOT TARGET lmcore)
+            add_subdirectory(../lmcore lmcore_build)
         endif()
-        message(STATUS "Using local coreutils from sibling directory")
-        set(COREUTILS_SOURCE "local")
+        message(STATUS "Using local lmcore from sibling directory")
+        set(LMCORE_SOURCE "local")
     else()
-        # Neither system nor local coreutils found - show helpful error
+        # Neither system nor local lmcore found - show helpful error
         message(STATUS "")
         message(STATUS "========== DEPENDENCY ERROR ==========")
         message(FATAL_ERROR 
-            "Cannot find coreutils dependency!\n"
+            "Cannot find lmcore dependency!\n"
             "\n"
             "Searched locations:\n"
-            "  1. System installation (using find_package coreutils)\n"
-            "  2. Local directory: ${COREUTILS_LOCAL_DIR}\n"
+            "  1. System installation (using find_package lmcore)\n"
+            "  2. Local directory: ${LMCORE_LOCAL_DIR}\n"
             "\n"
-            "Solution - Download coreutils to sibling directory:\n"
+            "Solution - Download lmcore to sibling directory:\n"
             "\n"
             "    cd ${CMAKE_CURRENT_SOURCE_DIR}/..\n"
-            "    git clone ssh://git@github.com/lmshao/coreutils.git\n"
+            "    git clone ssh://git@github.com/lmshao/lmcore.git\n"
             "\n"
             "    # OR if SSH is not available:\n"
-            "    git clone https://github.com/lmshao/coreutils.git\n"
+            "    git clone https://github.com/lmshao/lmcore.git\n"
             "\n"
             "Repository Information:\n"
-            "  📍 GitHub: https://github.com/lmshao/coreutils\n"
-            "  🔑 SSH:    ssh://git@github.com/lmshao/coreutils.git\n"
+            "  📍 GitHub: https://github.com/lmshao/lmcore\n"
+            "  🔑 SSH:    ssh://git@github.com/lmshao/lmcore.git\n"
             "\n"
             "After downloading, re-run: cmake .."
         )
@@ -193,74 +193,74 @@ endif()
 
 # Static library
 if(BUILD_STATIC_LIBS)
-    add_library(${PROJECT_NAME}_static STATIC ${SOURCES})
-    target_include_directories(${PROJECT_NAME}_static PUBLIC 
+    add_library(lmnet_static STATIC ${SOURCES})
+    target_include_directories(lmnet_static PUBLIC 
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/coreutils/include>
+        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lmcore/include>
     )
-    # Link to coreutils static library and platform libraries
-    target_link_libraries(${PROJECT_NAME}_static PUBLIC 
-        $<IF:$<TARGET_EXISTS:coreutils::static>,coreutils::static,coreutils> 
+    # Link to lmcore static library and platform libraries
+    target_link_libraries(lmnet_static PUBLIC 
+        $<IF:$<TARGET_EXISTS:lmcore::static>,lmcore::static,lmcore> 
         ${PLATFORM_LIBS}
     )
-    set_target_properties(${PROJECT_NAME}_static PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
-    set_target_properties(${PROJECT_NAME}_static PROPERTIES
+    set_target_properties(lmnet_static PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
+    set_target_properties(lmnet_static PROPERTIES
         VERSION ${PROJECT_VERSION}
         SOVERSION ${PROJECT_VERSION_MAJOR}
     )
     
     # Create alias for static library (for internal use)
-    add_library(${PROJECT_NAME}::static ALIAS ${PROJECT_NAME}_static)
+    add_library(${PROJECT_NAME}::static ALIAS lmnet_static)
     message(STATUS "Building static library: lib${PROJECT_NAME}.a")
 endif()
 
 # Shared library
 if(BUILD_SHARED_LIBS)
-    add_library(${PROJECT_NAME}_shared SHARED ${SOURCES})
-    target_include_directories(${PROJECT_NAME}_shared PUBLIC 
+    add_library(lmnet_shared SHARED ${SOURCES})
+    target_include_directories(lmnet_shared PUBLIC 
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/coreutils/include>
+        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lmcore/include>
     )
-    # Link to coreutils shared library and platform libraries  
-    if(TARGET coreutils::shared)
-        target_link_libraries(${PROJECT_NAME}_shared PUBLIC coreutils::shared ${PLATFORM_LIBS})
-    elseif(TARGET coreutils-shared)
-        target_link_libraries(${PROJECT_NAME}_shared PUBLIC coreutils-shared ${PLATFORM_LIBS})
+    # Link to lmcore shared library and platform libraries  
+    if(TARGET lmcore::shared)
+        target_link_libraries(lmnet_shared PUBLIC lmcore::shared ${PLATFORM_LIBS})
+    elseif(TARGET lmcore-shared)
+        target_link_libraries(lmnet_shared PUBLIC lmcore-shared ${PLATFORM_LIBS})
     else()
-        # Find coreutils shared library in standard locations
-        find_library(COREUTILS_SHARED_LIB 
-            NAMES coreutils
+        # Find lmcore shared library in standard locations
+        find_library(LMCORE_SHARED_LIB 
+            NAMES lmcore
             HINTS ${CMAKE_INSTALL_PREFIX}/lib /usr/local/lib /usr/lib
             PATH_SUFFIXES lib
         )
-        if(COREUTILS_SHARED_LIB)
-            target_link_libraries(${PROJECT_NAME}_shared PUBLIC ${COREUTILS_SHARED_LIB} ${PLATFORM_LIBS})
-            message(STATUS "Found coreutils shared library: ${COREUTILS_SHARED_LIB}")
+        if(LMCORE_SHARED_LIB)
+            target_link_libraries(lmnet_shared PUBLIC ${LMCORE_SHARED_LIB} ${PLATFORM_LIBS})
+            message(STATUS "Found lmcore shared library: ${LMCORE_SHARED_LIB}")
         else()
             # Fallback to generic library name (let linker find it)
-            target_link_libraries(${PROJECT_NAME}_shared PUBLIC coreutils ${PLATFORM_LIBS})
-            message(STATUS "Using generic coreutils library name (linker will resolve)")
+            target_link_libraries(lmnet_shared PUBLIC lmcore ${PLATFORM_LIBS})
+            message(STATUS "Using generic lmcore library name (linker will resolve)")
         endif()
     endif()
-    set_target_properties(${PROJECT_NAME}_shared PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
-    set_target_properties(${PROJECT_NAME}_shared PROPERTIES
+    set_target_properties(lmnet_shared PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
+    set_target_properties(lmnet_shared PROPERTIES
         VERSION ${PROJECT_VERSION}
         SOVERSION ${PROJECT_VERSION_MAJOR}
     )
     
     # Create alias for shared library
-    add_library(${PROJECT_NAME}::shared ALIAS ${PROJECT_NAME}_shared)
+    add_library(${PROJECT_NAME}::shared ALIAS lmnet_shared)
     message(STATUS "Building shared library: lib${PROJECT_NAME}.so")
 endif()
 
 # Create a default alias that points to static library (for examples and tests)
 if(BUILD_STATIC_LIBS)
-    add_library(${PROJECT_NAME} ALIAS ${PROJECT_NAME}_static)
+    add_library(${PROJECT_NAME} ALIAS lmnet_static)
     set(DEFAULT_LIBRARY_TYPE "static")
 else()
-    add_library(${PROJECT_NAME} ALIAS ${PROJECT_NAME}_shared)
+    add_library(${PROJECT_NAME} ALIAS lmnet_shared)
     set(DEFAULT_LIBRARY_TYPE "shared")
 endif()
 
@@ -285,15 +285,15 @@ if(NOT WIN32)
     # Install libraries and create export targets
     set(INSTALL_TARGETS)
     if(BUILD_STATIC_LIBS)
-        list(APPEND INSTALL_TARGETS ${PROJECT_NAME}_static)
+        list(APPEND INSTALL_TARGETS lmnet_static)
     endif()
     if(BUILD_SHARED_LIBS)
-        list(APPEND INSTALL_TARGETS ${PROJECT_NAME}_shared)
+        list(APPEND INSTALL_TARGETS lmnet_shared)
     endif()
 
     if(INSTALL_TARGETS)
         install(TARGETS ${INSTALL_TARGETS}
-            EXPORT networkTargets
+            EXPORT lmnetTargets
             ARCHIVE DESTINATION lib
             LIBRARY DESTINATION lib
             RUNTIME DESTINATION bin
@@ -302,30 +302,30 @@ if(NOT WIN32)
     endif()
 
     # Export targets for find_package
-    install(EXPORT networkTargets
-        FILE networkTargets.cmake
-        NAMESPACE network::
-        DESTINATION lib/cmake/network
+    install(EXPORT lmnetTargets
+        FILE lmnetTargets.cmake
+        NAMESPACE lmnet::
+        DESTINATION lib/cmake/lmnet
     )
 
     # Create and install config files
     include(CMakePackageConfigHelpers)
     configure_package_config_file(
-        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/networkConfig.cmake.in"
-        "${CMAKE_CURRENT_BINARY_DIR}/networkConfig.cmake"
-        INSTALL_DESTINATION lib/cmake/network
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/lmnetConfig.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/lmnetConfig.cmake"
+        INSTALL_DESTINATION lib/cmake/lmnet
     )
 
     write_basic_package_version_file(
-        "${CMAKE_CURRENT_BINARY_DIR}/networkConfigVersion.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/lmnetConfigVersion.cmake"
         VERSION ${PROJECT_VERSION}
         COMPATIBILITY AnyNewerVersion
     )
 
     install(FILES
-        "${CMAKE_CURRENT_BINARY_DIR}/networkConfig.cmake"
-        "${CMAKE_CURRENT_BINARY_DIR}/networkConfigVersion.cmake"
-        DESTINATION lib/cmake/network
+        "${CMAKE_CURRENT_BINARY_DIR}/lmnetConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/lmnetConfigVersion.cmake"
+        DESTINATION lib/cmake/lmnet
     )
 
     # Add uninstall target
@@ -345,11 +345,11 @@ endif()
 
 # Print build summary
 message(STATUS "")
-message(STATUS "========== Network Library Build Configuration ==========")
+message(STATUS "========== Lmnet Library Build Configuration ==========")
 message(STATUS "Version: ${PROJECT_VERSION}")
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Platform: ${PLATFORM_NAME}")
-message(STATUS "Coreutils source: ${COREUTILS_SOURCE}")
+message(STATUS "Lmcore source: ${LMCORE_SOURCE}")
 message(STATUS "Build static library: ${BUILD_STATIC_LIBS}")
 message(STATUS "Build shared library: ${BUILD_SHARED_LIBS}")
 message(STATUS "Build examples: ${BUILD_EXAMPLES}")

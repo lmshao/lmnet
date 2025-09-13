@@ -11,10 +11,10 @@
 #include <iostream>
 #include <thread>
 
-#include "network/network_logger.h"
-#include "network/udp_server.h"
+#include "lmnet/lmnet_logger.h"
+#include "lmnet/udp_server.h"
 
-using namespace lmshao::network;
+using namespace lmshao::lmnet;
 
 class MyListener : public IServerListener {
 public:
@@ -52,7 +52,7 @@ public:
 int main(int argc, char **argv)
 {
     printf("Built at %s on %s.\n", __TIME__, __DATE__);
-    lmshao::network::InitNetworkLogger(lmshao::coreutils::LogLevel::kDebug);
+    lmshao::lmnet::InitLmnetLogger(lmshao::lmcore::LogLevel::kDebug);
     uint16_t port = 7777;
     if (argc == 2) {
         port = atoi(argv[1]);

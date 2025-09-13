@@ -8,8 +8,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_IOCP_MANAGER_H
-#define LMSHAO_NETWORK_IOCP_MANAGER_H
+#ifndef LMSHAO_LMNET_IOCP_MANAGER_H
+#define LMSHAO_LMNET_IOCP_MANAGER_H
 
 #include <atomic>
 #include <functional>
@@ -19,10 +19,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include "coreutils/singleton.h"
-#include "network/common.h"
+#include "lmcore/singleton.h"
+#include "lmnet/common.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 // Forward declaration for IOCP completion callback
 class IIocpHandler {
@@ -41,7 +41,7 @@ public:
  * - Simplified socket lifecycle management
  * - Consistent error handling
  */
-class IocpManager : public lmshao::coreutils::Singleton<IocpManager> {
+class IocpManager : public lmshao::lmcore::Singleton<IocpManager> {
 public:
     ~IocpManager();
 
@@ -64,7 +64,7 @@ public:
     bool IsRunning() const { return running_.load(); }
 
 private:
-    friend class lmshao::coreutils::Singleton<IocpManager>;
+    friend class lmshao::lmcore::Singleton<IocpManager>;
     IocpManager() = default;
 
     void WorkerLoop();
@@ -83,6 +83,6 @@ private:
     int workerThreadCount_{0};
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_IOCP_MANAGER_H
+#endif // LMSHAO_LMNET_IOCP_MANAGER_H

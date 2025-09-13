@@ -18,7 +18,7 @@
 #include "../../internal_logger.h"
 #include "event_reactor.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 const int RECV_BUFFER_MAX_SIZE = 4096;
 
@@ -37,7 +37,7 @@ public:
 
     void HandleError(socket_t fd) override
     {
-        NETWORK_LOGE("UDP client connection error on fd: %d", fd);
+        LMNET_LOGE("UDP client connection error on fd: %d", fd);
         if (auto client = client_.lock()) {
             client->HandleConnectionClose(fd, true, "Connection error");
         }
@@ -45,7 +45,7 @@ public:
 
     void HandleClose(socket_t fd) override
     {
-        NETWORK_LOGD("UDP client connection close on fd: %d", fd);
+        LMNET_LOGD("UDP client connection close on fd: %d", fd);
         if (auto client = client_.lock()) {
             client->HandleConnectionClose(fd, false, "Connection closed");
         }
@@ -83,7 +83,7 @@ bool UdpClientImpl::Init()
 {
     socket_ = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("socket error: %s", strerror(errno));
+        LMNET_LOGE("socket error: %s", strerror(errno));
         return false;
     }
 
@@ -104,7 +104,7 @@ bool UdpClientImpl::Init()
 
         int ret = bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr));
         if (ret != 0) {
-            NETWORK_LOGE("bind error: %s", strerror(errno));
+            LMNET_LOGE("bind error: %s", strerror(errno));
             return false;
         }
     }
@@ -113,28 +113,28 @@ bool UdpClientImpl::Init()
 
     clientHandler_ = std::make_shared<UdpClientHandler>(socket_, shared_from_this());
     if (!EventReactor::GetInstance()->RegisterHandler(clientHandler_)) {
-        NETWORK_LOGE("Failed to register UDP client handler");
+        LMNET_LOGE("Failed to register UDP client handler");
         return false;
     }
 
-    NETWORK_LOGD("UdpClientImpl initialized with new EventHandler interface");
+    LMNET_LOGD("UdpClientImpl initialized with new EventHandler interface");
     return true;
 }
 
 bool UdpClientImpl::EnableBroadcast()
 {
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("Socket not initialized, call Init() first");
+        LMNET_LOGE("Socket not initialized, call Init() first");
         return false;
     }
 
     int broadcast = 1;
     if (setsockopt(socket_, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) < 0) {
-        NETWORK_LOGE("Failed to enable broadcast: %s", strerror(errno));
+        LMNET_LOGE("Failed to enable broadcast: %s", strerror(errno));
         return false;
     }
 
-    NETWORK_LOGD("Broadcast enabled successfully");
+    LMNET_LOGD("Broadcast enabled successfully");
     return true;
 }
 
@@ -151,18 +151,18 @@ void UdpClientImpl::Close()
 bool UdpClientImpl::Send(const void *data, size_t len)
 {
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("socket not initialized");
+        LMNET_LOGE("socket not initialized");
         return false;
     }
 
     if (!data || len == 0) {
-        NETWORK_LOGE("invalid send parameters: data=%p, len=%zu", data, len);
+        LMNET_LOGE("invalid send parameters: data=%p, len=%zu", data, len);
         return false;
     }
 
     ssize_t nbytes = sendto(socket_, data, len, 0, (struct sockaddr *)&serverAddr_, (socklen_t)(sizeof(serverAddr_)));
     if (nbytes == -1) {
-        NETWORK_LOGE("sendto error: %s", strerror(errno));
+        LMNET_LOGE("sendto error: %s", strerror(errno));
         return false;
     }
 
@@ -172,7 +172,7 @@ bool UdpClientImpl::Send(const void *data, size_t len)
 bool UdpClientImpl::Send(const std::string &str)
 {
     if (str.empty()) {
-        NETWORK_LOGE("invalid send parameters: empty string");
+        LMNET_LOGE("invalid send parameters: empty string");
         return false;
     }
     return Send(str.data(), str.size());
@@ -188,7 +188,7 @@ bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 
 void UdpClientImpl::HandleReceive(socket_t fd)
 {
-    NETWORK_LOGD("fd: %d", fd);
+    LMNET_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
         readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
     }
@@ -213,7 +213,7 @@ void UdpClientImpl::HandleReceive(socket_t fd)
             }
             continue;
         } else if (nbytes == 0) {
-            NETWORK_LOGW("Disconnect fd[%d]", fd);
+            LMNET_LOGW("Disconnect fd[%d]", fd);
             // Do not call HandleConnectionClose directly; let the event system handle EPOLLHUP
             break;
         } else {
@@ -223,7 +223,7 @@ void UdpClientImpl::HandleReceive(socket_t fd)
             }
 
             std::string info = strerror(errno);
-            NETWORK_LOGE("recv error: %s(%d)", info.c_str(), errno);
+            LMNET_LOGE("recv error: %s(%d)", info.c_str(), errno);
             HandleConnectionClose(fd, true, info);
         }
 
@@ -233,11 +233,11 @@ void UdpClientImpl::HandleReceive(socket_t fd)
 
 void UdpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
-    NETWORK_LOGD("Closing UDP client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
-                 isError ? "true" : "false");
+    LMNET_LOGD("Closing UDP client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
+               isError ? "true" : "false");
 
     if (socket_ != fd) {
-        NETWORK_LOGD("Connection fd: %d already cleaned up", fd);
+        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
         return;
     }
 
@@ -263,4 +263,4 @@ void UdpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
         }
     }
 }
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

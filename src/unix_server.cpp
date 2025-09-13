@@ -11,7 +11,7 @@
 #error "Unix domain sockets are not supported on this platform"
 #endif
 
-#include "network/unix_server.h"
+#include "lmnet/unix_server.h"
 
 #include "internal_logger.h"
 
@@ -19,13 +19,13 @@
 #include "platforms/linux/unix_server_impl.h"
 #endif
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 UnixServer::UnixServer(const std::string &socketPath)
 {
     impl_ = UnixServerImpl::Create(socketPath);
     if (!impl_) {
-        NETWORK_LOGE("Failed to create Unix server implementation");
+        LMNET_LOGE("Failed to create Unix server implementation");
     }
 }
 
@@ -34,7 +34,7 @@ UnixServer::~UnixServer() = default;
 bool UnixServer::Init()
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix server implementation is not initialized");
+        LMNET_LOGE("Unix server implementation is not initialized");
         return false;
     }
     return impl_->Init();
@@ -43,7 +43,7 @@ bool UnixServer::Init()
 void UnixServer::SetListener(std::shared_ptr<IServerListener> listener)
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix server implementation is not initialized");
+        LMNET_LOGE("Unix server implementation is not initialized");
         return;
     }
     impl_->SetListener(std::move(listener));
@@ -52,7 +52,7 @@ void UnixServer::SetListener(std::shared_ptr<IServerListener> listener)
 bool UnixServer::Start()
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix server implementation is not initialized");
+        LMNET_LOGE("Unix server implementation is not initialized");
         return false;
     }
     return impl_->Start();
@@ -61,7 +61,7 @@ bool UnixServer::Start()
 bool UnixServer::Stop()
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix server implementation is not initialized");
+        LMNET_LOGE("Unix server implementation is not initialized");
         return false;
     }
     return impl_->Stop();
@@ -70,10 +70,10 @@ bool UnixServer::Stop()
 socket_t UnixServer::GetSocketFd() const
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix server implementation is not initialized");
+        LMNET_LOGE("Unix server implementation is not initialized");
         return -1;
     }
     return impl_->GetSocketFd();
 }
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

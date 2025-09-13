@@ -16,7 +16,7 @@
 #include "../../internal_logger.h"
 #include "iocp_manager.h"
 #include "iocp_utils.h"
-#include "network/session.h"
+#include "lmnet/session.h"
 #include "session_impl.h"
 #pragma comment(lib, "ws2_32.lib")
 
@@ -26,7 +26,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 struct PerIoContextTCP {
     OVERLAPPED ov{};
     WSABUF buf{};
@@ -66,7 +66,7 @@ bool TcpServerImpl::Init()
     state_ = std::make_shared<TcpServerState>();
     state_->listenSocket = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (state_->listenSocket == INVALID_SOCKET) {
-        NETWORK_LOGE("WSASocket listen failed: %d", WSAGetLastError());
+        LMNET_LOGE("WSASocket listen failed: %d", WSAGetLastError());
         return false;
     }
     sockaddr_in addr{};
@@ -75,29 +75,29 @@ bool TcpServerImpl::Init()
     if (ip_.empty())
         ip_ = "0.0.0.0";
     if (inet_pton(AF_INET, ip_.c_str(), &addr.sin_addr) != 1) {
-        NETWORK_LOGE("inet_pton failed");
+        LMNET_LOGE("inet_pton failed");
         return false;
     }
     if (bind(state_->listenSocket, (sockaddr *)&addr, sizeof(addr)) != 0) {
-        NETWORK_LOGE("bind failed: %d", WSAGetLastError());
+        LMNET_LOGE("bind failed: %d", WSAGetLastError());
         return false;
     }
     if (listen(state_->listenSocket, SOMAXCONN) != 0) {
-        NETWORK_LOGE("listen failed: %d", WSAGetLastError());
+        LMNET_LOGE("listen failed: %d", WSAGetLastError());
         return false;
     }
 
     // Initialize global IOCP manager
     auto manager = IocpManager::GetInstance();
     if (!manager->Initialize()) {
-        NETWORK_LOGE("Failed to initialize IOCP manager");
+        LMNET_LOGE("Failed to initialize IOCP manager");
         return false;
     }
 
     // Register socket with global IOCP
     if (!manager->RegisterSocket((HANDLE)state_->listenSocket, (ULONG_PTR)state_->listenSocket,
                                  std::shared_ptr<IIocpHandler>(this, [](IIocpHandler *) {}))) {
-        NETWORK_LOGE("Associate listen socket to IOCP failed");
+        LMNET_LOGE("Associate listen socket to IOCP failed");
         return false;
     }
     // Load AcceptEx / GetAcceptExSockaddrs
@@ -107,13 +107,13 @@ bool TcpServerImpl::Init()
     if (WSAIoctl(state_->listenSocket, SIO_GET_EXTENSION_FUNCTION_POINTER, &guidAcceptEx, sizeof(guidAcceptEx),
                  &state_->fnAcceptEx, sizeof(state_->fnAcceptEx), &bytes, nullptr, nullptr) == SOCKET_ERROR ||
         !state_->fnAcceptEx) {
-        NETWORK_LOGE("WSAIoctl AcceptEx load failed: %d", WSAGetLastError());
+        LMNET_LOGE("WSAIoctl AcceptEx load failed: %d", WSAGetLastError());
         return false;
     }
     if (WSAIoctl(state_->listenSocket, SIO_GET_EXTENSION_FUNCTION_POINTER, &guidGetAddrs, sizeof(guidGetAddrs),
                  &state_->fnGetAddrs, sizeof(state_->fnGetAddrs), &bytes, nullptr, nullptr) == SOCKET_ERROR ||
         !state_->fnGetAddrs) {
-        NETWORK_LOGE("WSAIoctl GetAcceptExSockaddrs load failed: %d", WSAGetLastError());
+        LMNET_LOGE("WSAIoctl GetAcceptExSockaddrs load failed: %d", WSAGetLastError());
         return false;
     }
     return true;
@@ -149,7 +149,7 @@ bool TcpServerImpl::Stop()
 
 void TcpServerImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error)
 {
-    NETWORK_LOGD("OnIoCompletion called: key=%lu, bytes=%lu, success=%d, error=%lu", key, bytes, success, error);
+    LMNET_LOGD("OnIoCompletion called: key=%lu, bytes=%lu, success=%d, error=%lu", key, bytes, success, error);
     if (!ov) {
         return;
     }
@@ -161,7 +161,7 @@ void TcpServerImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, 
     }
 
     if (!success) {
-        NETWORK_LOGE("IOCP operation failed, error: %lu", error);
+        LMNET_LOGE("IOCP operation failed, error: %lu", error);
         delete ctx;
         return;
     }
@@ -186,16 +186,16 @@ socket_t TcpServerImpl::GetSocketFd() const
 
 void TcpServerImpl::PostAccept()
 {
-    NETWORK_LOGD("PostAccept called");
+    LMNET_LOGD("PostAccept called");
     auto *ctx = new PerIoContextTCP();
     ctx->op = PerIoContextTCP::Op::ACCEPT;
     ctx->acceptSocket = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (ctx->acceptSocket == INVALID_SOCKET) {
-        NETWORK_LOGE("WSASocketW failed: %d", WSAGetLastError());
+        LMNET_LOGE("WSASocketW failed: %d", WSAGetLastError());
         delete ctx;
         return;
     }
-    NETWORK_LOGD("Accept socket created: %llu", (unsigned long long)ctx->acceptSocket);
+    LMNET_LOGD("Accept socket created: %llu", (unsigned long long)ctx->acceptSocket);
 
     // Note: AcceptEx operations complete on the listen socket's IOCP, not the accept socket
     // The accept socket will be registered with IOCP after the connection is accepted
@@ -205,18 +205,18 @@ void TcpServerImpl::PostAccept()
     ctx->buf.len = 0; // we manage raw buffer ourselves
     BOOL r = state_->fnAcceptEx(state_->listenSocket, ctx->acceptSocket, ctx->data, 0, sizeof(sockaddr_in) + 16,
                                 sizeof(sockaddr_in) + 16, &bytes, &ctx->ov);
-    NETWORK_LOGD("AcceptEx returned: %d", r);
+    LMNET_LOGD("AcceptEx returned: %d", r);
     if (!r) {
         int err = WSAGetLastError();
-        NETWORK_LOGD("AcceptEx error: %d", err);
+        LMNET_LOGD("AcceptEx error: %d", err);
         if (err != ERROR_IO_PENDING) {
-            NETWORK_LOGE("AcceptEx failed: %d", err);
+            LMNET_LOGE("AcceptEx failed: %d", err);
             closesocket(ctx->acceptSocket);
             delete ctx;
             return;
         }
     }
-    NETWORK_LOGD("PostAccept completed successfully");
+    LMNET_LOGD("PostAccept completed successfully");
 }
 
 void TcpServerImpl::PostRecv(std::shared_ptr<SessionImpl> session)
@@ -230,7 +230,7 @@ void TcpServerImpl::PostRecv(std::shared_ptr<SessionImpl> session)
     if (r == SOCKET_ERROR) {
         int err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            NETWORK_LOGE("WSARecv failed: %d", err);
+            LMNET_LOGE("WSARecv failed: %d", err);
             delete ctx;
             return;
         }
@@ -248,7 +248,7 @@ void TcpServerImpl::HandleAccept(PerIoContextTCP *ctx, DWORD)
     // Update accept socket context - required after AcceptEx
     if (setsockopt(ctx->acceptSocket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char *)&state_->listenSocket,
                    sizeof(state_->listenSocket)) == SOCKET_ERROR) {
-        NETWORK_LOGE("setsockopt SO_UPDATE_ACCEPT_CONTEXT failed: %d", WSAGetLastError());
+        LMNET_LOGE("setsockopt SO_UPDATE_ACCEPT_CONTEXT failed: %d", WSAGetLastError());
         closesocket(ctx->acceptSocket);
         delete ctx;
         PostAccept();
@@ -279,10 +279,10 @@ void TcpServerImpl::HandleAccept(PerIoContextTCP *ctx, DWORD)
         state_->sessions[ctx->acceptSocket] = session;
     }
     if (listener_) {
-        NETWORK_LOGD("Calling OnAccept for session %s:%d", host.c_str(), port);
+        LMNET_LOGD("Calling OnAccept for session %s:%d", host.c_str(), port);
         listener_->OnAccept(session);
     } else {
-        NETWORK_LOGD("No listener set for OnAccept");
+        LMNET_LOGD("No listener set for OnAccept");
     }
     PostRecv(session);
     delete ctx;
@@ -352,4 +352,4 @@ bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std
     return Send(fd, std::move(host), port, str.data(), str.size());
 }
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

@@ -6,41 +6,39 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_UNIX_CLIENT_H
-#define LMSHAO_NETWORK_UNIX_CLIENT_H
+#ifndef LMSHAO_LMNET_TCP_CLIENT_H
+#define LMSHAO_LMNET_TCP_CLIENT_H
 
-// Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
-#if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
-#error "Unix domain sockets are not supported on this platform"
-#endif
+#include <lmcore/data_buffer.h>
 
-#include <coreutils/data_buffer.h>
-
+#include <cstdint>
 #include <memory>
 #include <string>
 
 #include "common.h"
 #include "iclient_listener.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
-class IUnixClient;
-
-class UnixClient : public Creatable<UnixClient> {
+class ITcpClient;
+class TcpClient final : public Creatable<TcpClient> {
 public:
     /**
      * @brief Constructor
-     * @param socketPath Unix domain socket path
+     * @param remoteIp Remote IP address
+     * @param remotePort Remote port number
+     * @param localIp Local IP address (optional)
+     * @param localPort Local port number (optional)
      */
-    explicit UnixClient(const std::string &socketPath);
+    TcpClient(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
 
     /**
      * @brief Destructor
      */
-    ~UnixClient();
+    ~TcpClient();
 
     /**
-     * @brief Initialize the Unix client
+     * @brief Initialize the TCP client
      * @return true on success, false on failure
      */
     bool Init();
@@ -52,7 +50,7 @@ public:
     void SetListener(std::shared_ptr<IClientListener> listener);
 
     /**
-     * @brief Connect to the Unix domain socket
+     * @brief Connect to the remote server
      * @return true on success, false on failure
      */
     bool Connect();
@@ -80,7 +78,7 @@ public:
     bool Send(std::shared_ptr<DataBuffer> data);
 
     /**
-     * @brief Close the Unix client
+     * @brief Close the TCP client
      */
     void Close();
 
@@ -91,9 +89,9 @@ public:
     socket_t GetSocketFd() const;
 
 private:
-    std::shared_ptr<IUnixClient> impl_;
+    std::shared_ptr<ITcpClient> impl_;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_UNIX_CLIENT_H
+#endif // LMSHAO_LMNET_TCP_CLIENT_H

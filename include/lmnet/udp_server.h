@@ -6,8 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_TCP_SERVER_H
-#define LMSHAO_NETWORK_TCP_SERVER_H
+#ifndef LMSHAO_LMNET_UDP_SERVER_H
+#define LMSHAO_LMNET_UDP_SERVER_H
 
 #include <cstdint>
 #include <memory>
@@ -16,34 +16,46 @@
 #include "common.h"
 #include "iserver_listener.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 class BaseServer;
-class TcpServer final : public Creatable<TcpServer> {
+class UdpServer final : public Creatable<UdpServer> {
 public:
     /**
      * @brief Constructor with IP and port
      * @param listenIp IP address to listen on
      * @param listenPort Port number to listen on
      */
-    TcpServer(std::string listenIp, uint16_t listenPort);
+    UdpServer(std::string listenIp, uint16_t listenPort);
 
     /**
      * @brief Constructor with port only (listen on all interfaces)
      * @param listenPort Port number to listen on
      */
-    explicit TcpServer(uint16_t listenPort);
+    explicit UdpServer(uint16_t listenPort);
 
     /**
      * @brief Destructor
      */
-    ~TcpServer();
+    ~UdpServer();
 
     /**
-     * @brief Initialize the TCP server
+     * @brief Initialize the UDP server
      * @return true on success, false on failure
      */
     bool Init();
+
+    /**
+     * @brief Start the UDP server
+     * @return true on success, false on failure
+     */
+    bool Start();
+
+    /**
+     * @brief Stop the UDP server
+     * @return true on success, false on failure
+     */
+    bool Stop();
 
     /**
      * @brief Set the server listener for receiving callbacks
@@ -52,27 +64,27 @@ public:
     void SetListener(std::shared_ptr<IServerListener> listener);
 
     /**
-     * @brief Start the TCP server
-     * @return true on success, false on failure
-     */
-    bool Start();
-
-    /**
-     * @brief Stop the TCP server
-     * @return true on success, false on failure
-     */
-    bool Stop();
-
-    /**
      * @brief Get the socket file descriptor
      * @return Socket file descriptor
      */
     socket_t GetSocketFd() const;
 
+    /**
+     * @brief Get an idle port number
+     * @return Available port number
+     */
+    static uint16_t GetIdlePort();
+
+    /**
+     * @brief Get an idle port pair
+     * @return Available port number pair
+     */
+    static uint16_t GetIdlePortPair();
+
 private:
     std::shared_ptr<BaseServer> impl_;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_TCP_SERVER_H
+#endif // LMSHAO_LMNET_UDP_SERVER_H

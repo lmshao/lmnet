@@ -1,0 +1,29 @@
+# Lmnet library configuration file
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# Lmnet version information
+set(LMNET_VERSION @PROJECT_VERSION@)
+
+# Find required dependencies
+find_dependency(Threads)
+find_dependency(lmcore)
+
+# Include target definitions
+include("${CMAKE_CURRENT_LIST_DIR}/lmnetTargets.cmake")
+
+# Create aliases for compatibility
+if(TARGET lmnet::lmnet_static AND NOT TARGET lmnet::lmnet)
+    add_library(lmnet::lmnet ALIAS lmnet::lmnet_static)
+endif()
+
+if(TARGET lmnet::lmnet_static AND NOT TARGET lmnet)
+    add_library(lmnet ALIAS lmnet::lmnet_static)
+endif()
+
+if(TARGET lmnet::lmnet_shared AND NOT TARGET lmnet_shared)
+    add_library(lmnet_shared ALIAS lmnet::lmnet_shared)
+endif()
+
+check_required_components(lmnet)

@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "network/tcp_client.h"
+#include "lmnet/tcp_client.h"
 
 #include "internal_logger.h"
 
@@ -16,13 +16,13 @@
 #include "platforms/windows/tcp_client_impl.h"
 #endif
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 TcpClient::TcpClient(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
 {
     impl_ = TcpClientImpl::Create(std::move(remoteIp), remotePort, std::move(localIp), localPort);
     if (!impl_) {
-        NETWORK_LOGE("Failed to create TCP client implementation");
+        LMNET_LOGE("Failed to create TCP client implementation");
     }
 }
 
@@ -31,7 +31,7 @@ TcpClient::~TcpClient() {}
 bool TcpClient::Init()
 {
     if (!impl_) {
-        NETWORK_LOGE("TCP client implementation is not initialized");
+        LMNET_LOGE("TCP client implementation is not initialized");
         return false;
     }
     return impl_->Init();
@@ -40,7 +40,7 @@ bool TcpClient::Init()
 bool TcpClient::Connect()
 {
     if (!impl_) {
-        NETWORK_LOGE("TCP client implementation is not initialized");
+        LMNET_LOGE("TCP client implementation is not initialized");
         return false;
     }
     return impl_->Connect();
@@ -49,7 +49,7 @@ bool TcpClient::Connect()
 void TcpClient::SetListener(std::shared_ptr<IClientListener> listener)
 {
     if (!impl_) {
-        NETWORK_LOGE("TCP client implementation is not initialized");
+        LMNET_LOGE("TCP client implementation is not initialized");
         return;
     }
     impl_->SetListener(std::move(listener));
@@ -58,7 +58,7 @@ void TcpClient::SetListener(std::shared_ptr<IClientListener> listener)
 bool TcpClient::Send(const std::string &str)
 {
     if (!impl_) {
-        NETWORK_LOGE("TCP client implementation is not initialized");
+        LMNET_LOGE("TCP client implementation is not initialized");
         return false;
     }
     return impl_->Send(str);
@@ -67,7 +67,7 @@ bool TcpClient::Send(const std::string &str)
 bool TcpClient::Send(const void *data, size_t len)
 {
     if (!impl_) {
-        NETWORK_LOGE("TCP client implementation is not initialized");
+        LMNET_LOGE("TCP client implementation is not initialized");
         return false;
     }
     return impl_->Send(data, len);
@@ -76,7 +76,7 @@ bool TcpClient::Send(const void *data, size_t len)
 bool TcpClient::Send(std::shared_ptr<DataBuffer> data)
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return false;
     }
     return impl_->Send(std::move(data));
@@ -85,7 +85,7 @@ bool TcpClient::Send(std::shared_ptr<DataBuffer> data)
 void TcpClient::Close()
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return;
     }
     impl_->Close();
@@ -94,10 +94,10 @@ void TcpClient::Close()
 socket_t TcpClient::GetSocketFd() const
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return -1;
     }
     return impl_->GetSocketFd();
 }
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

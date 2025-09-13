@@ -6,39 +6,41 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_UDP_CLIENT_H
-#define LMSHAO_NETWORK_UDP_CLIENT_H
+#ifndef LMSHAO_LMNET_UNIX_CLIENT_H
+#define LMSHAO_LMNET_UNIX_CLIENT_H
 
-#include <coreutils/data_buffer.h>
+// Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
+#if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
+#error "Unix domain sockets are not supported on this platform"
+#endif
 
-#include <cstdint>
+#include <lmcore/data_buffer.h>
+
 #include <memory>
 #include <string>
 
 #include "common.h"
 #include "iclient_listener.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
-class IUdpClient;
-class UdpClient final : public Creatable<UdpClient> {
+class IUnixClient;
+
+class UnixClient : public Creatable<UnixClient> {
 public:
     /**
      * @brief Constructor
-     * @param remoteIp Remote IP address
-     * @param remotePort Remote port number
-     * @param localIp Local IP address (optional)
-     * @param localPort Local port number (optional)
+     * @param socketPath Unix domain socket path
      */
-    UdpClient(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
+    explicit UnixClient(const std::string &socketPath);
 
     /**
      * @brief Destructor
      */
-    ~UdpClient();
+    ~UnixClient();
 
     /**
-     * @brief Initialize the UDP client
+     * @brief Initialize the Unix client
      * @return true on success, false on failure
      */
     bool Init();
@@ -50,10 +52,10 @@ public:
     void SetListener(std::shared_ptr<IClientListener> listener);
 
     /**
-     * @brief Enable UDP broadcast functionality
+     * @brief Connect to the Unix domain socket
      * @return true on success, false on failure
      */
-    bool EnableBroadcast();
+    bool Connect();
 
     /**
      * @brief Send string data
@@ -78,7 +80,7 @@ public:
     bool Send(std::shared_ptr<DataBuffer> data);
 
     /**
-     * @brief Close the UDP client
+     * @brief Close the Unix client
      */
     void Close();
 
@@ -89,9 +91,9 @@ public:
     socket_t GetSocketFd() const;
 
 private:
-    std::shared_ptr<IUdpClient> impl_;
+    std::shared_ptr<IUnixClient> impl_;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_UDP_CLIENT_H
+#endif // LMSHAO_LMNET_UNIX_CLIENT_H

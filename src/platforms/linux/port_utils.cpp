@@ -16,7 +16,7 @@
 
 #include "../../internal_logger.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 uint16_t PortUtils::nextPort_ = PortUtils::UDP_PORT_START;
 
@@ -29,7 +29,7 @@ uint16_t PortUtils::GetIdleUdpPort()
     for (i = nextPort_; i < nextPort_ + 100; i++) {
         sock = socket(AF_INET, SOCK_DGRAM, 0);
         if (sock < 0) {
-            NETWORK_LOGE("socket creation failed");
+            LMNET_LOGE("socket creation failed");
             return 0;
         }
 
@@ -48,7 +48,7 @@ uint16_t PortUtils::GetIdleUdpPort()
     }
 
     if (i == nextPort_ + 100) {
-        NETWORK_LOGE("Can't find idle port");
+        LMNET_LOGE("Can't find idle port");
         return 0;
     }
 
@@ -80,4 +80,4 @@ uint16_t PortUtils::GetIdleUdpPortPair()
     }
 }
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

@@ -11,7 +11,7 @@
 #error "Unix domain sockets are not supported on this platform"
 #endif
 
-#include "network/unix_client.h"
+#include "lmnet/unix_client.h"
 
 #include "internal_logger.h"
 #include "iunix_client.h"
@@ -20,13 +20,13 @@
 #include "platforms/linux/unix_client_impl.h"
 #endif
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 UnixClient::UnixClient(const std::string &socketPath)
 {
     impl_ = UnixClientImpl::Create(socketPath);
     if (!impl_) {
-        NETWORK_LOGE("Failed to create Unix client implementation");
+        LMNET_LOGE("Failed to create Unix client implementation");
     }
 }
 
@@ -35,7 +35,7 @@ UnixClient::~UnixClient() {}
 bool UnixClient::Init()
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix client implementation is not initialized");
+        LMNET_LOGE("Unix client implementation is not initialized");
         return false;
     }
     return impl_->Init();
@@ -44,7 +44,7 @@ bool UnixClient::Init()
 bool UnixClient::Connect()
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix client implementation is not initialized");
+        LMNET_LOGE("Unix client implementation is not initialized");
         return false;
     }
     return impl_->Connect();
@@ -53,7 +53,7 @@ bool UnixClient::Connect()
 void UnixClient::SetListener(std::shared_ptr<IClientListener> listener)
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix client implementation is not initialized");
+        LMNET_LOGE("Unix client implementation is not initialized");
         return;
     }
     impl_->SetListener(std::move(listener));
@@ -62,7 +62,7 @@ void UnixClient::SetListener(std::shared_ptr<IClientListener> listener)
 bool UnixClient::Send(const std::string &str)
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix client implementation is not initialized");
+        LMNET_LOGE("Unix client implementation is not initialized");
         return false;
     }
     return impl_->Send(str);
@@ -71,7 +71,7 @@ bool UnixClient::Send(const std::string &str)
 bool UnixClient::Send(const void *data, size_t len)
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix client implementation is not initialized");
+        LMNET_LOGE("Unix client implementation is not initialized");
         return false;
     }
     return impl_->Send(data, len);
@@ -80,7 +80,7 @@ bool UnixClient::Send(const void *data, size_t len)
 bool UnixClient::Send(std::shared_ptr<DataBuffer> data)
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix client implementation is not initialized");
+        LMNET_LOGE("Unix client implementation is not initialized");
         return false;
     }
     return impl_->Send(std::move(data));
@@ -89,7 +89,7 @@ bool UnixClient::Send(std::shared_ptr<DataBuffer> data)
 void UnixClient::Close()
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix client implementation is not initialized");
+        LMNET_LOGE("Unix client implementation is not initialized");
         return;
     }
     impl_->Close();
@@ -98,10 +98,10 @@ void UnixClient::Close()
 socket_t UnixClient::GetSocketFd() const
 {
     if (!impl_) {
-        NETWORK_LOGE("Unix client implementation is not initialized");
+        LMNET_LOGE("Unix client implementation is not initialized");
         return -1;
     }
     return impl_->GetSocketFd();
 }
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

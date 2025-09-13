@@ -8,14 +8,14 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "network/udp_client.h"
+#include "lmnet/udp_client.h"
 
 #include <assert.h>
 
 #include <iostream>
 #include <thread>
 
-using namespace lmshao::network;
+using namespace lmshao::lmnet;
 
 bool gExit = false;
 class MyListener : public IClientListener {

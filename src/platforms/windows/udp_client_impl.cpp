@@ -21,7 +21,7 @@
 #include <cstring>
 #include <memory>
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 using PerIoContext = UdpPerIoContext;
 
 UdpClientImpl::UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
@@ -39,7 +39,7 @@ bool UdpClientImpl::Init()
     EnsureWsaInit();
     socket_ = ::WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("WSASocket failed: %d", WSAGetLastError());
+        LMNET_LOGE("WSASocket failed: %d", WSAGetLastError());
         return false;
     }
 
@@ -50,12 +50,12 @@ bool UdpClientImpl::Init()
         if (localIp_.empty())
             localIp_ = "0.0.0.0";
         if (inet_pton(AF_INET, localIp_.c_str(), &localAddr.sin_addr) != 1) {
-            NETWORK_LOGE("inet_pton local failed: %d", WSAGetLastError());
+            LMNET_LOGE("inet_pton local failed: %d", WSAGetLastError());
             Close();
             return false;
         }
         if (bind(socket_, reinterpret_cast<sockaddr *>(&localAddr), sizeof(localAddr)) != 0) {
-            NETWORK_LOGE("bind failed: %d", WSAGetLastError());
+            LMNET_LOGE("bind failed: %d", WSAGetLastError());
             Close();
             return false;
         }
@@ -67,7 +67,7 @@ bool UdpClientImpl::Init()
         localAddr.sin_addr.s_addr = htonl(INADDR_ANY);
         localAddr.sin_port = 0; // Let system choose port
         if (bind(socket_, reinterpret_cast<sockaddr *>(&localAddr), sizeof(localAddr)) != 0) {
-            NETWORK_LOGE("Auto-bind failed: %d", WSAGetLastError());
+            LMNET_LOGE("Auto-bind failed: %d", WSAGetLastError());
             Close();
             return false;
         }
@@ -77,7 +77,7 @@ bool UdpClientImpl::Init()
     remoteAddr_.sin_family = AF_INET;
     remoteAddr_.sin_port = htons(remotePort_);
     if (inet_pton(AF_INET, remoteIp_.c_str(), &remoteAddr_.sin_addr) != 1) {
-        NETWORK_LOGE("inet_pton remote failed: %d", WSAGetLastError());
+        LMNET_LOGE("inet_pton remote failed: %d", WSAGetLastError());
         Close();
         return false;
     }
@@ -85,14 +85,14 @@ bool UdpClientImpl::Init()
     // Initialize global IOCP manager
     auto manager = IocpManager::GetInstance();
     if (!manager->Initialize()) {
-        NETWORK_LOGE("Failed to initialize IOCP manager");
+        LMNET_LOGE("Failed to initialize IOCP manager");
         Close();
         return false;
     }
 
     // Register this socket with the global IOCP manager
     if (!manager->RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
-        NETWORK_LOGE("Failed to register socket with IOCP manager");
+        LMNET_LOGE("Failed to register socket with IOCP manager");
         Close();
         return false;
     }
@@ -100,24 +100,24 @@ bool UdpClientImpl::Init()
     running_ = true;
     for (int i = 0; i < 4; ++i)
         PostRecv();
-    NETWORK_LOGD("UDP client (IOCP) initialized: %s:%u", remoteIp_.c_str(), remotePort_);
+    LMNET_LOGD("UDP client (IOCP) initialized: %s:%u", remoteIp_.c_str(), remotePort_);
     return true;
 }
 
 bool UdpClientImpl::EnableBroadcast()
 {
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("Socket not initialized, call Init() first");
+        LMNET_LOGE("Socket not initialized, call Init() first");
         return false;
     }
 
     BOOL broadcast = TRUE;
     if (setsockopt(socket_, SOL_SOCKET, SO_BROADCAST, (const char *)&broadcast, sizeof(broadcast)) == SOCKET_ERROR) {
-        NETWORK_LOGE("Failed to enable broadcast: %d", WSAGetLastError());
+        LMNET_LOGE("Failed to enable broadcast: %d", WSAGetLastError());
         return false;
     }
 
-    NETWORK_LOGD("Broadcast enabled successfully");
+    LMNET_LOGD("Broadcast enabled successfully");
     return true;
 }
 
@@ -147,7 +147,7 @@ bool UdpClientImpl::Send(const void *data, size_t len)
             if (listener_) {
                 listener_->OnError(socket_, "WSASendTo error: " + std::to_string(err));
             }
-            NETWORK_LOGE("WSASendTo failed: %d", err);
+            LMNET_LOGE("WSASendTo failed: %d", err);
             delete ctx;
             return false;
         }
@@ -199,7 +199,7 @@ void UdpClientImpl::PostRecv()
     if (r == SOCKET_ERROR) {
         int err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            NETWORK_LOGE("WSARecvFrom failed: %d", err);
+            LMNET_LOGE("WSARecvFrom failed: %d", err);
             if (listener_) {
                 listener_->OnError(socket_, "WSARecvFrom error: " + std::to_string(err));
             }
@@ -259,4 +259,4 @@ void UdpClientImpl::HandleConnectionClose(socket_t fd, bool error, const std::st
     (void)info;
 }
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
