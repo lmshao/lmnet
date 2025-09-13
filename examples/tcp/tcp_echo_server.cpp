@@ -11,10 +11,10 @@
 #include <iostream>
 #include <thread>
 
-#include "network/network_logger.h"
-#include "network/tcp_server.h"
+#include "lmnet/lmnet_logger.h"
+#include "lmnet/tcp_server.h"
 
-using namespace lmshao::network;
+using namespace lmshao::lmnet;
 
 class MyListener : public IServerListener {
 public:
@@ -66,7 +66,7 @@ int main(int argc, char **argv)
         printf("Usage:\n%s <port> [default:7777]\n", argv[0]);
     }
 
-    InitNetworkLogger(lmshao::coreutils::LogLevel::kInfo);
+    InitLmnetLogger(lmshao::lmcore::LogLevel::kInfo);
     auto tcp_server = TcpServer::Create("0.0.0.0", port);
     auto listener = std::make_shared<MyListener>();
     tcp_server->SetListener(listener);

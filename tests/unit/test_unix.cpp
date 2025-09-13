@@ -14,10 +14,10 @@
 #include <thread>
 
 #include "../test_framework.h"
-#include "network/unix_client.h"
-#include "network/unix_server.h"
+#include "lmnet/unix_client.h"
+#include "lmnet/unix_server.h"
 
-using namespace lmshao::network;
+using namespace lmshao::lmnet;
 
 // Simple UNIX socket server-client test
 TEST(UnixTest, ServerClientSendRecv)

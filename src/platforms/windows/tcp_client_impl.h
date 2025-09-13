@@ -8,8 +8,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_WINDOWS_TCP_CLIENT_IMPL_H
-#define LMSHAO_NETWORK_WINDOWS_TCP_CLIENT_IMPL_H
+#ifndef LMSHAO_LMNET_WINDOWS_TCP_CLIENT_IMPL_H
+#define LMSHAO_LMNET_WINDOWS_TCP_CLIENT_IMPL_H
 
 #include <cstdint>
 #include <memory>
@@ -17,15 +17,15 @@
 #include <thread>
 
 #include "itcp_client.h"
-#include "network/common.h" // provides winsock2.h on Windows
+#include "lmnet/common.h" // provides winsock2.h on Windows
 // After winsock2.h is available we can include mswsock for LPFN_CONNECTEX
 #include <mswsock.h>
 
-#include "coreutils/data_buffer.h"
 #include "iocp_manager.h"
-#include "network/iclient_listener.h"
+#include "lmcore/data_buffer.h"
+#include "lmnet/iclient_listener.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 class TcpClientImpl final : public ITcpClient,
                             public std::enable_shared_from_this<TcpClientImpl>,
@@ -65,6 +65,6 @@ private:
     std::shared_ptr<IClientListener> listener_;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_WINDOWS_TCP_CLIENT_IMPL_H
+#endif // LMSHAO_LMNET_WINDOWS_TCP_CLIENT_IMPL_H

@@ -6,19 +6,19 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_I_UDP_CLIENT_H
-#define LMSHAO_NETWORK_I_UDP_CLIENT_H
+#ifndef LMSHAO_LMNET_I_UDP_CLIENT_H
+#define LMSHAO_LMNET_I_UDP_CLIENT_H
 
-#include <coreutils/data_buffer.h>
+#include <lmcore/data_buffer.h>
 
 #include <cstdint>
 #include <memory>
 #include <string>
 
-#include "network/iclient_listener.h"
+#include "lmnet/iclient_listener.h"
 
-namespace lmshao::network {
-using namespace lmshao::coreutils;
+namespace lmshao::lmnet {
+using namespace lmshao::lmcore;
 
 class IUdpClient {
 public:
@@ -34,6 +34,6 @@ public:
     virtual socket_t GetSocketFd() const = 0;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_I_UDP_CLIENT_H
+#endif // LMSHAO_LMNET_I_UDP_CLIENT_H

@@ -25,7 +25,7 @@
 #include "event_reactor.h"
 #include "session_impl.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
@@ -42,9 +42,9 @@ public:
 
     void HandleWrite(int) override {}
 
-    void HandleError(socket_t fd) override { NETWORK_LOGE("Unix server socket error on fd: %d", fd); }
+    void HandleError(socket_t fd) override { LMNET_LOGE("Unix server socket error on fd: %d", fd); }
 
-    void HandleClose(socket_t fd) override { NETWORK_LOGD("Unix server socket close on fd: %d", fd); }
+    void HandleClose(socket_t fd) override { LMNET_LOGD("Unix server socket close on fd: %d", fd); }
 
     int GetHandle() const override
     {
@@ -82,7 +82,7 @@ public:
 
     void HandleError(socket_t fd) override
     {
-        NETWORK_LOGE("Unix connection error on fd: %d", fd);
+        LMNET_LOGE("Unix connection error on fd: %d", fd);
         if (auto server = server_.lock()) {
             server->HandleConnectionClose(fd, true, "Connection error");
         }
@@ -90,7 +90,7 @@ public:
 
     void HandleClose(socket_t fd) override
     {
-        NETWORK_LOGD("Unix connection close on fd: %d", fd);
+        LMNET_LOGD("Unix connection close on fd: %d", fd);
         if (auto server = server_.lock()) {
             server->HandleConnectionClose(fd, false, "Connection closed");
         }
@@ -154,7 +154,7 @@ private:
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     break;
                 } else {
-                    NETWORK_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
+                    LMNET_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
                     return;
                 }
             }
@@ -176,7 +176,7 @@ UnixServerImpl::UnixServerImpl(const std::string &socketPath) : socketPath_(sock
 
 UnixServerImpl::~UnixServerImpl()
 {
-    NETWORK_LOGD("fd:%d", socket_);
+    LMNET_LOGD("fd:%d", socket_);
     Stop();
 }
 
@@ -184,10 +184,10 @@ bool UnixServerImpl::Init()
 {
     socket_ = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("socket error: %s", strerror(errno));
+        LMNET_LOGE("socket error: %s", strerror(errno));
         return false;
     }
-    NETWORK_LOGD("init path: %s, fd:%d", socketPath_.c_str(), socket_);
+    LMNET_LOGD("init path: %s, fd:%d", socketPath_.c_str(), socket_);
 
     // Remove existing socket file if it exists
     unlink(socketPath_.c_str());
@@ -197,12 +197,12 @@ bool UnixServerImpl::Init()
     strncpy(serverAddr_.sun_path, socketPath_.c_str(), sizeof(serverAddr_.sun_path) - 1);
 
     if (bind(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
-        NETWORK_LOGE("bind error: %s", strerror(errno));
+        LMNET_LOGE("bind error: %s", strerror(errno));
         return false;
     }
 
     if (listen(socket_, 10) < 0) {
-        NETWORK_LOGE("listen error: %s", strerror(errno));
+        LMNET_LOGE("listen error: %s", strerror(errno));
         return false;
     }
 
@@ -213,7 +213,7 @@ bool UnixServerImpl::Init()
 bool UnixServerImpl::Start()
 {
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("socket not initialized");
+        LMNET_LOGE("socket not initialized");
         return false;
     }
 
@@ -221,11 +221,11 @@ bool UnixServerImpl::Start()
 
     serverHandler_ = std::make_shared<UnixServerHandler>(shared_from_this());
     if (!EventReactor::GetInstance()->RegisterHandler(serverHandler_)) {
-        NETWORK_LOGE("Failed to register server handler");
+        LMNET_LOGE("Failed to register server handler");
         return false;
     }
 
-    NETWORK_LOGD("UnixServerImpl started with new EventHandler interface");
+    LMNET_LOGD("UnixServerImpl started with new EventHandler interface");
     return true;
 }
 
@@ -239,7 +239,7 @@ bool UnixServerImpl::Stop()
     }
 
     for (int clientFd : clientFds) {
-        NETWORK_LOGD("close client fd: %d", clientFd);
+        LMNET_LOGD("close client fd: %d", clientFd);
         reactor->RemoveHandler(clientFd);
         close(clientFd);
 
@@ -248,7 +248,7 @@ bool UnixServerImpl::Stop()
     sessions_.clear();
 
     if (socket_ != INVALID_SOCKET && serverHandler_) {
-        NETWORK_LOGD("close server fd: %d", socket_);
+        LMNET_LOGD("close server fd: %d", socket_);
         reactor->RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
@@ -263,14 +263,14 @@ bool UnixServerImpl::Stop()
     // Remove socket file
     unlink(socketPath_.c_str());
 
-    NETWORK_LOGD("UnixServerImpl stopped");
+    LMNET_LOGD("UnixServerImpl stopped");
     return true;
 }
 
 bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size)
 {
     if (!data || size == 0) {
-        NETWORK_LOGE("invalid data or size");
+        LMNET_LOGE("invalid data or size");
         return false;
     }
     auto buf = DataBuffer::PoolAlloc(size);
@@ -285,7 +285,7 @@ bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::sha
     }
 
     if (sessions_.find(fd) == sessions_.end()) {
-        NETWORK_LOGE("invalid session fd");
+        LMNET_LOGE("invalid session fd");
         return false;
     }
 
@@ -297,14 +297,14 @@ bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::sha
             return true;
         }
     }
-    NETWORK_LOGE("Connection handler not found for fd: %d", fd);
+    LMNET_LOGE("Connection handler not found for fd: %d", fd);
     return false;
 }
 
 bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std::string &str)
 {
     if (str.empty()) {
-        NETWORK_LOGE("invalid string data");
+        LMNET_LOGE("invalid string data");
         return false;
     }
     auto buf = DataBuffer::PoolAlloc(str.size());
@@ -314,25 +314,25 @@ bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, const st
 
 void UnixServerImpl::HandleAccept(socket_t fd)
 {
-    NETWORK_LOGD("enter");
+    LMNET_LOGD("enter");
     struct sockaddr_un clientAddr = {};
     socklen_t addrLen = sizeof(struct sockaddr_un);
     int clientSocket = accept4(fd, (struct sockaddr *)&clientAddr, &addrLen, SOCK_NONBLOCK);
     if (clientSocket < 0) {
-        NETWORK_LOGE("accept error: %s", strerror(errno));
+        LMNET_LOGE("accept error: %s", strerror(errno));
         return;
     }
 
     auto connectionHandler = std::make_shared<UnixConnectionHandler>(clientSocket, shared_from_this());
     if (!EventReactor::GetInstance()->RegisterHandler(connectionHandler)) {
-        NETWORK_LOGE("Failed to register connection handler for fd: %d", clientSocket);
+        LMNET_LOGE("Failed to register connection handler for fd: %d", clientSocket);
         close(clientSocket);
         return;
     }
 
     connectionHandlers_[clientSocket] = connectionHandler;
 
-    NETWORK_LOGD("New Unix client connection client[%d]\n", clientSocket);
+    LMNET_LOGD("New Unix client connection client[%d]\n", clientSocket);
 
     // Unix domain socket uses empty host and port
     auto session = std::make_shared<SessionImpl>(clientSocket, socketPath_, 0, shared_from_this());
@@ -342,25 +342,25 @@ void UnixServerImpl::HandleAccept(socket_t fd)
         auto listenerWeak = listener_;
         auto sessionPtr = sessions_[clientSocket];
         auto task = std::make_shared<TaskHandler<void>>([listenerWeak, sessionPtr]() {
-            NETWORK_LOGD("invoke OnAccept callback");
+            LMNET_LOGD("invoke OnAccept callback");
             auto listener = listenerWeak.lock();
             if (listener) {
                 listener->OnAccept(sessionPtr);
             } else {
-                NETWORK_LOGD("not found listener!");
+                LMNET_LOGD("not found listener!");
             }
         });
         if (taskQueue_) {
             taskQueue_->EnqueueTask(task);
         }
     } else {
-        NETWORK_LOGD("listener is null");
+        LMNET_LOGD("listener is null");
     }
 }
 
 void UnixServerImpl::HandleReceive(socket_t fd)
 {
-    NETWORK_LOGD("fd: %d", fd);
+    LMNET_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
         readBuffer_ = std::make_shared<DataBuffer>(RECV_BUFFER_MAX_SIZE);
     }
@@ -370,7 +370,7 @@ void UnixServerImpl::HandleReceive(socket_t fd)
 
         if (nbytes > 0) {
             if (nbytes > RECV_BUFFER_MAX_SIZE) {
-                NETWORK_LOGE("recv %zd bytes", nbytes);
+                LMNET_LOGE("recv %zd bytes", nbytes);
                 break;
             }
 
@@ -399,7 +399,7 @@ void UnixServerImpl::HandleReceive(socket_t fd)
             }
             continue;
         } else if (nbytes == 0) {
-            NETWORK_LOGW("Disconnect fd[%d]", fd);
+            LMNET_LOGW("Disconnect fd[%d]", fd);
             // Do not call HandleConnectionClose directly; let the event system handle EPOLLHUP
             break;
         } else {
@@ -408,10 +408,10 @@ void UnixServerImpl::HandleReceive(socket_t fd)
             }
 
             std::string info = strerror(errno);
-            NETWORK_LOGE("recv error: %s(%d)", info.c_str(), errno);
+            LMNET_LOGE("recv error: %s(%d)", info.c_str(), errno);
 
             if (errno == ETIMEDOUT) {
-                NETWORK_LOGE("ETIME: connection is timeout");
+                LMNET_LOGE("ETIME: connection is timeout");
                 break;
             }
 
@@ -424,11 +424,11 @@ void UnixServerImpl::HandleReceive(socket_t fd)
 
 void UnixServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
-    NETWORK_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
+    LMNET_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
 
     auto sessionIt = sessions_.find(fd);
     if (sessionIt == sessions_.end()) {
-        NETWORK_LOGD("Connection fd: %d already cleaned up", fd);
+        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
         return;
     }
 
@@ -458,4 +458,4 @@ void UnixServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std:
         }
     }
 }
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

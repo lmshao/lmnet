@@ -6,18 +6,18 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_ICLIENT_LISTENER_H
-#define LMSHAO_NETWORK_ICLIENT_LISTENER_H
+#ifndef LMSHAO_LMNET_ICLIENT_LISTENER_H
+#define LMSHAO_LMNET_ICLIENT_LISTENER_H
 
-#include <coreutils/data_buffer.h>
+#include <lmcore/data_buffer.h>
 
 #include <memory>
 
 #include "common.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
-using namespace lmshao::coreutils;
+using namespace lmshao::lmcore;
 
 class IClientListener {
 public:
@@ -44,6 +44,6 @@ public:
     virtual void OnError(socket_t fd, const std::string &errorInfo) = 0;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_ICLIENT_LISTENER_H
+#endif // LMSHAO_LMNET_ICLIENT_LISTENER_H

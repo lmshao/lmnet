@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "network/unix_client.h"
+#include "lmnet/unix_client.h"
 
 #include <chrono>
 #include <iostream>
@@ -16,9 +16,9 @@
 #include <string>
 #include <thread>
 
-#include "network/iclient_listener.h"
+#include "lmnet/iclient_listener.h"
 
-using namespace lmshao::network;
+using namespace lmshao::lmnet;
 
 bool gExit = false;
 class EchoClientListener : public IClientListener {

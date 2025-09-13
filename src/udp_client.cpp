@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "network/udp_client.h"
+#include "lmnet/udp_client.h"
 
 #include "internal_logger.h"
 
@@ -16,13 +16,13 @@
 #include "platforms/windows/udp_client_impl.h"
 #endif
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 UdpClient::UdpClient(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
 {
     impl_ = UdpClientImpl::Create(std::move(remoteIp), remotePort, std::move(localIp), localPort);
     if (!impl_) {
-        NETWORK_LOGE("Failed to create UDP client implementation");
+        LMNET_LOGE("Failed to create UDP client implementation");
     }
 }
 
@@ -31,7 +31,7 @@ UdpClient::~UdpClient() {}
 bool UdpClient::Init()
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return false;
     }
 
@@ -41,7 +41,7 @@ bool UdpClient::Init()
 void UdpClient::SetListener(std::shared_ptr<IClientListener> listener)
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return;
     }
     impl_->SetListener(std::move(listener));
@@ -50,7 +50,7 @@ void UdpClient::SetListener(std::shared_ptr<IClientListener> listener)
 bool UdpClient::EnableBroadcast()
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return false;
     }
     return impl_->EnableBroadcast();
@@ -59,7 +59,7 @@ bool UdpClient::EnableBroadcast()
 bool UdpClient::Send(const std::string &str)
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return false;
     }
     return impl_->Send(str);
@@ -68,7 +68,7 @@ bool UdpClient::Send(const std::string &str)
 bool UdpClient::Send(const void *data, size_t len)
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return false;
     }
     return impl_->Send(data, len);
@@ -77,7 +77,7 @@ bool UdpClient::Send(const void *data, size_t len)
 bool UdpClient::Send(std::shared_ptr<DataBuffer> data)
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return false;
     }
     return impl_->Send(std::move(data));
@@ -86,7 +86,7 @@ bool UdpClient::Send(std::shared_ptr<DataBuffer> data)
 void UdpClient::Close()
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return;
     }
     impl_->Close();
@@ -95,10 +95,10 @@ void UdpClient::Close()
 socket_t UdpClient::GetSocketFd() const
 {
     if (!impl_) {
-        NETWORK_LOGE("UDP client implementation is not initialized");
+        LMNET_LOGE("UDP client implementation is not initialized");
         return -1;
     }
     return impl_->GetSocketFd();
 }
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

@@ -13,10 +13,14 @@
 #include <mutex>
 
 #include "iocp_utils.h"
-#include "network/common.h"
+#include "lmnet/common.h"
 
-namespace lmshao {
-namespace network {
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
+
+namespace lmshao::lmnet {
 
 uint16_t PortUtils::nextPort_ = PortUtils::UDP_PORT_START;
 
@@ -103,5 +107,4 @@ uint16_t PortUtils::GetIdleUdpPortPair()
     return 0;
 }
 
-} // namespace network
-} // namespace lmshao
+} // namespace lmshao::lmnet

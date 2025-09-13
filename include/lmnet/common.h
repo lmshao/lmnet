@@ -6,15 +6,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_COMMON_H
-#define LMSHAO_NETWORK_COMMON_H
+#ifndef LMSHAO_LMNET_COMMON_H
+#define LMSHAO_LMNET_COMMON_H
 
 #include <memory>
 #ifdef _WIN32
 #include <winsock2.h>
 #endif
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 #ifdef __linux__
 inline constexpr int INVALID_SOCKET = -1;
 using socket_t = int;
@@ -35,6 +35,6 @@ public:
 protected:
     friend T;
 };
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_COMMON_H
+#endif // LMSHAO_LMNET_COMMON_H

@@ -15,11 +15,11 @@
 #include <string>
 #include <thread>
 
-#include "network/iserver_listener.h"
-#include "network/session.h"
-#include "network/unix_server.h"
+#include "lmnet/iserver_listener.h"
+#include "lmnet/session.h"
+#include "lmnet/unix_server.h"
 
-using namespace lmshao::network;
+using namespace lmshao::lmnet;
 
 class EchoServerListener : public IServerListener {
 public:

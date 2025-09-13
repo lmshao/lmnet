@@ -23,7 +23,7 @@ constexpr int INVALID_WAKEUP_FD = -1;
 constexpr int EPOLL_WAIT_EVENT_NUMS_MAX = 1024;
 } // namespace
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 EventReactor::EventReactor() : wakeupFd_(INVALID_WAKEUP_FD)
 {
     wakeupFd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
@@ -35,7 +35,7 @@ EventReactor::EventReactor() : wakeupFd_(INVALID_WAKEUP_FD)
 
 EventReactor::~EventReactor()
 {
-    NETWORK_LOGD("enter");
+    LMNET_LOGD("enter");
     running_ = false;
 
     if (wakeupFd_ != INVALID_WAKEUP_FD) {
@@ -60,11 +60,11 @@ EventReactor::~EventReactor()
 
 void EventReactor::Run()
 {
-    NETWORK_LOGD("enter");
+    LMNET_LOGD("enter");
     epollFd_ = epoll_create1(0);
     if (epollFd_ == -1) {
         perror("epoll_create");
-        NETWORK_LOGE("epoll_create %s", strerror(errno));
+        LMNET_LOGE("epoll_create %s", strerror(errno));
         return;
     }
 
@@ -84,11 +84,11 @@ void EventReactor::Run()
         nfds = epoll_wait(epollFd_, readyEvents, EPOLL_WAIT_EVENT_NUMS_MAX, 100);
         if (nfds == -1) {
             if (errno == EINTR) {
-                NETWORK_LOGD("ignore signal EINTR");
+                LMNET_LOGD("ignore signal EINTR");
                 continue;
             }
 
-            NETWORK_LOGE("epoll_wait error: %s(%d)", strerror(errno), errno);
+            LMNET_LOGE("epoll_wait error: %s(%d)", strerror(errno), errno);
             return;
         } else if (nfds == 0) {
             continue;
@@ -130,16 +130,16 @@ void EventReactor::SetThreadName(const std::string &name)
 bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
 {
     if (!handler) {
-        NETWORK_LOGE("Handler is nullptr");
+        LMNET_LOGE("Handler is nullptr");
         return false;
     }
 
     socket_t fd = handler->GetHandle();
     int events = handler->GetEvents();
-    NETWORK_LOGD("[%p] Register handler for fd:%d, events:0x%x", this, fd, events);
+    LMNET_LOGD("[%p] Register handler for fd:%d, events:0x%x", this, fd, events);
 
     if (!running_) {
-        NETWORK_LOGE("Reactor has exited");
+        LMNET_LOGE("Reactor has exited");
         return false;
     }
 
@@ -164,58 +164,58 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
     ev.data.fd = fd;
 
     if (epoll_ctl(epollFd_, EPOLL_CTL_ADD, fd, &ev) == -1) {
-        NETWORK_LOGE("epoll_ctl ADD error for fd %d: %s", fd, strerror(errno));
+        LMNET_LOGE("epoll_ctl ADD error for fd %d: %s", fd, strerror(errno));
         return false;
     }
 
     std::unique_lock<std::shared_mutex> lock(mutex_);
     handlers_.emplace(fd, handler);
 
-    NETWORK_LOGD("Handler registered successfully for fd:%d", fd);
+    LMNET_LOGD("Handler registered successfully for fd:%d", fd);
     return true;
 }
 
 bool EventReactor::RemoveHandler(socket_t fd)
 {
-    NETWORK_LOGD("Remove handler for fd(%d)", fd);
+    LMNET_LOGD("Remove handler for fd(%d)", fd);
 
     std::unique_lock<std::shared_mutex> lock(mutex_);
     auto it = handlers_.find(fd);
     if (it == handlers_.end()) {
-        NETWORK_LOGW("Handler not found for fd:%d", fd);
+        LMNET_LOGW("Handler not found for fd:%d", fd);
         return false;
     }
     handlers_.erase(it);
     lock.unlock();
 
     if (!running_) {
-        NETWORK_LOGE("Reactor has exited");
+        LMNET_LOGE("Reactor has exited");
         return false;
     }
 
     struct epoll_event ev;
     if (epoll_ctl(epollFd_, EPOLL_CTL_DEL, fd, &ev) == -1) {
-        NETWORK_LOGE("epoll_ctl DEL error for fd %d: %s", fd, strerror(errno));
+        LMNET_LOGE("epoll_ctl DEL error for fd %d: %s", fd, strerror(errno));
         return false;
     }
 
-    NETWORK_LOGD("Handler removed successfully for fd:%d", fd);
+    LMNET_LOGD("Handler removed successfully for fd:%d", fd);
     return true;
 }
 
 bool EventReactor::ModifyHandler(socket_t fd, int events)
 {
-    NETWORK_LOGD("Modify handler for fd(%d), events:0x%x", fd, events);
+    LMNET_LOGD("Modify handler for fd(%d), events:0x%x", fd, events);
 
     if (!running_) {
-        NETWORK_LOGE("Reactor has exited");
+        LMNET_LOGE("Reactor has exited");
         return false;
     }
 
     std::unique_lock<std::shared_mutex> lock(mutex_);
     auto it = handlers_.find(fd);
     if (it == handlers_.end()) {
-        NETWORK_LOGW("Handler not found for fd:%d during modify", fd);
+        LMNET_LOGW("Handler not found for fd:%d during modify", fd);
         return false;
     }
 
@@ -240,11 +240,11 @@ bool EventReactor::ModifyHandler(socket_t fd, int events)
     ev.data.fd = fd;
 
     if (epoll_ctl(epollFd_, EPOLL_CTL_MOD, fd, &ev) == -1) {
-        NETWORK_LOGE("epoll_ctl MOD error for fd %d: %s", fd, strerror(errno));
+        LMNET_LOGE("epoll_ctl MOD error for fd %d: %s", fd, strerror(errno));
         return false;
     }
 
-    NETWORK_LOGD("Handler modified successfully for fd:%d", fd);
+    LMNET_LOGD("Handler modified successfully for fd:%d", fd);
     return true;
 }
 
@@ -253,7 +253,7 @@ void EventReactor::DispatchEvent(socket_t fd, int events)
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = handlers_.find(fd);
     if (it == handlers_.end()) {
-        NETWORK_LOGW("Handler not found for fd:%d", fd);
+        LMNET_LOGW("Handler not found for fd:%d", fd);
         return;
     }
 
@@ -277,9 +277,9 @@ void EventReactor::DispatchEvent(socket_t fd, int events)
             handler->HandleClose(fd);
         }
     } catch (const std::exception &e) {
-        NETWORK_LOGE("Exception in event handler for fd %d: %s", fd, e.what());
+        LMNET_LOGE("Exception in event handler for fd %d: %s", fd, e.what());
     } catch (...) {
-        NETWORK_LOGE("Unknown exception in event handler for fd %d", fd);
+        LMNET_LOGE("Unknown exception in event handler for fd %d", fd);
     }
 }
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

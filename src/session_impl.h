@@ -6,14 +6,14 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_SESSION_IMPL_H
-#define LMSHAO_NETWORK_SESSION_IMPL_H
+#ifndef LMSHAO_LMNET_SESSION_IMPL_H
+#define LMSHAO_LMNET_SESSION_IMPL_H
 
 #include "base_server.h"
-#include "network/session.h"
+#include "lmnet/session.h"
 
-namespace lmshao::network {
-using namespace lmshao::coreutils;
+namespace lmshao::lmnet {
+using namespace lmshao::lmcore;
 
 class SessionImpl : public Session {
 public:
@@ -64,5 +64,5 @@ private:
     std::weak_ptr<BaseServer> server_;
 };
 
-} // namespace lmshao::network
-#endif // LMSHAO_NETWORK_SESSION_IMPL_H
+} // namespace lmshao::lmnet
+#endif // LMSHAO_LMNET_SESSION_IMPL_H

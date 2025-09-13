@@ -19,7 +19,7 @@
 #include "../../internal_logger.h"
 #include "event_reactor.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 const int RECV_BUFFER_MAX_SIZE = 4096;
 
@@ -41,7 +41,7 @@ public:
 
     void HandleError(socket_t fd) override
     {
-        NETWORK_LOGE("Client connection error on fd: %d", fd);
+        LMNET_LOGE("Client connection error on fd: %d", fd);
         if (auto client = client_.lock()) {
             client->HandleConnectionClose(fd, true, "Connection error");
         }
@@ -49,7 +49,7 @@ public:
 
     void HandleClose(socket_t fd) override
     {
-        NETWORK_LOGD("Client connection close on fd: %d", fd);
+        LMNET_LOGD("Client connection close on fd: %d", fd);
         if (auto client = client_.lock()) {
             client->HandleConnectionClose(fd, false, "Connection closed");
         }
@@ -113,7 +113,7 @@ private:
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     break;
                 } else {
-                    NETWORK_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
+                    LMNET_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
                     return;
                 }
             }
@@ -150,7 +150,7 @@ bool TcpClientImpl::Init()
 {
     socket_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("Socket error: %s", strerror(errno));
+        LMNET_LOGE("Socket error: %s", strerror(errno));
         return false;
     }
 
@@ -166,13 +166,13 @@ bool TcpClientImpl::Init()
 
         int optval = 1;
         if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-            NETWORK_LOGE("setsockopt SO_REUSEADDR error: %s", strerror(errno));
+            LMNET_LOGE("setsockopt SO_REUSEADDR error: %s", strerror(errno));
             return false;
         }
 
         int ret = bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr));
         if (ret != 0) {
-            NETWORK_LOGE("bind error: %s", strerror(errno));
+            LMNET_LOGE("bind error: %s", strerror(errno));
             return false;
         }
     }
@@ -192,7 +192,7 @@ void TcpClientImpl::ReInit()
 bool TcpClientImpl::Connect()
 {
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("socket not initialized");
+        LMNET_LOGE("socket not initialized");
         return false;
     }
 
@@ -206,7 +206,7 @@ bool TcpClientImpl::Connect()
 
     int ret = connect(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_));
     if (ret < 0 && errno != EINPROGRESS) {
-        NETWORK_LOGE("connect(%s:%d) failed: %s", remoteIp_.c_str(), remotePort_, strerror(errno));
+        LMNET_LOGE("connect(%s:%d) failed: %s", remoteIp_.c_str(), remotePort_, strerror(errno));
         ReInit();
         return false;
     }
@@ -224,18 +224,18 @@ bool TcpClientImpl::Connect()
         int error = 0;
         socklen_t len = sizeof(error);
         if (getsockopt(socket_, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
-            NETWORK_LOGE("getsockopt error, %s", strerror(errno));
+            LMNET_LOGE("getsockopt error, %s", strerror(errno));
             ReInit();
             return false;
         }
 
         if (error != 0) {
-            NETWORK_LOGE("connect error, %s", strerror(errno));
+            LMNET_LOGE("connect error, %s", strerror(errno));
             ReInit();
             return false;
         }
     } else {
-        NETWORK_LOGE("connect error, %s", strerror(errno));
+        LMNET_LOGE("connect error, %s", strerror(errno));
         ReInit();
         return false;
     }
@@ -244,18 +244,18 @@ bool TcpClientImpl::Connect()
 
     clientHandler_ = std::make_shared<TcpClientHandler>(socket_, shared_from_this());
     if (!EventReactor::GetInstance()->RegisterHandler(clientHandler_)) {
-        NETWORK_LOGE("Failed to register client handler");
+        LMNET_LOGE("Failed to register client handler");
         return false;
     }
 
-    NETWORK_LOGD("Connect (%s:%d) success with new EventHandler interface.", remoteIp_.c_str(), remotePort_);
+    LMNET_LOGD("Connect (%s:%d) success with new EventHandler interface.", remoteIp_.c_str(), remotePort_);
     return true;
 }
 
 bool TcpClientImpl::Send(const std::string &str)
 {
     if (str.empty()) {
-        NETWORK_LOGE("Invalid string data");
+        LMNET_LOGE("Invalid string data");
         return false;
     }
 
@@ -267,7 +267,7 @@ bool TcpClientImpl::Send(const std::string &str)
 bool TcpClientImpl::Send(const void *data, size_t len)
 {
     if (!data || len == 0) {
-        NETWORK_LOGE("Invalid data");
+        LMNET_LOGE("Invalid data");
         return false;
     }
 
@@ -279,12 +279,12 @@ bool TcpClientImpl::Send(const void *data, size_t len)
 bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
     if (!data || data->Size() == 0) {
-        NETWORK_LOGE("Invalid data buffer");
+        LMNET_LOGE("Invalid data buffer");
         return false;
     }
 
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("socket not initialized");
+        LMNET_LOGE("socket not initialized");
         return false;
     }
 
@@ -292,7 +292,7 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
         clientHandler_->QueueSend(data);
         return true;
     }
-    NETWORK_LOGE("Client handler not found");
+    LMNET_LOGE("Client handler not found");
     return false;
 }
 
@@ -308,7 +308,7 @@ void TcpClientImpl::Close()
 
 void TcpClientImpl::HandleReceive(socket_t fd)
 {
-    NETWORK_LOGD("fd: %d", fd);
+    LMNET_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
         readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
     }
@@ -333,7 +333,7 @@ void TcpClientImpl::HandleReceive(socket_t fd)
             }
             continue;
         } else if (nbytes == 0) {
-            NETWORK_LOGW("Disconnect fd[%d]", fd);
+            LMNET_LOGW("Disconnect fd[%d]", fd);
             // Do not call HandleConnectionClose directly; let the event system handle EPOLLHUP
             break;
         } else {
@@ -343,7 +343,7 @@ void TcpClientImpl::HandleReceive(socket_t fd)
             }
 
             std::string info = strerror(errno);
-            NETWORK_LOGE("recv error: %s(%d)", info.c_str(), errno);
+            LMNET_LOGE("recv error: %s(%d)", info.c_str(), errno);
             HandleConnectionClose(fd, true, info);
         }
 
@@ -353,11 +353,11 @@ void TcpClientImpl::HandleReceive(socket_t fd)
 
 void TcpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
-    NETWORK_LOGD("Closing client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
-                 isError ? "true" : "false");
+    LMNET_LOGD("Closing client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
+               isError ? "true" : "false");
 
     if (socket_ != fd) {
-        NETWORK_LOGD("Connection fd: %d already cleaned up", fd);
+        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
         return;
     }
 
@@ -383,4 +383,4 @@ void TcpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
         }
     }
 }
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

@@ -8,8 +8,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_WINDOWS_TCP_SERVER_IMPL_H
-#define LMSHAO_NETWORK_WINDOWS_TCP_SERVER_IMPL_H
+#ifndef LMSHAO_LMNET_WINDOWS_TCP_SERVER_IMPL_H
+#define LMSHAO_LMNET_WINDOWS_TCP_SERVER_IMPL_H
 
 #include <cstdint>
 #include <memory>
@@ -19,12 +19,12 @@
 #include <unordered_map>
 
 #include "base_server.h"
-#include "coreutils/data_buffer.h"
 #include "iocp_manager.h"
-#include "network/common.h"
-#include "network/iserver_listener.h"
+#include "lmcore/data_buffer.h"
+#include "lmnet/common.h"
+#include "lmnet/iserver_listener.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 // Forward declare the per-I/O context at namespace scope (defined in cpp)
 struct PerIoContextTCP;
@@ -65,6 +65,6 @@ private:
     std::shared_ptr<IServerListener> listener_;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_WINDOWS_TCP_SERVER_IMPL_H
+#endif // LMSHAO_LMNET_WINDOWS_TCP_SERVER_IMPL_H

@@ -21,7 +21,7 @@
 #include "event_reactor.h"
 #include "session_impl.h"
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 const int TCP_BACKLOG = 10;
 const int RECV_BUFFER_MAX_SIZE = 4096;
@@ -39,9 +39,9 @@ public:
 
     void HandleWrite(socket_t fd) override {}
 
-    void HandleError(socket_t fd) override { NETWORK_LOGE("Server socket error on fd: %d", fd); }
+    void HandleError(socket_t fd) override { LMNET_LOGE("Server socket error on fd: %d", fd); }
 
-    void HandleClose(socket_t fd) override { NETWORK_LOGD("Server socket close on fd: %d", fd); }
+    void HandleClose(socket_t fd) override { LMNET_LOGD("Server socket close on fd: %d", fd); }
 
     int GetHandle() const override
     {
@@ -79,7 +79,7 @@ public:
 
     void HandleError(socket_t fd) override
     {
-        NETWORK_LOGE("Connection error on fd: %d", fd);
+        LMNET_LOGE("Connection error on fd: %d", fd);
         if (auto server = server_.lock()) {
             server->HandleConnectionClose(fd, true, "Connection error");
         }
@@ -87,7 +87,7 @@ public:
 
     void HandleClose(socket_t fd) override
     {
-        NETWORK_LOGD("Connection close on fd: %d", fd);
+        LMNET_LOGD("Connection close on fd: %d", fd);
         if (auto server = server_.lock()) {
             server->HandleConnectionClose(fd, false, "Connection closed");
         }
@@ -151,7 +151,7 @@ private:
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     break;
                 } else {
-                    NETWORK_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
+                    LMNET_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
                     return;
                 }
             }
@@ -171,7 +171,7 @@ private:
 
 TcpServerImpl::~TcpServerImpl()
 {
-    NETWORK_LOGD("fd:%d", socket_);
+    LMNET_LOGD("fd:%d", socket_);
     Stop();
 }
 
@@ -179,14 +179,14 @@ bool TcpServerImpl::Init()
 {
     socket_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGD("socket error: %s", strerror(errno));
+        LMNET_LOGD("socket error: %s", strerror(errno));
         return false;
     }
-    NETWORK_LOGD("init ip: %s, port: %d fd:%d", localIp_.c_str(), localPort_, socket_);
+    LMNET_LOGD("init ip: %s, port: %d fd:%d", localIp_.c_str(), localPort_, socket_);
 
     int optval = 1;
     if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-        NETWORK_LOGD("setsockopt error: %s", strerror(errno));
+        LMNET_LOGD("setsockopt error: %s", strerror(errno));
         return false;
     }
 
@@ -196,12 +196,12 @@ bool TcpServerImpl::Init()
     inet_aton(localIp_.c_str(), &serverAddr_.sin_addr);
 
     if (bind(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
-        NETWORK_LOGE("bind error: %s", strerror(errno));
+        LMNET_LOGE("bind error: %s", strerror(errno));
         return false;
     }
 
     if (listen(socket_, TCP_BACKLOG) < 0) {
-        NETWORK_LOGE("listen error: %s", strerror(errno));
+        LMNET_LOGE("listen error: %s", strerror(errno));
         return false;
     }
 
@@ -212,7 +212,7 @@ bool TcpServerImpl::Init()
 bool TcpServerImpl::Start()
 {
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGD("socket not initialized");
+        LMNET_LOGD("socket not initialized");
         return false;
     }
 
@@ -220,11 +220,11 @@ bool TcpServerImpl::Start()
 
     serverHandler_ = std::make_shared<TcpServerHandler>(shared_from_this());
     if (!EventReactor::GetInstance()->RegisterHandler(serverHandler_)) {
-        NETWORK_LOGE("Failed to register server handler");
+        LMNET_LOGE("Failed to register server handler");
         return false;
     }
 
-    NETWORK_LOGD("TcpServerImpl started with new EventHandler interface");
+    LMNET_LOGD("TcpServerImpl started with new EventHandler interface");
     return true;
 }
 
@@ -238,7 +238,7 @@ bool TcpServerImpl::Stop()
     }
 
     for (int clientFd : clientFds) {
-        NETWORK_LOGD("close client fd: %d", clientFd);
+        LMNET_LOGD("close client fd: %d", clientFd);
         reactor->RemoveHandler(clientFd);
         close(clientFd);
 
@@ -247,7 +247,7 @@ bool TcpServerImpl::Stop()
     sessions_.clear();
 
     if (socket_ != INVALID_SOCKET && serverHandler_) {
-        NETWORK_LOGD("close server fd: %d", socket_);
+        LMNET_LOGD("close server fd: %d", socket_);
         reactor->RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
@@ -259,14 +259,14 @@ bool TcpServerImpl::Stop()
         taskQueue_.reset();
     }
 
-    NETWORK_LOGD("TcpServerImpl stopped");
+    LMNET_LOGD("TcpServerImpl stopped");
     return true;
 }
 
 bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size)
 {
     if (!data || size == 0) {
-        NETWORK_LOGD("invalid data or size");
+        LMNET_LOGD("invalid data or size");
         return false;
     }
     auto buf = DataBuffer::PoolAlloc(size);
@@ -281,7 +281,7 @@ bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shar
     }
 
     if (sessions_.find(fd) == sessions_.end()) {
-        NETWORK_LOGD("invalid session fd");
+        LMNET_LOGD("invalid session fd");
         return false;
     }
 
@@ -293,14 +293,14 @@ bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shar
             return true;
         }
     }
-    NETWORK_LOGE("Connection handler not found for fd: %d", fd);
+    LMNET_LOGE("Connection handler not found for fd: %d", fd);
     return false;
 }
 
 bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std::string &str)
 {
     if (str.empty()) {
-        NETWORK_LOGD("invalid string data");
+        LMNET_LOGD("invalid string data");
         return false;
     }
     auto buf = DataBuffer::PoolAlloc(str.size());
@@ -310,18 +310,18 @@ bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std
 
 void TcpServerImpl::HandleAccept(socket_t fd)
 {
-    NETWORK_LOGD("enter");
+    LMNET_LOGD("enter");
     struct sockaddr_in clientAddr = {};
     socklen_t addrLen = sizeof(struct sockaddr_in);
     int clientSocket = accept4(fd, (struct sockaddr *)&clientAddr, &addrLen, SOCK_NONBLOCK);
     if (clientSocket < 0) {
-        NETWORK_LOGD("accept error: %s", strerror(errno));
+        LMNET_LOGD("accept error: %s", strerror(errno));
         return;
     }
 
     auto connectionHandler = std::make_shared<TcpConnectionHandler>(clientSocket, shared_from_this());
     if (!EventReactor::GetInstance()->RegisterHandler(connectionHandler)) {
-        NETWORK_LOGE("Failed to register connection handler for fd: %d", clientSocket);
+        LMNET_LOGE("Failed to register connection handler for fd: %d", clientSocket);
         close(clientSocket);
         return;
     }
@@ -333,8 +333,8 @@ void TcpServerImpl::HandleAccept(socket_t fd)
     std::string host = inet_ntoa(clientAddr.sin_addr);
     uint16_t port = ntohs(clientAddr.sin_port);
 
-    NETWORK_LOGD("New client connections client[%d] %s:%d\n", clientSocket, inet_ntoa(clientAddr.sin_addr),
-                 ntohs(clientAddr.sin_port));
+    LMNET_LOGD("New client connections client[%d] %s:%d\n", clientSocket, inet_ntoa(clientAddr.sin_addr),
+               ntohs(clientAddr.sin_port));
 
     auto session = std::make_shared<SessionImpl>(clientSocket, host, port, shared_from_this());
     sessions_.emplace(clientSocket, session);
@@ -343,25 +343,25 @@ void TcpServerImpl::HandleAccept(socket_t fd)
         auto listenerWeak = listener_;
         auto session = sessions_[clientSocket];
         auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session]() {
-            NETWORK_LOGD("invoke OnAccept callback");
+            LMNET_LOGD("invoke OnAccept callback");
             auto listener = listenerWeak.lock();
             if (listener) {
                 listener->OnAccept(session);
             } else {
-                NETWORK_LOGD("not found listener!");
+                LMNET_LOGD("not found listener!");
             }
         });
         if (taskQueue_) {
             taskQueue_->EnqueueTask(task);
         }
     } else {
-        NETWORK_LOGD("listener is null");
+        LMNET_LOGD("listener is null");
     }
 }
 
 void TcpServerImpl::HandleReceive(socket_t fd)
 {
-    NETWORK_LOGD("fd: %d", fd);
+    LMNET_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
         readBuffer_ = std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE);
     }
@@ -371,7 +371,7 @@ void TcpServerImpl::HandleReceive(socket_t fd)
 
         if (nbytes > 0) {
             if (nbytes > RECV_BUFFER_MAX_SIZE) {
-                NETWORK_LOGD("recv %zd bytes", nbytes);
+                LMNET_LOGD("recv %zd bytes", nbytes);
                 break;
             }
 
@@ -400,7 +400,7 @@ void TcpServerImpl::HandleReceive(socket_t fd)
             }
             continue;
         } else if (nbytes == 0) {
-            NETWORK_LOGW("Disconnect fd[%d]", fd);
+            LMNET_LOGW("Disconnect fd[%d]", fd);
             // Do not call HandleConnectionClose directly; let the event system handle EPOLLHUP
             break;
         } else {
@@ -409,10 +409,10 @@ void TcpServerImpl::HandleReceive(socket_t fd)
             }
 
             std::string info = strerror(errno);
-            NETWORK_LOGD("recv error: %s(%d)", info.c_str(), errno);
+            LMNET_LOGD("recv error: %s(%d)", info.c_str(), errno);
 
             if (errno == ETIMEDOUT) {
-                NETWORK_LOGD("ETIME: connection is timeout");
+                LMNET_LOGD("ETIME: connection is timeout");
                 break;
             }
 
@@ -437,11 +437,11 @@ void TcpServerImpl::EnableKeepAlive(socket_t fd)
 
 void TcpServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
-    NETWORK_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
+    LMNET_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
 
     auto sessionIt = sessions_.find(fd);
     if (sessionIt == sessions_.end()) {
-        NETWORK_LOGD("Connection fd: %d already cleaned up", fd);
+        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
         return;
     }
 
@@ -471,4 +471,4 @@ void TcpServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
         }
     }
 }
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

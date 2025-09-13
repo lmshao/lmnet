@@ -16,12 +16,12 @@
 #include "../../internal_logger.h"
 #include "iocp_manager.h"
 #include "iocp_utils.h"
-#include "network/session.h"
+#include "lmnet/session.h"
 #pragma comment(lib, "ws2_32.lib")
 
 #include <cstring>
 
-namespace lmshao::network {
+namespace lmshao::lmnet {
 
 // ------------- IOCP based implementation -------------
 class UdpSessionWin final : public Session {
@@ -79,7 +79,7 @@ bool UdpServerImpl::Init()
     EnsureWsaInit();
     socket_ = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (socket_ == INVALID_SOCKET) {
-        NETWORK_LOGE("WSASocket failed: %d", (int)WSAGetLastError());
+        LMNET_LOGE("WSASocket failed: %d", (int)WSAGetLastError());
         return false;
     }
     sockaddr_in addr{};
@@ -88,12 +88,12 @@ bool UdpServerImpl::Init()
     if (ip_.empty())
         ip_ = "0.0.0.0";
     if (inet_pton(AF_INET, ip_.c_str(), &addr.sin_addr) != 1) {
-        NETWORK_LOGE("inet_pton failed for %s", ip_.c_str());
+        LMNET_LOGE("inet_pton failed for %s", ip_.c_str());
         CloseSocket();
         return false;
     }
     if (bind(socket_, (sockaddr *)&addr, sizeof(addr)) != 0) {
-        NETWORK_LOGE("bind failed: %d", (int)WSAGetLastError());
+        LMNET_LOGE("bind failed: %d", (int)WSAGetLastError());
         CloseSocket();
         return false;
     }
@@ -112,13 +112,13 @@ bool UdpServerImpl::Start()
     // Initialize global IOCP manager
     auto manager = IocpManager::GetInstance();
     if (!manager->Initialize()) {
-        NETWORK_LOGE("Failed to initialize IOCP manager");
+        LMNET_LOGE("Failed to initialize IOCP manager");
         return false;
     }
 
     // Register this socket with the global IOCP manager
     if (!manager->RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
-        NETWORK_LOGE("Failed to register socket with IOCP manager");
+        LMNET_LOGE("Failed to register socket with IOCP manager");
         return false;
     }
 
@@ -206,7 +206,7 @@ void UdpServerImpl::PostRecv()
     if (r == SOCKET_ERROR) {
         int err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            NETWORK_LOGE("WSARecvFrom failed: %d", (int)err);
+            LMNET_LOGE("WSARecvFrom failed: %d", (int)err);
             delete ctx;
         }
     }
@@ -253,4 +253,4 @@ void UdpServerImpl::HandlePacket(const char *data, size_t len, const sockaddr_in
     listener_->OnReceive(session, buf);
 }
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet

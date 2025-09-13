@@ -6,10 +6,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_SESSION_H
-#define LMSHAO_NETWORK_SESSION_H
+#ifndef LMSHAO_LMNET_SESSION_H
+#define LMSHAO_LMNET_SESSION_H
 
-#include <coreutils/data_buffer.h>
+#include <lmcore/data_buffer.h>
 
 #include <cstdint>
 #include <memory>
@@ -18,8 +18,8 @@
 
 #include "common.h"
 
-namespace lmshao::network {
-using namespace lmshao::coreutils;
+namespace lmshao::lmnet {
+using namespace lmshao::lmcore;
 
 class Session {
 public:
@@ -60,6 +60,6 @@ protected:
     virtual ~Session() = default;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_SESSION_H
+#endif // LMSHAO_LMNET_SESSION_H

@@ -13,10 +13,10 @@
 #include <thread>
 
 #include "../test_framework.h"
-#include "network/tcp_client.h"
-#include "network/tcp_server.h"
+#include "lmnet/tcp_client.h"
+#include "lmnet/tcp_server.h"
 
-using namespace lmshao::network;
+using namespace lmshao::lmnet;
 
 // Simple TCP server-client test
 TEST(TcpTest, ServerClientSendRecv)

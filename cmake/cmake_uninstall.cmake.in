@@ -24,15 +24,15 @@ endforeach()
 # Try to remove directories that might be empty after uninstall
 if(UNIX)
   execute_process(
-    COMMAND "@CMAKE_COMMAND@" "-E" "remove_directory" "@CMAKE_INSTALL_PREFIX@/lib/cmake/network"
+    COMMAND "@CMAKE_COMMAND@" "-E" "remove_directory" "@CMAKE_INSTALL_PREFIX@/lib/cmake/lmnet"
     OUTPUT_VARIABLE rm_out
     RESULT_VARIABLE rm_retval
   )
   execute_process(
-    COMMAND "@CMAKE_COMMAND@" "-E" "remove_directory" "@CMAKE_INSTALL_PREFIX@/include/network"
+    COMMAND "@CMAKE_COMMAND@" "-E" "remove_directory" "@CMAKE_INSTALL_PREFIX@/include/lmnet"
     OUTPUT_VARIABLE rm_out
     RESULT_VARIABLE rm_retval
   )
 endif()
 
-message(STATUS "Network library uninstall completed.")
+message(STATUS "Lmnet library uninstall completed.")

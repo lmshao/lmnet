@@ -6,16 +6,16 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_NETWORK_LINUX_UNIX_CLIENT_IMPL_H
-#define LMSHAO_NETWORK_LINUX_UNIX_CLIENT_IMPL_H
+#ifndef LMSHAO_LMNET_LINUX_UNIX_CLIENT_IMPL_H
+#define LMSHAO_LMNET_LINUX_UNIX_CLIENT_IMPL_H
 
 // Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
 #if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
 #error "Unix domain sockets are not supported on this platform"
 #endif
 
-#include <coreutils/data_buffer.h>
-#include <coreutils/task_queue.h>
+#include <lmcore/data_buffer.h>
+#include <lmcore/task_queue.h>
 #include <sys/un.h>
 
 #include <cstdint>
@@ -23,11 +23,11 @@
 #include <string>
 
 #include "../../iunix_client.h"
-#include "network/common.h"
-#include "network/iclient_listener.h"
+#include "lmnet/common.h"
+#include "lmnet/iclient_listener.h"
 
-namespace lmshao::network {
-using namespace lmshao::coreutils;
+namespace lmshao::lmnet {
+using namespace lmshao::lmcore;
 class UnixClientHandler;
 class EventHandler;
 class UnixClientImpl final : public IUnixClient,
@@ -69,6 +69,6 @@ private:
     std::shared_ptr<UnixClientHandler> clientHandler_;
 };
 
-} // namespace lmshao::network
+} // namespace lmshao::lmnet
 
-#endif // LMSHAO_NETWORK_LINUX_UNIX_CLIENT_IMPL_H
+#endif // LMSHAO_LMNET_LINUX_UNIX_CLIENT_IMPL_H

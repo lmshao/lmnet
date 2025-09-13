@@ -1,4 +1,4 @@
-# Network（网络库）
+# Lmnet（网络库）
 
 一个现代 C++ 跨平台异步网络库，具备高性能特性。支持 Linux 和 Windows 平台上的 TCP、UDP 和 UNIX 域套接字，专注于事件驱动编程、资源管理和可扩展的网络应用。适合学习、原型开发和实际服务搭建。
 
@@ -16,31 +16,69 @@
 
 ## 安装
 
-### 克隆仓库和依赖
+### 前置依赖
 
-**推荐方式**：使用 `--recursive` 参数一次性获取所有代码和依赖：
+Lmnet 依赖于 [lmcore 库](https://github.com/lmshao/lmcore)。你有两种方式来满足这个依赖：
 
-```bash
-git clone --recursive https://github.com/lmshao/network.git
-```
+#### 方式一：系统安装（推荐）
 
-**或者分步操作**：如果已经克隆了仓库，需要单独下载子模块：
+首先将 lmcore 安装到系统中：
 
 ```bash
-git clone https://github.com/lmshao/network.git
-cd network
-git submodule update --init --recursive
+# 克隆并安装 lmcore
+git clone https://github.com/lmshao/lmcore.git
+cd lmcore
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+sudo make install  # 安装到 /usr/local
 ```
+
+然后构建 lmnet：
+
+```bash
+git clone https://github.com/lmshao/lmnet.git
+cd lmnet
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+```
+
+#### 方式二：本地开发设置
+
+将 lmcore 和 lmnet 放在同一个父目录下：
+
+```bash
+# 目录结构应该是：
+# parent_directory/
+# ├── lmcore/     (在这里克隆 lmcore)
+# └── lmnet/      (在这里克隆 lmnet)
+
+git clone https://github.com/lmshao/lmcore.git
+git clone https://github.com/lmshao/lmnet.git
+
+cd lmnet
+mkdir build && cd build
+cmake ..  # 会自动在同级目录中找到 lmcore
+make -j$(nproc)
+```
+
+### 构建配置
+
+CMake 构建系统会自动：
+1. 首先尝试查找系统安装的 lmcore（`find_package(lmcore)`）
+2. 如果未找到，在同级目录 `../lmcore` 中查找 lmcore
+3. 如果两者都未找到，显示有用的错误信息和安装指导
 
 ### Linux
 
 使用 CMake 构建：
 
 ```bash
-cd network
+cd lmnet  # 在按照上述说明设置好 lmcore 依赖后
 mkdir build && cd build
 cmake ..
-make
+make -j$(nproc)
 ```
 
 ### Windows
@@ -52,7 +90,7 @@ make
 **构建步骤：**
 
 ```powershell
-cd network
+cd lmnet  # 在按照上述说明设置好 lmcore 依赖后
 mkdir build
 cd build
 cmake .. -G "Visual Studio 16 2019" -A x64
@@ -76,7 +114,7 @@ cmake --build . --config Release
 创建一个简单的 TCP echo 服务器：
 
 ```cpp
-#include <network/tcp_server.h>
+#include <lmnet/tcp_server.h>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -114,7 +152,7 @@ int main(int argc, char **argv) {
 
 ## API 参考
 
-- 详细 API 文档见 [`include/network/`](include/network/) 头文件。
+- 详细 API 文档见 [`include/lmnet/`](include/lmnet/) 头文件。
 - 主要类：`TcpServer`、`TcpClient`、`UdpServer`、`UdpClient`、`EventReactor`、`Session` 等。
 
 ## 测试
@@ -167,20 +205,20 @@ ctest -C Debug
 
 ## 架构
 
-![Network Architecture](https://www.plantuml.com/plantuml/svg/bP9Dxzem38Vl-HJU_xHfWjrxG32s0z9Us02X2VKGMfT6JUF8INZHjE--K52s2LLqFRNruv_TFfawBzc7LiCNz2VYvfFQi-JBZ8jQUInyO1IlV8qjWjLI6I6iB1fvG7ZPE6IOMQjL8RqYym8_1SHhzuC2n_Uv-FKNVS-7-u04hmkxGZuYvp0QJM3tyOZ6VqTPUE9t2ohiPsda8POJFjSg8iFmJPdIX-7_bsxKkJS-Xon-h0bd8AClVnhIW04DFGkaUMlfccy10-R3y9fHbaiYFOnVeNDHx0rEJxVQ1-db-r1Lo9td91t6uya_LZC83jq3a3ps0CbSF_0a8Tb94V2w-xzl7iYavO4KXZm2gqFjWQfd9w9hoW0jQGrl0QzmLNQbhJ8bdLm6Yw_pPQnjYHjak2bn7J9dScvajVGLSGjoxpp7GOgCG5F2THCXfl4sjFet)
+![LMNET Architecture](https://www.plantuml.com/plantuml/svg/bP9Dxzem38Vl-HJU_xHfWjrxG32s0z9Us02X2VKGMfT6JUF8INZHjE--K52s2LLqFRNruv_TFfawBzc7LiCNz2VYvfFQi-JBZ8jQUInyO1IlV8qjWjLI6I6iB1fvG7ZPE6IOMQjL8RqYym8_1SHhzuC2n_Uv-FKNVS-7-u04hmkxGZuYvp0QJM3tyOZ6VqTPUE9t2ohiPsda8POJFjSg8iFmJPdIX-7_bsxKkJS-Xon-h0bd8AClVnhIW04DFGkaUMlfccy10-R3y9fHbaiYFOnVeNDHx0rEJxVQ1-db-r1Lo9td91t6uya_LZC83jq3a3ps0CbSF_0a8Tb94V2w-xzl7iYavO4KXZm2gqFjWQfd9w9hoW0jQGrl0QzmLNQbhJ8bdLm6Yw_pPQnjYHjak2bn7J9dScvajVGLSGjoxpp7GOgCG5F2THCXfl4sjFet)
 
 <details>
 <summary>PlantUML 源码</summary>
 
 ```plantuml
-@startuml NetworkLibraryArchitecture
+@startuml LmnetLibraryArchitecture
 !theme plain
 
 package "User Application" {
     [YourApp]
 }
 
-package "Network Library" {
+package "Lmnet Library" {
     [TcpServer] --> [EventReactor/IocpManager]
     [TcpClient] --> [EventReactor/IocpManager]
     [UdpServer] --> [EventReactor/IocpManager]
