@@ -42,9 +42,9 @@ public:
     virtual int GetEvents() const { return static_cast<int>(EventType::READ); }
 };
 
-class EventReactor : public Singleton<EventReactor> {
+class EventReactor : public ManagedSingleton<EventReactor> {
 public:
-    friend class Singleton<EventReactor>;
+    friend class ManagedSingleton<EventReactor>;
 
     EventReactor();
     ~EventReactor();
