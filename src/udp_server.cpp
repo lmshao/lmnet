@@ -11,8 +11,8 @@
 #include "internal_logger.h"
 
 #ifdef __linux__
-#include "platforms/linux/port_utils.h"
-#include "platforms/linux/udp_server_impl.h"
+#include "platforms/linux/epoll/port_utils.h"
+#include "platforms/linux/epoll/udp_server_impl.h"
 #elif _WIN32
 #include "platforms/windows/port_utils.h"
 #include "platforms/windows/udp_server_impl.h"

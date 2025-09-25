@@ -11,7 +11,7 @@
 #include "internal_logger.h"
 
 #ifdef __linux__
-#include "platforms/linux/udp_client_impl.h"
+#include "platforms/linux/epoll/udp_client_impl.h"
 #elif _WIN32
 #include "platforms/windows/udp_client_impl.h"
 #endif
