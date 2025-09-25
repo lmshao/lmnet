@@ -17,8 +17,8 @@
 
 #include <cstring>
 
-#include "../../internal_logger.h"
 #include "event_reactor.h"
+#include "internal_logger.h"
 #include "lmnet/session.h"
 
 namespace lmshao::lmnet {

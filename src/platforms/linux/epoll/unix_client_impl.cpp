@@ -6,26 +6,31 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "tcp_client_impl.h"
+// Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
+#if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
+#error "Unix domain sockets are not supported on this platform"
+#endif
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
+#include "unix_client_impl.h"
+
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstring>
 #include <queue>
 
-#include "../../internal_logger.h"
 #include "event_reactor.h"
+#include "internal_logger.h"
 
 namespace lmshao::lmnet {
 
-const int RECV_BUFFER_MAX_SIZE = 4096;
+constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
-class TcpClientHandler : public EventHandler {
+class UnixClientHandler : public EventHandler {
 public:
-    TcpClientHandler(socket_t fd, std::weak_ptr<TcpClientImpl> client)
+    UnixClientHandler(socket_t fd, std::weak_ptr<UnixClientImpl> client)
         : fd_(fd), client_(client), writeEventsEnabled_(false)
     {
     }
@@ -41,7 +46,7 @@ public:
 
     void HandleError(socket_t fd) override
     {
-        LMNET_LOGE("Client connection error on fd: %d", fd);
+        LMNET_LOGE("Unix client connection error on fd: %d", fd);
         if (auto client = client_.lock()) {
             client->HandleConnectionClose(fd, true, "Connection error");
         }
@@ -49,7 +54,7 @@ public:
 
     void HandleClose(socket_t fd) override
     {
-        LMNET_LOGD("Client connection close on fd: %d", fd);
+        LMNET_LOGD("Unix client connection close on fd: %d", fd);
         if (auto client = client_.lock()) {
             client->HandleConnectionClose(fd, false, "Connection closed");
         }
@@ -71,8 +76,9 @@ public:
 
     void QueueSend(std::shared_ptr<DataBuffer> buffer)
     {
-        if (!buffer || buffer->Size() == 0)
+        if (!buffer || buffer->Size() == 0) {
             return;
+        }
         sendQueue_.push(buffer);
         EnableWriteEvents();
     }
@@ -126,18 +132,17 @@ private:
 
 private:
     socket_t fd_;
-    std::weak_ptr<TcpClientImpl> client_;
+    std::weak_ptr<UnixClientImpl> client_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
 };
 
-TcpClientImpl::TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
-    : remoteIp_(remoteIp), remotePort_(remotePort), localIp_(localIp), localPort_(localPort)
+UnixClientImpl::UnixClientImpl(const std::string &socketPath) : socketPath_(socketPath)
 {
-    taskQueue_ = std::make_unique<TaskQueue>("TcpClientCb");
+    taskQueue_ = std::make_unique<TaskQueue>("UnixClientCb");
 }
 
-TcpClientImpl::~TcpClientImpl()
+UnixClientImpl::~UnixClientImpl()
 {
     if (taskQueue_) {
         taskQueue_->Stop();
@@ -146,68 +151,31 @@ TcpClientImpl::~TcpClientImpl()
     Close();
 }
 
-bool TcpClientImpl::Init()
+bool UnixClientImpl::Init()
 {
-    socket_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    socket_ = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
         LMNET_LOGE("Socket error: %s", strerror(errno));
         return false;
     }
 
-    if (!localIp_.empty() || localPort_ != 0) {
-        struct sockaddr_in localAddr;
-        memset(&localAddr, 0, sizeof(localAddr));
-        localAddr.sin_family = AF_INET;
-        localAddr.sin_port = htons(localPort_);
-        if (localIp_.empty()) {
-            localIp_ = "0.0.0.0";
-        }
-        inet_aton(localIp_.c_str(), &localAddr.sin_addr);
-
-        int optval = 1;
-        if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-            LMNET_LOGE("setsockopt SO_REUSEADDR error: %s", strerror(errno));
-            return false;
-        }
-
-        int ret = bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr));
-        if (ret != 0) {
-            LMNET_LOGE("bind error: %s", strerror(errno));
-            return false;
-        }
-    }
+    memset(&serverAddr_, 0, sizeof(serverAddr_));
+    serverAddr_.sun_family = AF_UNIX;
+    strncpy(serverAddr_.sun_path, socketPath_.c_str(), sizeof(serverAddr_.sun_path) - 1);
 
     return true;
 }
 
-void TcpClientImpl::ReInit()
-{
-    if (socket_ != INVALID_SOCKET) {
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-    }
-    Init();
-}
-
-bool TcpClientImpl::Connect()
+bool UnixClientImpl::Connect()
 {
     if (socket_ == INVALID_SOCKET) {
         LMNET_LOGE("socket not initialized");
         return false;
     }
 
-    serverAddr_.sin_family = AF_INET;
-    serverAddr_.sin_port = htons(remotePort_);
-    if (remoteIp_.empty()) {
-        remoteIp_ = "127.0.0.1";
-    }
-
-    inet_aton(remoteIp_.c_str(), &serverAddr_.sin_addr);
-
     int ret = connect(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_));
     if (ret < 0 && errno != EINPROGRESS) {
-        LMNET_LOGE("connect(%s:%d) failed: %s", remoteIp_.c_str(), remotePort_, strerror(errno));
-        ReInit();
+        LMNET_LOGE("connect(%s) failed: %s", socketPath_.c_str(), strerror(errno));
         return false;
     }
 
@@ -225,34 +193,31 @@ bool TcpClientImpl::Connect()
         socklen_t len = sizeof(error);
         if (getsockopt(socket_, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
             LMNET_LOGE("getsockopt error, %s", strerror(errno));
-            ReInit();
             return false;
         }
 
         if (error != 0) {
-            LMNET_LOGE("connect error, %s", strerror(errno));
-            ReInit();
+            LMNET_LOGE("connect error, %s", strerror(error));
             return false;
         }
     } else {
-        LMNET_LOGE("connect error, %s", strerror(errno));
-        ReInit();
+        LMNET_LOGE("connect timeout or error, %s", strerror(errno));
         return false;
     }
 
     taskQueue_->Start();
 
-    clientHandler_ = std::make_shared<TcpClientHandler>(socket_, shared_from_this());
+    clientHandler_ = std::make_shared<UnixClientHandler>(socket_, shared_from_this());
     if (!EventReactor::GetInstance()->RegisterHandler(clientHandler_)) {
         LMNET_LOGE("Failed to register client handler");
         return false;
     }
 
-    LMNET_LOGD("Connect (%s:%d) success with new EventHandler interface.", remoteIp_.c_str(), remotePort_);
+    LMNET_LOGD("Connect (%s) success with new EventHandler interface.", socketPath_.c_str());
     return true;
 }
 
-bool TcpClientImpl::Send(const std::string &str)
+bool UnixClientImpl::Send(const std::string &str)
 {
     if (str.empty()) {
         LMNET_LOGE("Invalid string data");
@@ -264,7 +229,7 @@ bool TcpClientImpl::Send(const std::string &str)
     return Send(buf);
 }
 
-bool TcpClientImpl::Send(const void *data, size_t len)
+bool UnixClientImpl::Send(const void *data, size_t len)
 {
     if (!data || len == 0) {
         LMNET_LOGE("Invalid data");
@@ -276,7 +241,7 @@ bool TcpClientImpl::Send(const void *data, size_t len)
     return Send(buf);
 }
 
-bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
+bool UnixClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
     if (!data || data->Size() == 0) {
         LMNET_LOGE("Invalid data buffer");
@@ -296,7 +261,7 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
     return false;
 }
 
-void TcpClientImpl::Close()
+void UnixClientImpl::Close()
 {
     if (socket_ != INVALID_SOCKET && clientHandler_) {
         EventReactor::GetInstance()->RemoveHandler(socket_);
@@ -306,7 +271,7 @@ void TcpClientImpl::Close()
     }
 }
 
-void TcpClientImpl::HandleReceive(socket_t fd)
+void UnixClientImpl::HandleReceive(socket_t fd)
 {
     LMNET_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
@@ -351,7 +316,7 @@ void TcpClientImpl::HandleReceive(socket_t fd)
     }
 }
 
-void TcpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
+void UnixClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
     LMNET_LOGD("Closing client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
                isError ? "true" : "false");
