@@ -9,11 +9,6 @@
 #ifndef LMSHAO_LMNET_UNIX_SERVER_H
 #define LMSHAO_LMNET_UNIX_SERVER_H
 
-// Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
-#if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
-#error "Unix domain sockets are not supported on this platform"
-#endif
-
 #include <memory>
 #include <string>
 

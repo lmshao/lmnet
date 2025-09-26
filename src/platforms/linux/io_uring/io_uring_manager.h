@@ -69,7 +69,11 @@ private:
     struct HandlerEntry;
 
     struct RequestBase {
-        enum class Kind { Poll, Remove, Wakeup };
+        enum class Kind {
+            Poll,
+            Remove,
+            Wakeup
+        };
 
         explicit RequestBase(Kind kind) : kind(kind) {}
         virtual ~RequestBase() = default;
@@ -79,7 +83,9 @@ private:
 
     struct PollRequest final : RequestBase {
         PollRequest(std::shared_ptr<HandlerEntry> entry, int fd, uint32_t events)
-            : RequestBase(Kind::Poll), entry(std::move(entry)), fd(fd), events(events) {}
+            : RequestBase(Kind::Poll), entry(std::move(entry)), fd(fd), events(events)
+        {
+        }
 
         std::shared_ptr<HandlerEntry> entry;
         int fd;
@@ -88,7 +94,9 @@ private:
 
     struct RemoveRequest final : RequestBase {
         RemoveRequest(std::shared_ptr<HandlerEntry> entry, void *targetUserData)
-            : RequestBase(Kind::Remove), entry(std::move(entry)), target(targetUserData) {}
+            : RequestBase(Kind::Remove), entry(std::move(entry)), target(targetUserData)
+        {
+        }
 
         std::shared_ptr<HandlerEntry> entry;
         void *target;

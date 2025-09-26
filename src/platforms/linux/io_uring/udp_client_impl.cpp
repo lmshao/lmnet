@@ -141,7 +141,7 @@ bool UdpClientImpl::EnableBroadcast()
 void UdpClientImpl::Close()
 {
     if (socket_ != INVALID_SOCKET && clientHandler_) {
-    IoUringManager::GetInstance()->RemoveHandler(socket_);
+        IoUringManager::GetInstance()->RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
         clientHandler_.reset();

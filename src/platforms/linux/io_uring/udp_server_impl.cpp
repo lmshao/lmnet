@@ -200,7 +200,7 @@ bool UdpServerImpl::Start()
     // Start task queue
     if (taskQueue_->Start() != 0) {
         LMNET_LOGE("Failed to start task queue");
-    IoUringManager::GetInstance()->RemoveHandler(socket_);
+        IoUringManager::GetInstance()->RemoveHandler(socket_);
         return false;
     }
 
@@ -219,7 +219,7 @@ bool UdpServerImpl::Stop()
 
     // Remove from event loop
     if (serverHandler_) {
-    IoUringManager::GetInstance()->RemoveHandler(socket_);
+        IoUringManager::GetInstance()->RemoveHandler(socket_);
         serverHandler_.reset();
     }
 

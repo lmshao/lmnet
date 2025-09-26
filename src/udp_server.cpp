@@ -11,11 +11,10 @@
 #include "internal_logger.h"
 
 #ifdef __linux__
+#include "platforms/linux/common/port_utils.h"
 #if defined(LMNET_LINUX_BACKEND_IOURING)
-#include "platforms/linux/io_uring/port_utils.h"
 #include "platforms/linux/io_uring/udp_server_impl.h"
 #else
-#include "platforms/linux/epoll/port_utils.h"
 #include "platforms/linux/epoll/udp_server_impl.h"
 #endif
 #elif _WIN32

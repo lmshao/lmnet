@@ -6,11 +6,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-// Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
-#if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
-#error "Unix domain sockets are not supported on this platform"
-#endif
-
 #include "unix_client_impl.h"
 
 #include <sys/socket.h>
@@ -264,7 +259,7 @@ bool UnixClientImpl::Send(std::shared_ptr<DataBuffer> data)
 void UnixClientImpl::Close()
 {
     if (socket_ != INVALID_SOCKET && clientHandler_) {
-    IoUringManager::GetInstance()->RemoveHandler(socket_);
+        IoUringManager::GetInstance()->RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
         clientHandler_.reset();

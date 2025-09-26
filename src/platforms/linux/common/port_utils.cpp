@@ -14,7 +14,8 @@
 
 #include <cstring>
 
-#include "internal_logger.h"
+#include "../../../../../lmcore/src/internal_logger.h"
+#include "../../../internal_logger.h"
 
 namespace lmshao::lmnet {
 

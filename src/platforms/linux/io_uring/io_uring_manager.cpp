@@ -8,9 +8,8 @@
 
 #include "io_uring_manager.h"
 
-#include <liburing.h>
-
 #include <errno.h>
+#include <liburing.h>
 #include <poll.h>
 #include <pthread.h>
 #include <sys/eventfd.h>
@@ -103,7 +102,8 @@ IoUringManager::IoUringManager()
     workerThread_ = std::make_unique<std::thread>([this]() { Run(); });
 
     std::unique_lock<std::mutex> lock(signalMutex_);
-    runningSignal_.wait_for(lock, std::chrono::milliseconds(50), [this] { return running_.load() || ring_ == nullptr; });
+    runningSignal_.wait_for(lock, std::chrono::milliseconds(50),
+                            [this] { return running_.load() || ring_ == nullptr; });
 }
 
 IoUringManager::~IoUringManager()
@@ -290,53 +290,54 @@ void IoUringManager::Run()
         }
 
         switch (base->kind) {
-        case RequestBase::Kind::Poll: {
-            auto *pollReq = static_cast<PollRequest *>(base);
-            auto entry = pollReq->entry;
-            if (entry) {
-                entry->currentRequest.store(nullptr);
-                if (entry->active.load()) {
-                    if (entry->handler && entry->handler->GetHandle() != pollReq->fd) {
-                        LMNET_LOGW("Poll result fd mismatch: expected %d actual %d", entry->handler->GetHandle(), pollReq->fd);
-                    }
-                    if (res >= 0) {
-                        int eventMask = ToEventMask(res);
-                        if (eventMask != 0) {
-                            DispatchEvent(entry, eventMask);
-                        }
-                    } else {
-                        int eventMask = static_cast<int>(EventType::ERROR);
-                        if (res == -ECANCELED) {
-                            eventMask = 0; // cancellation for modify/remove, no dispatch
-                        }
-                        if (eventMask != 0) {
-                            DispatchEvent(entry, eventMask);
-                        }
-                    }
-
+            case RequestBase::Kind::Poll: {
+                auto *pollReq = static_cast<PollRequest *>(base);
+                auto entry = pollReq->entry;
+                if (entry) {
+                    entry->currentRequest.store(nullptr);
                     if (entry->active.load()) {
-                        const uint32_t mask = entry->events.load();
-                        SubmitPollRequest(entry, mask);
+                        if (entry->handler && entry->handler->GetHandle() != pollReq->fd) {
+                            LMNET_LOGW("Poll result fd mismatch: expected %d actual %d", entry->handler->GetHandle(),
+                                       pollReq->fd);
+                        }
+                        if (res >= 0) {
+                            int eventMask = ToEventMask(res);
+                            if (eventMask != 0) {
+                                DispatchEvent(entry, eventMask);
+                            }
+                        } else {
+                            int eventMask = static_cast<int>(EventType::ERROR);
+                            if (res == -ECANCELED) {
+                                eventMask = 0; // cancellation for modify/remove, no dispatch
+                            }
+                            if (eventMask != 0) {
+                                DispatchEvent(entry, eventMask);
+                            }
+                        }
+
+                        if (entry->active.load()) {
+                            const uint32_t mask = entry->events.load();
+                            SubmitPollRequest(entry, mask);
+                        }
                     }
                 }
+                delete pollReq;
+                break;
             }
-            delete pollReq;
-            break;
-        }
-        case RequestBase::Kind::Remove: {
-            auto *removeReq = static_cast<RemoveRequest *>(base);
-            delete removeReq;
-            break;
-        }
-        case RequestBase::Kind::Wakeup: {
-            auto *wakeupReq = static_cast<WakeupRequest *>(base);
-            ReadEventFd(wakeupFd_);
-            delete wakeupReq;
-            if (!shuttingDown_.load()) {
-                SubmitWakeupWatch();
+            case RequestBase::Kind::Remove: {
+                auto *removeReq = static_cast<RemoveRequest *>(base);
+                delete removeReq;
+                break;
             }
-            break;
-        }
+            case RequestBase::Kind::Wakeup: {
+                auto *wakeupReq = static_cast<WakeupRequest *>(base);
+                ReadEventFd(wakeupFd_);
+                delete wakeupReq;
+                if (!shuttingDown_.load()) {
+                    SubmitWakeupWatch();
+                }
+                break;
+            }
         }
 
         if (!running_.load() && shuttingDown_.load()) {
