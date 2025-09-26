@@ -16,7 +16,11 @@
 #include "internal_logger.h"
 
 #ifdef __linux__
+#if defined(LMNET_LINUX_BACKEND_IOURING)
+#include "platforms/linux/io_uring/unix_server_impl.h"
+#else
 #include "platforms/linux/epoll/unix_server_impl.h"
+#endif
 #endif
 
 namespace lmshao::lmnet {

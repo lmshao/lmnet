@@ -15,6 +15,14 @@ option(BUILD_EXAMPLES "Build examples" ON)
 option(BUILD_TESTS "Build tests" ON)
 option(INSTALL_TO_USER_LOCAL "Install to ~/.local instead of system-wide" OFF)
 
+set(LMNET_LINUX_BACKEND_DEFINE "")
+set(LINUX_BACKEND_LIBS "")
+
+if(UNIX)
+    set(LMNET_LINUX_BACKEND "AUTO" CACHE STRING "Linux networking backend (AUTO, EPOLL, IOURING)")
+    set_property(CACHE LMNET_LINUX_BACKEND PROPERTY STRINGS AUTO EPOLL IOURING)
+endif()
+
 # Set default build type to Release if not specified
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -66,8 +74,66 @@ if(WIN32)
 elseif(APPLE)
     message(FATAL_ERROR "macOS platform is not supported yet")
 elseif(UNIX)
-    set(PLATFORM_DIR "platforms/linux")
     set(PLATFORM_NAME "Linux")
+
+    set(LMNET_LINUX_BACKEND_SELECTED "EPOLL")
+    set(LMNET_LINUX_BACKEND_DEFINE "LMNET_LINUX_BACKEND_EPOLL")
+    set(LINUX_BACKEND_LIBS "")
+
+    set(LIBURING_FOUND FALSE)
+    set(LIBURING_INCLUDE_DIR "")
+    set(LIBURING_LIBRARY "")
+
+    if(LMNET_LINUX_BACKEND STREQUAL "IOURING" OR LMNET_LINUX_BACKEND STREQUAL "AUTO")
+        find_path(LIBURING_INCLUDE_DIR liburing.h
+                  HINTS /usr/include /usr/local/include
+                  PATH_SUFFIXES liburing)
+        find_library(LIBURING_LIBRARY NAMES uring)
+
+        if(NOT LIBURING_INCLUDE_DIR OR NOT LIBURING_LIBRARY)
+            find_package(PkgConfig QUIET)
+            if(PKG_CONFIG_FOUND)
+                pkg_check_modules(PC_LIBURING QUIET liburing)
+                if(PC_LIBURING_FOUND)
+                    set(LIBURING_INCLUDE_DIR ${PC_LIBURING_INCLUDE_DIRS})
+                    set(LIBURING_LIBRARY ${PC_LIBURING_LIBRARIES})
+                endif()
+            endif()
+        endif()
+
+        if(LIBURING_INCLUDE_DIR AND LIBURING_LIBRARY)
+            set(LIBURING_FOUND TRUE)
+        endif()
+    endif()
+
+    if(LMNET_LINUX_BACKEND STREQUAL "IOURING")
+        if(NOT LIBURING_FOUND)
+            message(FATAL_ERROR "lmnet configured with LMNET_LINUX_BACKEND=IOURING but liburing was not found. Install liburing-dev or choose EPOLL backend.")
+        endif()
+        set(LMNET_LINUX_BACKEND_SELECTED "IOURING")
+    elseif(LMNET_LINUX_BACKEND STREQUAL "AUTO")
+        if(LIBURING_FOUND)
+            set(LMNET_LINUX_BACKEND_SELECTED "IOURING")
+        else()
+            message(STATUS "liburing not found; falling back to epoll backend")
+        endif()
+    else()
+        set(LMNET_LINUX_BACKEND_SELECTED "EPOLL")
+    endif()
+
+    if(LMNET_LINUX_BACKEND_SELECTED STREQUAL "IOURING")
+        set(PLATFORM_DIR "platforms/linux/io_uring")
+        set(LMNET_LINUX_BACKEND_DEFINE "LMNET_LINUX_BACKEND_IOURING")
+        if(LIBURING_INCLUDE_DIR)
+            include_directories(${LIBURING_INCLUDE_DIR})
+        endif()
+        set(LINUX_BACKEND_LIBS ${LIBURING_LIBRARY})
+        message(STATUS "Using io_uring backend (liburing include: ${LIBURING_INCLUDE_DIR}, lib: ${LIBURING_LIBRARY})")
+    else()
+        set(PLATFORM_DIR "platforms/linux/epoll")
+        set(LMNET_LINUX_BACKEND_DEFINE "LMNET_LINUX_BACKEND_EPOLL")
+        message(STATUS "Using epoll backend")
+    endif()
 else()
     message(FATAL_ERROR "Unsupported platform")
 endif()
@@ -138,6 +204,10 @@ endif()
 list(REMOVE_DUPLICATES COMMON_SOURCES)
 list(REMOVE_DUPLICATES PLATFORM_SOURCES)
 
+if(LMNET_LINUX_BACKEND_SELECTED STREQUAL "IOURING")
+    list(FILTER PLATFORM_SOURCES EXCLUDE REGEX ".*/event_reactor\\.cpp$")
+endif()
+
 set(SOURCES ${COMMON_SOURCES} ${PLATFORM_SOURCES})
 
 # Print source file summary
@@ -203,12 +273,17 @@ if(BUILD_STATIC_LIBS)
     target_link_libraries(lmnet_static PUBLIC 
         $<IF:$<TARGET_EXISTS:lmcore::static>,lmcore::static,lmcore> 
         ${PLATFORM_LIBS}
+        ${LINUX_BACKEND_LIBS}
     )
     set_target_properties(lmnet_static PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
     set_target_properties(lmnet_static PROPERTIES
         VERSION ${PROJECT_VERSION}
         SOVERSION ${PROJECT_VERSION_MAJOR}
     )
+
+    if(LMNET_LINUX_BACKEND_DEFINE)
+        target_compile_definitions(lmnet_static PUBLIC ${LMNET_LINUX_BACKEND_DEFINE})
+    endif()
     
     # Create alias for static library (for internal use)
     add_library(${PROJECT_NAME}::static ALIAS lmnet_static)
@@ -225,9 +300,9 @@ if(BUILD_SHARED_LIBS)
     )
     # Link to lmcore shared library and platform libraries  
     if(TARGET lmcore::shared)
-        target_link_libraries(lmnet_shared PUBLIC lmcore::shared ${PLATFORM_LIBS})
+        target_link_libraries(lmnet_shared PUBLIC lmcore::shared ${PLATFORM_LIBS} ${LINUX_BACKEND_LIBS})
     elseif(TARGET lmcore-shared)
-        target_link_libraries(lmnet_shared PUBLIC lmcore-shared ${PLATFORM_LIBS})
+        target_link_libraries(lmnet_shared PUBLIC lmcore-shared ${PLATFORM_LIBS} ${LINUX_BACKEND_LIBS})
     else()
         # Find lmcore shared library in standard locations
         find_library(LMCORE_SHARED_LIB 
@@ -236,11 +311,11 @@ if(BUILD_SHARED_LIBS)
             PATH_SUFFIXES lib
         )
         if(LMCORE_SHARED_LIB)
-            target_link_libraries(lmnet_shared PUBLIC ${LMCORE_SHARED_LIB} ${PLATFORM_LIBS})
+            target_link_libraries(lmnet_shared PUBLIC ${LMCORE_SHARED_LIB} ${PLATFORM_LIBS} ${LINUX_BACKEND_LIBS})
             message(STATUS "Found lmcore shared library: ${LMCORE_SHARED_LIB}")
         else()
             # Fallback to generic library name (let linker find it)
-            target_link_libraries(lmnet_shared PUBLIC lmcore ${PLATFORM_LIBS})
+            target_link_libraries(lmnet_shared PUBLIC lmcore ${PLATFORM_LIBS} ${LINUX_BACKEND_LIBS})
             message(STATUS "Using generic lmcore library name (linker will resolve)")
         endif()
     endif()
@@ -253,6 +328,10 @@ if(BUILD_SHARED_LIBS)
     # Create alias for shared library
     add_library(${PROJECT_NAME}::shared ALIAS lmnet_shared)
     message(STATUS "Building shared library: lib${PROJECT_NAME}.so")
+
+    if(LMNET_LINUX_BACKEND_DEFINE)
+        target_compile_definitions(lmnet_shared PUBLIC ${LMNET_LINUX_BACKEND_DEFINE})
+    endif()
 endif()
 
 # Create a default alias that points to static library (for examples and tests)
@@ -350,6 +429,9 @@ message(STATUS "Version: ${PROJECT_VERSION}")
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Platform: ${PLATFORM_NAME}")
 message(STATUS "Lmcore source: ${LMCORE_SOURCE}")
+if(UNIX)
+    message(STATUS "Linux backend: ${LMNET_LINUX_BACKEND_SELECTED}")
+endif()
 message(STATUS "Build static library: ${BUILD_STATIC_LIBS}")
 message(STATUS "Build shared library: ${BUILD_SHARED_LIBS}")
 message(STATUS "Build examples: ${BUILD_EXAMPLES}")
