@@ -6,16 +6,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "tcp_server_impl.h"
+#include "platforms/linux/io_uring/tcp_server_impl.h"
 
 #include <arpa/inet.h>
-#include <netinet/tcp.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 #include <cerrno>
-#include <queue>
+#include <utility>
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
@@ -23,452 +22,245 @@
 
 namespace lmshao::lmnet {
 
-const int TCP_BACKLOG = 10;
-const int RECV_BUFFER_MAX_SIZE = 4096;
-
-class TcpServerHandler : public EventHandler {
-public:
-    explicit TcpServerHandler(std::weak_ptr<TcpServerImpl> server) : server_(server) {}
-
-    void HandleRead(socket_t fd) override
-    {
-        if (auto server = server_.lock()) {
-            server->HandleAccept(fd);
-        }
-    }
-
-    void HandleWrite(socket_t fd) override {}
-
-    void HandleError(socket_t fd) override { LMNET_LOGE("Server socket error on fd: %d", fd); }
-
-    void HandleClose(socket_t fd) override { LMNET_LOGD("Server socket close on fd: %d", fd); }
-
-    int GetHandle() const override
-    {
-        if (auto server = server_.lock()) {
-            return server->GetSocketFd();
-        }
-        return -1;
-    }
-
-    int GetEvents() const override
-    {
-        return static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) |
-               static_cast<int>(EventType::CLOSE);
-    }
-
-private:
-    std::weak_ptr<TcpServerImpl> server_;
-};
-
-class TcpConnectionHandler : public EventHandler {
-public:
-    TcpConnectionHandler(socket_t fd, std::weak_ptr<TcpServerImpl> server)
-        : fd_(fd), server_(server), writeEventsEnabled_(false)
-    {
-    }
-
-    void HandleRead(socket_t fd) override
-    {
-        if (auto server = server_.lock()) {
-            server->HandleReceive(fd);
-        }
-    }
-
-    void HandleWrite(socket_t fd) override { ProcessSendQueue(); }
-
-    void HandleError(socket_t fd) override
-    {
-        LMNET_LOGE("Connection error on fd: %d", fd);
-        if (auto server = server_.lock()) {
-            server->HandleConnectionClose(fd, true, "Connection error");
-        }
-    }
-
-    void HandleClose(socket_t fd) override
-    {
-        LMNET_LOGD("Connection close on fd: %d", fd);
-        if (auto server = server_.lock()) {
-            server->HandleConnectionClose(fd, false, "Connection closed");
-        }
-    }
-
-    int GetHandle() const override { return fd_; }
-
-    int GetEvents() const override
-    {
-        int events =
-            static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) | static_cast<int>(EventType::CLOSE);
-
-        if (writeEventsEnabled_) {
-            events |= static_cast<int>(EventType::WRITE);
-        }
-
-        return events;
-    }
-
-    void QueueSend(std::shared_ptr<DataBuffer> buffer)
-    {
-        if (!buffer || buffer->Size() == 0) {
-            return;
-        }
-        sendQueue_.push(buffer);
-        EnableWriteEvents();
-    }
-
-private:
-    void EnableWriteEvents()
-    {
-        if (!writeEventsEnabled_) {
-            writeEventsEnabled_ = true;
-            IoUringManager::GetInstance()->ModifyHandler(fd_, GetEvents());
-        }
-    }
-
-    void DisableWriteEvents()
-    {
-        if (writeEventsEnabled_) {
-            writeEventsEnabled_ = false;
-            IoUringManager::GetInstance()->ModifyHandler(fd_, GetEvents());
-        }
-    }
-
-    void ProcessSendQueue()
-    {
-        while (!sendQueue_.empty()) {
-            auto &buf = sendQueue_.front();
-            ssize_t bytesSent = send(fd_, buf->Data(), buf->Size(), MSG_NOSIGNAL);
-            if (bytesSent > 0) {
-                if (static_cast<size_t>(bytesSent) == buf->Size()) {
-                    sendQueue_.pop();
-                } else {
-                    auto remaining = DataBuffer::PoolAlloc(buf->Size() - bytesSent);
-                    remaining->Assign(buf->Data() + bytesSent, buf->Size() - bytesSent);
-                    sendQueue_.front() = remaining;
-                    break;
-                }
-            } else if (bytesSent == -1) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    break;
-                } else {
-                    LMNET_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
-                    return;
-                }
-            }
-        }
-
-        if (sendQueue_.empty()) {
-            DisableWriteEvents();
-        }
-    }
-
-private:
-    socket_t fd_;
-    std::weak_ptr<TcpServerImpl> server_;
-    std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
-    bool writeEventsEnabled_;
-};
+TcpServerImpl::TcpServerImpl(std::string local_ip, uint16_t local_port)
+    : local_ip_(std::move(local_ip)), local_port_(local_port)
+{
+    task_queue_ = std::make_unique<TaskQueue>("TcpServerCb");
+}
 
 TcpServerImpl::~TcpServerImpl()
 {
-    LMNET_LOGD("fd:%d", socket_);
     Stop();
+    if (task_queue_) {
+        task_queue_->Stop();
+    }
 }
 
 bool TcpServerImpl::Init()
 {
     socket_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGD("socket error: %s", strerror(errno));
+        LMNET_LOGE("Socket error: %s", strerror(errno));
         return false;
     }
-    LMNET_LOGD("init ip: %s, port: %d fd:%d", localIp_.c_str(), localPort_, socket_);
+
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(local_port_);
+    if (local_ip_.empty()) {
+        local_ip_ = "0.0.0.0";
+    }
+    inet_aton(local_ip_.c_str(), &server_addr.sin_addr);
 
     int optval = 1;
     if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-        LMNET_LOGD("setsockopt error: %s", strerror(errno));
+        LMNET_LOGE("setsockopt SO_REUSEADDR error: %s", strerror(errno));
         return false;
     }
 
-    memset(&serverAddr_, 0, sizeof(serverAddr_));
-    serverAddr_.sin_family = AF_INET;
-    serverAddr_.sin_port = htons(localPort_);
-    inet_aton(localIp_.c_str(), &serverAddr_.sin_addr);
-
-    if (bind(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
+    if (bind(socket_, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0) {
         LMNET_LOGE("bind error: %s", strerror(errno));
         return false;
     }
 
-    if (listen(socket_, TCP_BACKLOG) < 0) {
-        LMNET_LOGE("listen error: %s", strerror(errno));
-        return false;
-    }
-
-    taskQueue_ = std::make_unique<TaskQueue>("TcPServerCb");
     return true;
 }
 
 bool TcpServerImpl::Start()
 {
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGD("socket not initialized");
+    if (listen(socket_, SOMAXCONN) < 0) {
+        LMNET_LOGE("listen error: %s", strerror(errno));
         return false;
     }
 
-    taskQueue_->Start();
-
-    serverHandler_ = std::make_shared<TcpServerHandler>(shared_from_this());
-    if (!IoUringManager::GetInstance()->RegisterHandler(serverHandler_)) {
-        LMNET_LOGE("Failed to register server handler");
+    auto &manager = IoUringManager::GetInstance();
+    if (!manager.Init()) {
+        LMNET_LOGE("IoUringManager init failed");
         return false;
     }
 
-    LMNET_LOGD("TcpServerImpl started with new EventHandler interface");
+    is_running_ = true;
+    task_queue_->Start();
+    LMNET_LOGD("Server started, listening on %s:%d", local_ip_.c_str(), local_port_);
+
+    SubmitAccept();
     return true;
 }
 
 bool TcpServerImpl::Stop()
 {
-    auto reactor = IoUringManager::GetInstance();
-
-    std::vector<int> clientFds;
-    for (const auto &pair : sessions_) {
-        clientFds.push_back(pair.first);
+    if (!is_running_.exchange(false)) {
+        return true;
     }
 
-    for (int clientFd : clientFds) {
-        LMNET_LOGD("close client fd: %d", clientFd);
-        reactor->RemoveHandler(clientFd);
-        close(clientFd);
-
-        connectionHandlers_.erase(clientFd);
-    }
-    sessions_.clear();
-
-    if (socket_ != INVALID_SOCKET && serverHandler_) {
-        LMNET_LOGD("close server fd: %d", socket_);
-        reactor->RemoveHandler(socket_);
-        close(socket_);
+    if (socket_ != INVALID_SOCKET) {
+        auto &manager = IoUringManager::GetInstance();
+        manager.SubmitCloseRequest(socket_, [this, &manager](int, int) {
+            std::lock_guard<std::mutex> lock(session_mutex_);
+            for (auto &pair : sessions_) {
+                manager.SubmitCloseRequest(pair.first, [](int, int) {});
+            }
+            sessions_.clear();
+        });
         socket_ = INVALID_SOCKET;
-        serverHandler_.reset();
     }
 
-    if (taskQueue_) {
-        taskQueue_->Stop();
-        taskQueue_.reset();
+    IoUringManager::GetInstance().Stop();
+
+    if (task_queue_) {
+        task_queue_->Stop();
     }
 
-    LMNET_LOGD("TcpServerImpl stopped");
+    LMNET_LOGD("Server stopped");
     return true;
 }
 
-bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size)
+bool TcpServerImpl::Send(socket_t fd, std::string, uint16_t, const std::string &str)
 {
-    if (!data || size == 0) {
-        LMNET_LOGD("invalid data or size");
-        return false;
-    }
-    auto buf = DataBuffer::PoolAlloc(size);
-    buf->Assign(reinterpret_cast<const char *>(data), size);
-    return Send(fd, host, port, buf);
+    return Send(fd, "", 0, str.data(), str.size());
 }
 
-bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool TcpServerImpl::Send(socket_t fd, std::string, uint16_t, const void *data, size_t len)
 {
-    if (!buffer || buffer->Size() == 0) {
+    auto buffer = std::make_shared<DataBuffer>(len);
+    buffer->Append(static_cast<const char *>(data), len);
+    return Send(fd, "", 0, buffer);
+}
+
+bool TcpServerImpl::Send(socket_t fd, std::string, uint16_t, std::shared_ptr<DataBuffer> data)
+{
+    if (!is_running_) {
         return false;
     }
 
-    if (sessions_.find(fd) == sessions_.end()) {
-        LMNET_LOGD("invalid session fd");
-        return false;
-    }
-
-    auto handlerIt = connectionHandlers_.find(fd);
-    if (handlerIt != connectionHandlers_.end()) {
-        auto tcpHandler = handlerIt->second;
-        if (tcpHandler) {
-            tcpHandler->QueueSend(buffer);
-            return true;
+    auto &manager = IoUringManager::GetInstance();
+    return manager.SubmitWriteRequest(fd, data, [this, fd](int, int res) {
+        if (res < 0) {
+            LMNET_LOGE("Write error on fd %d: %s", fd, strerror(-res));
+            HandleConnectionClose(fd, "Write error");
         }
-    }
-    LMNET_LOGE("Connection handler not found for fd: %d", fd);
-    return false;
+    });
 }
 
-bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std::string &str)
+void TcpServerImpl::Disconnect(socket_t fd)
 {
-    if (str.empty()) {
-        LMNET_LOGD("invalid string data");
-        return false;
-    }
-    auto buf = DataBuffer::PoolAlloc(str.size());
-    buf->Assign(str.data(), str.size());
-    return Send(fd, host, port, buf);
-}
-
-void TcpServerImpl::HandleAccept(socket_t fd)
-{
-    LMNET_LOGD("enter");
-    struct sockaddr_in clientAddr = {};
-    socklen_t addrLen = sizeof(struct sockaddr_in);
-    int clientSocket = accept4(fd, (struct sockaddr *)&clientAddr, &addrLen, SOCK_NONBLOCK);
-    if (clientSocket < 0) {
-        LMNET_LOGD("accept error: %s", strerror(errno));
+    if (!is_running_) {
         return;
     }
 
-    auto connectionHandler = std::make_shared<TcpConnectionHandler>(clientSocket, shared_from_this());
-    if (!IoUringManager::GetInstance()->RegisterHandler(connectionHandler)) {
-        LMNET_LOGE("Failed to register connection handler for fd: %d", clientSocket);
-        close(clientSocket);
+    HandleConnectionClose(fd, "Client disconnected");
+}
+
+void TcpServerImpl::SubmitAccept()
+{
+    if (!is_running_) {
         return;
     }
 
-    connectionHandlers_[clientSocket] = connectionHandler;
-
-    // EnableKeepAlive(clientSocket);
-
-    std::string host = inet_ntoa(clientAddr.sin_addr);
-    uint16_t port = ntohs(clientAddr.sin_port);
-
-    LMNET_LOGD("New client connections client[%d] %s:%d\n", clientSocket, inet_ntoa(clientAddr.sin_addr),
-               ntohs(clientAddr.sin_port));
-
-    auto session = std::make_shared<SessionImpl>(clientSocket, host, port, shared_from_this());
-    sessions_.emplace(clientSocket, session);
-
-    if (!listener_.expired()) {
-        auto listenerWeak = listener_;
-        auto session = sessions_[clientSocket];
-        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session]() {
-            LMNET_LOGD("invoke OnAccept callback");
-            auto listener = listenerWeak.lock();
-            if (listener) {
-                listener->OnAccept(session);
-            } else {
-                LMNET_LOGD("not found listener!");
-            }
-        });
-        if (taskQueue_) {
-            taskQueue_->EnqueueTask(task);
-        }
-    } else {
-        LMNET_LOGD("listener is null");
-    }
+    auto &manager = IoUringManager::GetInstance();
+    auto self = shared_from_this();
+    manager.SubmitAcceptRequest(
+        socket_, [this, self](int res, const sockaddr_in &client_addr) { HandleAccept(res, client_addr); });
 }
 
-void TcpServerImpl::HandleReceive(socket_t fd)
+void TcpServerImpl::HandleAccept(int res, const sockaddr_in &client_addr)
 {
-    LMNET_LOGD("fd: %d", fd);
-    if (readBuffer_ == nullptr) {
-        readBuffer_ = std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE);
-    }
-
-    while (true) {
-        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
-
-        if (nbytes > 0) {
-            if (nbytes > RECV_BUFFER_MAX_SIZE) {
-                LMNET_LOGD("recv %zd bytes", nbytes);
-                break;
-            }
-
-            if (!listener_.expired()) {
-                auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
-                dataBuffer->Assign(readBuffer_->Data(), nbytes);
-
-                std::shared_ptr<Session> session;
-                auto it = sessions_.find(fd);
-                if (it != sessions_.end()) {
-                    session = it->second;
-                }
-
-                if (session) {
-                    auto listenerWeak = listener_;
-                    auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session, dataBuffer]() {
-                        auto listener = listenerWeak.lock();
-                        if (listener != nullptr) {
-                            listener->OnReceive(session, dataBuffer);
-                        }
-                    });
-                    if (taskQueue_) {
-                        taskQueue_->EnqueueTask(task);
-                    }
-                }
-            }
-            continue;
-        } else if (nbytes == 0) {
-            LMNET_LOGW("Disconnect fd[%d]", fd);
-            // Do not call HandleConnectionClose directly; let the event system handle EPOLLHUP
-            break;
-        } else {
-            if (errno == EAGAIN) {
-                break;
-            }
-
-            std::string info = strerror(errno);
-            LMNET_LOGD("recv error: %s(%d)", info.c_str(), errno);
-
-            if (errno == ETIMEDOUT) {
-                LMNET_LOGD("ETIME: connection is timeout");
-                break;
-            }
-
-            HandleConnectionClose(fd, true, info);
-        }
-
-        break;
-    }
-}
-
-void TcpServerImpl::EnableKeepAlive(socket_t fd)
-{
-    int keepAlive = 1;
-    constexpr int TCP_KEEP_IDLE = 3;     // Start probing after 3 seconds of no data interaction
-    constexpr int TCP_KEEP_INTERVAL = 1; // Probe interval 1 second
-    constexpr int TCP_KEEP_COUNT = 2;    // Probe 2 times
-    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(keepAlive));
-    setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &TCP_KEEP_IDLE, sizeof(TCP_KEEP_IDLE));
-    setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &TCP_KEEP_INTERVAL, sizeof(TCP_KEEP_INTERVAL));
-    setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &TCP_KEEP_COUNT, sizeof(TCP_KEEP_COUNT));
-}
-
-void TcpServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
-{
-    LMNET_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
-
-    auto sessionIt = sessions_.find(fd);
-    if (sessionIt == sessions_.end()) {
-        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
+    if (!is_running_) {
         return;
     }
 
-    IoUringManager::GetInstance()->RemoveHandler(fd);
+    if (res < 0) {
+        LMNET_LOGE("Accept error: %s", strerror(-res));
+        SubmitAccept();
+        return;
+    }
 
-    close(fd);
+    int client_fd = res;
+    char client_ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
+    uint16_t client_port = ntohs(client_addr.sin_port);
 
-    std::shared_ptr<Session> session = sessionIt->second;
-    sessions_.erase(sessionIt);
+    auto session = std::make_shared<SessionImpl>(client_fd, std::string(client_ip), client_port, shared_from_this());
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        sessions_[client_fd] = session;
+    }
 
-    connectionHandlers_.erase(fd);
+    if (auto listener = listener_.lock()) {
+        auto task = std::make_shared<TaskHandler<void>>([listener, session]() { listener->OnAccept(session); });
+        task_queue_->EnqueueTask(task);
+    }
 
-    if (!listener_.expired() && session) {
-        auto listenerWeak = listener_;
-        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session, reason, isError]() {
-            auto listener = listenerWeak.lock();
-            if (listener != nullptr) {
-                if (isError) {
-                    listener->OnError(session, reason);
-                } else {
-                    listener->OnClose(session);
-                }
-            }
-        });
-        if (taskQueue_) {
-            taskQueue_->EnqueueTask(task);
+    SubmitRead(session);
+    SubmitAccept();
+}
+
+void TcpServerImpl::SubmitRead(std::shared_ptr<Session> session)
+{
+    if (!is_running_) {
+        return;
+    }
+
+    auto buffer = std::make_shared<DataBuffer>(4096);
+    auto &manager = IoUringManager::GetInstance();
+    auto self = shared_from_this();
+    manager.SubmitReadRequest(session->fd, buffer,
+                              [this, self, session](int, std::shared_ptr<DataBuffer> buf, int bytes_read) {
+                                  HandleReceive(session, buf, bytes_read);
+                              });
+}
+
+void TcpServerImpl::HandleReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer, int bytes_read)
+{
+    if (!is_running_) {
+        return;
+    }
+
+    if (bytes_read <= 0) {
+        if (bytes_read < 0) {
+            LMNET_LOGE("Read error on fd %d: %s", session->fd, strerror(-bytes_read));
+        }
+        HandleConnectionClose(session->fd, "Client closed connection");
+        return;
+    }
+
+    buffer->SetSize(bytes_read);
+    if (auto listener = listener_.lock()) {
+        auto task = std::make_shared<TaskHandler<void>>(
+            [listener, session, buffer]() { listener->OnReceive(session, buffer); });
+        task_queue_->EnqueueTask(task);
+    }
+
+    SubmitRead(session);
+}
+
+void TcpServerImpl::HandleConnectionClose(int client_fd, const std::string &reason)
+{
+    if (!is_running_) {
+        return;
+    }
+
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        auto it = sessions_.find(client_fd);
+        if (it != sessions_.end()) {
+            session = it->second;
+            sessions_.erase(it);
         }
     }
+
+    if (session) {
+        if (auto listener = listener_.lock()) {
+            auto task =
+                std::make_shared<TaskHandler<void>>([listener, session]() { listener->OnClose(session); });
+            task_queue_->EnqueueTask(task);
+        }
+
+        auto &manager = IoUringManager::GetInstance();
+        manager.SubmitCloseRequest(client_fd, [](int, int) {});
+    }
 }
+
 } // namespace lmshao::lmnet

@@ -153,7 +153,8 @@ endif()
 # Source files and include directories
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/src)
-include_directories(${PROJECT_SOURCE_DIR}/src/${PLATFORM_DIR})
+include_directories(${PROJECT_SOURCE_DIR}/src/platforms/linux/io_uring)
+include_directories(${PROJECT_SOURCE_DIR}/src/platforms/linux/common)
 
 # Try to find installed lmcore first, fallback to local source if not found
 find_package(lmcore QUIET)

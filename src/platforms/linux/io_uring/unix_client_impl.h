@@ -6,64 +6,44 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_LMNET_LINUX_UNIX_CLIENT_IMPL_H
-#define LMSHAO_LMNET_LINUX_UNIX_CLIENT_IMPL_H
+#ifndef LMSHAO_LMNET_LINUX_IO_URING_UNIX_CLIENT_IMPL_H
+#define LMSHAO_LMNET_LINUX_IO_URING_UNIX_CLIENT_IMPL_H
 
-#include <lmcore/data_buffer.h>
-#include <lmcore/task_queue.h>
-#include <sys/un.h>
-
-#include <cstdint>
+#include "lmnet/unix_client.h"
+#include "lmnet/common.h"
+#include "i_client_listener.h"
+#include "lmnet/data_buffer.h"
+#include "io_uring_manager.h"
+#include <atomic>
 #include <memory>
 #include <string>
 
-#include "iunix_client.h"
-#include "lmnet/common.h"
-#include "lmnet/iclient_listener.h"
+namespace lmshao {
+namespace lmnet {
 
-namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
-class UnixClientHandler;
-class EventHandler;
-class UnixClientImpl final : public IUnixClient,
-                             public std::enable_shared_from_this<UnixClientImpl>,
-                             public Creatable<UnixClientImpl> {
-    friend class UnixClientHandler;
-    friend class Creatable<UnixClientImpl>;
-
-public:
-    ~UnixClientImpl();
+class UnixClientImpl : public IUnixClient {
+  public:
+    explicit UnixClientImpl(std::string server_path);
+    ~UnixClientImpl() override;
 
     bool Init() override;
+    void Stop() override;
+    bool Send(std::shared_ptr<lmcore::DataBuffer> data) override;
     void SetListener(std::shared_ptr<IClientListener> listener) override { listener_ = listener; }
-    bool Connect() override;
 
-    bool Send(const std::string &str) override;
-    bool Send(const void *data, size_t len) override;
-    bool Send(std::shared_ptr<DataBuffer> data) override;
+  private:
+    void OnConnect(int res);
+    void OnRead(std::shared_ptr<lmcore::DataBuffer> data, int res);
+    void OnWrite(int res);
 
-    void Close() override;
-
-    socket_t GetSocketFd() const override { return socket_; }
-
-protected:
-    UnixClientImpl(const std::string &socketPath);
-
-    void HandleReceive(socket_t fd);
-    void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
-
-private:
-    std::string socketPath_;
-    socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_un serverAddr_;
-
+  private:
+    std::string server_path_;
+    int socket_ = -1;
     std::weak_ptr<IClientListener> listener_;
-    std::unique_ptr<TaskQueue> taskQueue_;
-    std::shared_ptr<DataBuffer> readBuffer_;
-
-    std::shared_ptr<UnixClientHandler> clientHandler_;
+    std::atomic_bool is_running_{false};
 };
 
-} // namespace lmshao::lmnet
+} // namespace lmnet
+} // namespace lmshao
 
-#endif // LMSHAO_LMNET_LINUX_UNIX_CLIENT_IMPL_H
+#endif // LMSHAO_LMNET_LINUX_IO_URING_UNIX_CLIENT_IMPL_H

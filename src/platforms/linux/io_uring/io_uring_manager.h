@@ -5,137 +5,93 @@
  *
  * SPDX-License-Identifier: MIT
  */
-#ifndef LMSHAO_LMNET_IO_URING_MANAGER_H
-#define LMSHAO_LMNET_IO_URING_MANAGER_H
 
-// This manager mirrors the responsibilities of the Windows IOCP manager while
-// exposing an event-driven API compatible with existing Linux handlers.
+#ifndef LMSHAO_LMNET_LINUX_IO_URING_MANAGER_H
+#define LMSHAO_LMNET_LINUX_IO_URING_MANAGER_H
 
-#include <lmcore/singleton.h>
+#include <arpa/inet.h>
+#include <liburing.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
-#include <mutex>
-#include <shared_mutex>
 #include <string>
 #include <thread>
-#include <unordered_map>
+#include <vector>
 
+#include "lmcore/data_buffer.h"
+#include "lmcore/singleton.h"
 #include "lmnet/common.h"
 
-struct io_uring;
-
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
 
 enum class EventType {
-    READ = 0x01,
-    WRITE = 0x02,
-    ERROR = 0x04,
-    CLOSE = 0x08
+    ACCEPT,
+    CONNECT,
+    READ,
+    WRITE,
+    CLOSE,
+    RECVFROM,
+    EXIT,
 };
 
-class EventHandler {
-public:
-    virtual ~EventHandler() = default;
+struct Request {
+    int fd;
+    EventType event_type;
+    std::function<void(int, int)> connect_callback;
+    std::function<void(int, const sockaddr_in &)> accept_callback;
+    std::function<void(int, std::shared_ptr<lmcore::DataBuffer>, int)> read_callback;
+    std::function<void(int, int)> write_callback;
+    std::function<void(int, int)> close_callback;
+    std::function<void(int, std::shared_ptr<lmcore::DataBuffer>, int, const sockaddr_in &)> recvfrom_callback;
+    std::shared_ptr<lmcore::DataBuffer> buffer;
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_len;
+    iovec iov;
 
-    virtual void HandleRead(socket_t fd) = 0;
-    virtual void HandleWrite(socket_t fd) = 0;
-    virtual void HandleError(socket_t fd) = 0;
-    virtual void HandleClose(socket_t fd) = 0;
-
-    virtual int GetHandle() const = 0;
-    virtual int GetEvents() const { return static_cast<int>(EventType::READ); }
+    Request() : fd(-1), event_type(EventType::ACCEPT), buffer(nullptr), client_addr_len(sizeof(sockaddr_in)) {}
 };
 
-class IoUringManager : public ManagedSingleton<IoUringManager> {
+class IoUringManager : public lmcore::Singleton<IoUringManager> {
 public:
-    friend class ManagedSingleton<IoUringManager>;
+    bool Init(int entries = 256);
+    void Stop();
+    void Exit();
 
-    IoUringManager();
-    ~IoUringManager();
-
-    bool RegisterHandler(std::shared_ptr<EventHandler> handler);
-    bool RemoveHandler(socket_t fd);
-    bool ModifyHandler(socket_t fd, int events);
-
-    void SetThreadName(const std::string &name);
-
-    bool IsRunning() const { return running_.load(); }
+    bool SubmitConnectRequest(int fd, const sockaddr_in &addr, std::function<void(int, int)> callback);
+    bool SubmitAcceptRequest(int fd, std::function<void(int, const sockaddr_in &)> callback);
+    bool SubmitReadRequest(int client_fd, std::shared_ptr<lmcore::DataBuffer> buffer,
+                           std::function<void(int, std::shared_ptr<lmcore::DataBuffer>, int)> callback);
+    bool SubmitRecvFromRequest(
+        int fd, std::shared_ptr<lmcore::DataBuffer> buffer,
+        std::function<void(int, std::shared_ptr<lmcore::DataBuffer>, int, const sockaddr_in &)> callback);
+    bool SubmitSendToRequest(int fd, std::shared_ptr<lmcore::DataBuffer> buffer, const sockaddr_in &addr,
+                             std::function<void(int, int)> callback);
+    bool SubmitWriteRequest(int client_fd, std::shared_ptr<lmcore::DataBuffer> buffer,
+                            std::function<void(int, int)> callback);
+    bool SubmitCloseRequest(int client_fd, std::function<void(int, int)> callback);
 
 private:
-    struct HandlerEntry;
-
-    struct RequestBase {
-        enum class Kind {
-            Poll,
-            Remove,
-            Wakeup
-        };
-
-        explicit RequestBase(Kind kind) : kind(kind) {}
-        virtual ~RequestBase() = default;
-
-        Kind kind;
-    };
-
-    struct PollRequest final : RequestBase {
-        PollRequest(std::shared_ptr<HandlerEntry> entry, int fd, uint32_t events)
-            : RequestBase(Kind::Poll), entry(std::move(entry)), fd(fd), events(events)
-        {
-        }
-
-        std::shared_ptr<HandlerEntry> entry;
-        int fd;
-        uint32_t events;
-    };
-
-    struct RemoveRequest final : RequestBase {
-        RemoveRequest(std::shared_ptr<HandlerEntry> entry, void *targetUserData)
-            : RequestBase(Kind::Remove), entry(std::move(entry)), target(targetUserData)
-        {
-        }
-
-        std::shared_ptr<HandlerEntry> entry;
-        void *target;
-    };
-
-    struct WakeupRequest final : RequestBase {
-        WakeupRequest() : RequestBase(Kind::Wakeup) {}
-    };
-
-    struct HandlerEntry {
-        std::shared_ptr<EventHandler> handler;
-        std::atomic<void *> currentRequest{nullptr};
-        std::atomic<uint32_t> events{static_cast<uint32_t>(EventType::READ)};
-        std::atomic<bool> active{true};
-    };
-
     void Run();
-    void DispatchEvent(const std::shared_ptr<HandlerEntry> &entry, int events);
-    bool SubmitPollRequest(const std::shared_ptr<HandlerEntry> &entry, uint32_t events);
-    bool SubmitPollRemove(const std::shared_ptr<HandlerEntry> &entry, void *targetUserData);
-    bool SubmitWakeupWatch();
-    void SubmitWakeupSignal();
-    void Cleanup();
+    void PutRequest(Request *req);
+    Request *GetRequest();
 
-    io_uring *ring_ = nullptr;
-    int wakeupFd_ = -1;
+private:
+    IoUringManager() = default;
+    friend class lmcore::Singleton<IoUringManager>;
 
-    std::atomic<bool> running_{false};
-    std::atomic<bool> shuttingDown_{false};
-
-    std::unique_ptr<std::thread> workerThread_;
-    std::shared_mutex handlerMutex_;
-    std::mutex signalMutex_;
-    std::condition_variable runningSignal_;
-    std::unordered_map<int, std::shared_ptr<HandlerEntry>> handlers_;
-
-    std::mutex submitMutex_;
+private:
+    struct io_uring ring_;
+    int entries_;
+    std::vector<Request> request_pool_;
+    std::vector<Request *> free_requests_;
+    std::atomic_bool is_running_{false};
+    std::unique_ptr<std::thread> worker_thread_;
 };
 
 } // namespace lmshao::lmnet
 
-#endif // LMSHAO_LMNET_IO_URING_MANAGER_H
+#endif // LMSHAO_LMNET_LINUX_IO_URING_MANAGER_H

@@ -21,6 +21,7 @@
 #endif
 
 namespace lmshao::lmnet {
+
 TcpServer::TcpServer(std::string listenIp, uint16_t listenPort)
 {
     impl_ = TcpServerImpl::Create(std::move(listenIp), listenPort);
@@ -31,7 +32,7 @@ TcpServer::TcpServer(std::string listenIp, uint16_t listenPort)
 
 TcpServer::TcpServer(uint16_t listenPort)
 {
-    impl_ = TcpServerImpl::Create(listenPort);
+    impl_ = TcpServerImpl::Create("0.0.0.0", listenPort);
     if (!impl_) {
         LMNET_LOGE("Failed to create TCP server implementation");
     }

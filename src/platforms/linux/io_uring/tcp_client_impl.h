@@ -13,6 +13,7 @@
 #include <lmcore/task_queue.h>
 #include <netinet/in.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -20,16 +21,14 @@
 #include "itcp_client.h"
 #include "lmnet/common.h"
 #include "lmnet/iclient_listener.h"
+#include "platforms/linux/io_uring/tcp_client_impl.h"
 
 namespace lmshao::lmnet {
 using namespace lmshao::lmcore;
 
-class TcpClientHandler;
-class EventHandler;
 class TcpClientImpl final : public ITcpClient,
                             public std::enable_shared_from_this<TcpClientImpl>,
                             public Creatable<TcpClientImpl> {
-    friend class TcpClientHandler;
     friend class Creatable<TcpClientImpl>;
 
 public:
@@ -47,11 +46,18 @@ public:
 
     int GetSocketFd() const override { return socket_; }
 
-protected:
-    TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
+private:
+    void StartAsyncRead();
 
-    void HandleReceive(socket_t fd);
-    void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+protected:
+    TcpClientImpl(std::string remote_ip, uint16_t remote_port, std::string local_ip = "", uint16_t local_port = 0);
+
+private:
+    void SubmitConnect();
+    void HandleConnect(int result);
+    void SubmitRead();
+    void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read);
+    void HandleClose(bool is_error, const std::string &reason);
     void ReInit();
 
 private:
@@ -63,12 +69,11 @@ private:
 
     int socket_ = INVALID_SOCKET;
     struct sockaddr_in serverAddr_;
+    struct sockaddr_in localAddr_;
 
     std::weak_ptr<IClientListener> listener_;
-    std::unique_ptr<TaskQueue> taskQueue_;
-    std::shared_ptr<DataBuffer> readBuffer_;
-
-    std::shared_ptr<TcpClientHandler> clientHandler_;
+    std::unique_ptr<TaskQueue> task_queue_;
+    std::atomic_bool is_running_{false};
 };
 
 } // namespace lmshao::lmnet

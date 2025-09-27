@@ -9,7 +9,6 @@
 #include "udp_client_impl.h"
 
 #include <arpa/inet.h>
-#include <assert.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -22,60 +21,13 @@ namespace lmshao::lmnet {
 
 const int RECV_BUFFER_MAX_SIZE = 4096;
 
-class UdpClientHandler : public EventHandler {
-public:
-    UdpClientHandler(socket_t fd, std::weak_ptr<UdpClientImpl> client) : fd_(fd), client_(client) {}
-
-    void HandleRead(socket_t fd) override
-    {
-        if (auto client = client_.lock()) {
-            client->HandleReceive(fd);
-        }
-    }
-
-    void HandleWrite(socket_t fd) override {}
-
-    void HandleError(socket_t fd) override
-    {
-        LMNET_LOGE("UDP client connection error on fd: %d", fd);
-        if (auto client = client_.lock()) {
-            client->HandleConnectionClose(fd, true, "Connection error");
-        }
-    }
-
-    void HandleClose(socket_t fd) override
-    {
-        LMNET_LOGD("UDP client connection close on fd: %d", fd);
-        if (auto client = client_.lock()) {
-            client->HandleConnectionClose(fd, false, "Connection closed");
-        }
-    }
-
-    socket_t GetHandle() const override { return fd_; }
-
-    int GetEvents() const override
-    {
-        return static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) |
-               static_cast<int>(EventType::CLOSE);
-    }
-
-private:
-    socket_t fd_;
-    std::weak_ptr<UdpClientImpl> client_;
-};
-
 UdpClientImpl::UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(remoteIp), remotePort_(remotePort), localIp_(localIp), localPort_(localPort)
 {
-    taskQueue_ = std::make_unique<TaskQueue>("UdpClientCb");
 }
 
 UdpClientImpl::~UdpClientImpl()
 {
-    if (taskQueue_) {
-        taskQueue_->Stop();
-        taskQueue_.reset();
-    }
     Close();
 }
 
@@ -93,31 +45,30 @@ bool UdpClientImpl::Init()
     inet_aton(remoteIp_.c_str(), &serverAddr_.sin_addr);
 
     if (!localIp_.empty() || localPort_ != 0) {
-        struct sockaddr_in localAddr;
-        memset(&localAddr, 0, sizeof(localAddr));
-        localAddr.sin_family = AF_INET;
-        localAddr.sin_port = htons(localPort_);
+        memset(&localAddr_, 0, sizeof(localAddr_));
+        localAddr_.sin_family = AF_INET;
+        localAddr_.sin_port = htons(localPort_);
         if (localIp_.empty()) {
             localIp_ = "0.0.0.0";
         }
-        inet_aton(localIp_.c_str(), &localAddr.sin_addr);
+        inet_aton(localIp_.c_str(), &localAddr_.sin_addr);
 
-        int ret = bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr));
-        if (ret != 0) {
+        if (bind(socket_, (struct sockaddr *)&localAddr_, sizeof(localAddr_)) != 0) {
             LMNET_LOGE("bind error: %s", strerror(errno));
+            close(socket_);
+            socket_ = INVALID_SOCKET;
             return false;
         }
     }
 
-    taskQueue_->Start();
-
-    clientHandler_ = std::make_shared<UdpClientHandler>(socket_, shared_from_this());
-    if (!IoUringManager::GetInstance()->RegisterHandler(clientHandler_)) {
-        LMNET_LOGE("Failed to register UDP client handler");
+    if (!IoUringManager::GetInstance().Init()) {
+        LMNET_LOGE("Failed to initialize IoUringManager");
         return false;
     }
 
-    LMNET_LOGD("UdpClientImpl initialized with new EventHandler interface");
+    is_running_.store(true);
+    StartReceive();
+    LMNET_LOGD("UdpClientImpl initialized");
     return true;
 }
 
@@ -140,127 +91,79 @@ bool UdpClientImpl::EnableBroadcast()
 
 void UdpClientImpl::Close()
 {
-    if (socket_ != INVALID_SOCKET && clientHandler_) {
-        IoUringManager::GetInstance()->RemoveHandler(socket_);
-        close(socket_);
+    if (socket_ != INVALID_SOCKET && is_running_.exchange(false)) {
+        HandleClose(false, "Manual close");
+    }
+}
+
+void UdpClientImpl::HandleClose(bool is_error, const std::string &reason)
+{
+    if (auto listener = listener_.lock()) {
+        listener->OnError(is_error ? -1 : 0, reason);
+    }
+    if (socket_ != INVALID_SOCKET) {
+        IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr);
         socket_ = INVALID_SOCKET;
-        clientHandler_.reset();
     }
 }
 
 bool UdpClientImpl::Send(const void *data, size_t len)
 {
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("socket not initialized");
+    if (socket_ == INVALID_SOCKET || !data || len == 0) {
         return false;
     }
 
-    if (!data || len == 0) {
-        LMNET_LOGE("invalid send parameters: data=%p, len=%zu", data, len);
-        return false;
-    }
+    auto buffer = std::make_shared<DataBuffer>(len);
+    buffer->Append(static_cast<const char *>(data), len);
 
-    ssize_t nbytes = sendto(socket_, data, len, 0, (struct sockaddr *)&serverAddr_, (socklen_t)(sizeof(serverAddr_)));
-    if (nbytes == -1) {
-        LMNET_LOGE("sendto error: %s", strerror(errno));
-        return false;
-    }
+    auto cb = [this](int, int result) {
+        if (result < 0) {
+            LMNET_LOGE("UDP send failed: %s", strerror(-result));
+        }
+    };
 
-    return true;
+    return IoUringManager::GetInstance().SubmitWriteRequest(socket_, buffer, cb);
 }
 
 bool UdpClientImpl::Send(const std::string &str)
 {
-    if (str.empty()) {
-        LMNET_LOGE("invalid send parameters: empty string");
-        return false;
-    }
     return Send(str.data(), str.size());
 }
 
 bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
-    if (!data) {
+    if (!data)
         return false;
-    }
     return Send(data->Data(), data->Size());
 }
 
-void UdpClientImpl::HandleReceive(socket_t fd)
+void UdpClientImpl::StartReceive()
 {
-    LMNET_LOGD("fd: %d", fd);
-    if (readBuffer_ == nullptr) {
-        readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
-    }
-
-    while (true) {
-        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
-
-        if (nbytes > 0) {
-            if (!listener_.expired()) {
-                auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
-                dataBuffer->Assign(readBuffer_->Data(), nbytes);
-                auto listenerWeak = listener_;
-                auto task = std::make_shared<TaskHandler<void>>([listenerWeak, dataBuffer, fd]() {
-                    auto listener = listenerWeak.lock();
-                    if (listener) {
-                        listener->OnReceive(fd, dataBuffer);
-                    }
-                });
-                if (taskQueue_) {
-                    taskQueue_->EnqueueTask(task);
-                }
-            }
-            continue;
-        } else if (nbytes == 0) {
-            LMNET_LOGW("Disconnect fd[%d]", fd);
-            // Do not call HandleConnectionClose directly; let the event system handle EPOLLHUP
-            break;
-        } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) { // Usually same value, but check both for portability
-                // Normal case: no data available to read, return directly
-                break;
-            }
-
-            std::string info = strerror(errno);
-            LMNET_LOGE("recv error: %s(%d)", info.c_str(), errno);
-            HandleConnectionClose(fd, true, info);
-        }
-
-        break;
-    }
-}
-
-void UdpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
-{
-    LMNET_LOGD("Closing UDP client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
-               isError ? "true" : "false");
-
-    if (socket_ != fd) {
-        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
+    if (!is_running_.load())
         return;
-    }
 
-    IoUringManager::GetInstance()->RemoveHandler(fd);
-    close(fd);
-    socket_ = INVALID_SOCKET;
-    clientHandler_.reset();
+    auto buffer = std::make_shared<DataBuffer>(RECV_BUFFER_MAX_SIZE);
+    auto cb = [this](int fd, std::shared_ptr<DataBuffer> buf, int res, const sockaddr_in &from) {
+        HandleReceive(buf, res, from);
+    };
+    IoUringManager::GetInstance().SubmitRecvFromRequest(socket_, buffer, cb);
+}
 
-    if (!listener_.expired()) {
-        auto listenerWeak = listener_;
-        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, reason, isError, fd]() {
-            auto listener = listenerWeak.lock();
-            if (listener != nullptr) {
-                if (isError) {
-                    listener->OnError(fd, reason);
-                } else {
-                    listener->OnClose(fd);
-                }
-            }
-        });
-        if (taskQueue_) {
-            taskQueue_->EnqueueTask(task);
+void UdpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read, const sockaddr_in &from_addr)
+{
+    if (bytes_read > 0) {
+        buffer->SetSize(bytes_read);
+        if (auto listener = listener_.lock()) {
+            // TODO: Pass from_addr to listener if needed
+            listener->OnReceive(socket_, buffer);
         }
+        StartReceive(); // Continue receiving
+    } else if (bytes_read < 0) {
+        if (is_running_.load()) {
+            LMNET_LOGE("UDP receive error: %s", strerror(-bytes_read));
+        }
+        HandleClose(true, "Receive error");
     }
 }
+
 } // namespace lmshao::lmnet

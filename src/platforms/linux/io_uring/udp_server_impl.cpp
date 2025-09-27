@@ -10,146 +10,34 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 #include <cstring>
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
-#include "lmnet/session.h"
+#include "session_impl.h"
 
 namespace lmshao::lmnet {
 
-// UDP Session implementation
-class UdpSession : public Session {
-public:
-    UdpSession(socket_t fd, const std::string &remoteIp, uint16_t remotePort, UdpServerImpl *server)
-        : fd_(fd), server_(server)
-    {
-        host = remoteIp;
-        port = remotePort;
-        fd = fd_;
-    }
-
-    bool Send(std::shared_ptr<DataBuffer> buffer) const override
-    {
-        if (!server_) {
-            return false;
-        }
-        return server_->Send(fd_, host, port, buffer->Data(), buffer->Size());
-    }
-
-    bool Send(const std::string &str) const override
-    {
-        if (!server_) {
-            return false;
-        }
-        return server_->Send(fd_, host, port, str);
-    }
-
-    bool Send(const void *data, size_t size) const override
-    {
-        if (!server_) {
-            return false;
-        }
-        return server_->Send(fd_, host, port, data, size);
-    }
-
-    std::string ClientInfo() const override { return host + ":" + std::to_string(port); }
-
-private:
-    socket_t fd_;
-    UdpServerImpl *server_;
-};
-
-// UDP Server Handler
-class UdpServerHandler : public EventHandler {
-public:
-    UdpServerHandler(socket_t fd, std::weak_ptr<UdpServerImpl> server) : fd_(fd), server_(server) {}
-
-    void HandleRead(socket_t fd) override
-    {
-        if (auto server = server_.lock()) {
-            server->HandleReceive(fd);
-        }
-    }
-
-    void HandleWrite(socket_t fd) override {}
-
-    void HandleError(socket_t fd) override
-    {
-        LMNET_LOGE("UDP server connection error on fd: %d", fd);
-        if (auto server = server_.lock()) {
-            LMNET_LOGE("UDP server socket error occurred");
-        }
-    }
-
-    void HandleClose(socket_t fd) override
-    {
-        LMNET_LOGD("UDP server connection close on fd: %d", fd);
-        if (auto server = server_.lock()) {
-            LMNET_LOGD("UDP server socket closed");
-        }
-    }
-
-    int GetHandle() const override { return fd_; }
-
-    int GetEvents() const override
-    {
-        return static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) |
-               static_cast<int>(EventType::CLOSE);
-    }
-
-private:
-    socket_t fd_;
-    std::weak_ptr<UdpServerImpl> server_;
-};
-
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
-UdpServerImpl::UdpServerImpl(std::string ip, uint16_t port)
-    : ip_(std::move(ip)), port_(port), taskQueue_(std::make_unique<TaskQueue>("UdpServer")),
-      readBuffer_(std::make_shared<DataBuffer>(RECV_BUFFER_MAX_SIZE))
-{
-}
+UdpServerImpl::UdpServerImpl(std::string ip, uint16_t port) : ip_(std::move(ip)), port_(port) {}
 
 UdpServerImpl::~UdpServerImpl()
 {
     Stop();
-    if (socket_ != INVALID_SOCKET) {
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-    }
 }
 
 bool UdpServerImpl::Init()
 {
-    socket_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+    socket_ = ::socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if (socket_ < 0) {
         LMNET_LOGE("Failed to create socket: %s", strerror(errno));
         return false;
     }
 
-    // Set socket to non-blocking
-    int flags = fcntl(socket_, F_GETFL, 0);
-    if (flags == -1) {
-        LMNET_LOGE("fcntl F_GETFL failed: %s", strerror(errno));
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
-    }
-
-    if (fcntl(socket_, F_SETFL, flags | O_NONBLOCK) == -1) {
-        LMNET_LOGE("fcntl F_SETFL failed: %s", strerror(errno));
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
-    }
-
-    // Set SO_REUSEADDR
     int reuse = 1;
     if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
         LMNET_LOGE("setsockopt SO_REUSEADDR failed: %s", strerror(errno));
@@ -187,134 +75,112 @@ bool UdpServerImpl::Start()
         return false;
     }
 
-    // Create event handler
-    auto self = shared_from_this();
-    serverHandler_ = std::make_shared<UdpServerHandler>(socket_, self);
-
-    // Add to event loop
-    if (!IoUringManager::GetInstance()->RegisterHandler(serverHandler_)) {
-        LMNET_LOGE("Failed to add server handler to event reactor");
+    if (!IoUringManager::GetInstance().Init()) {
+        LMNET_LOGE("Failed to initialize IoUringManager");
         return false;
     }
 
-    // Start task queue
-    if (taskQueue_->Start() != 0) {
-        LMNET_LOGE("Failed to start task queue");
-        IoUringManager::GetInstance()->RemoveHandler(socket_);
-        return false;
-    }
+    is_running_.store(true);
+    StartReceive();
 
-    LMNET_LOGD("UDP server started successfully on %s:%d", ip_.c_str(), port_);
+    LMNET_LOGD("UDP server started");
     return true;
 }
 
 bool UdpServerImpl::Stop()
 {
-    LMNET_LOGD("Stopping UDP server");
-
-    // Stop task queue first
-    if (taskQueue_) {
-        taskQueue_->Stop();
-    }
-
-    // Remove from event loop
-    if (serverHandler_) {
-        IoUringManager::GetInstance()->RemoveHandler(socket_);
-        serverHandler_.reset();
-    }
-
-    // Close socket
-    if (socket_ != INVALID_SOCKET) {
-        close(socket_);
+    if (is_running_.exchange(false) && socket_ != INVALID_SOCKET) {
+        IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr);
         socket_ = INVALID_SOCKET;
+        LMNET_LOGD("UDP server stopped");
     }
-
-    LMNET_LOGD("UDP server stopped");
     return true;
 }
 
-void UdpServerImpl::HandleReceive(socket_t fd)
+void UdpServerImpl::StartReceive()
 {
-    struct sockaddr_in clientAddr;
-    socklen_t clientAddrLen = sizeof(clientAddr);
+    if (!is_running_.load())
+        return;
 
-    readBuffer_->Clear();
-    readBuffer_->SetCapacity(RECV_BUFFER_MAX_SIZE);
+    auto buffer = std::make_shared<DataBuffer>(RECV_BUFFER_MAX_SIZE);
+    auto cb = [this](int, std::shared_ptr<DataBuffer> buf, int res, const sockaddr_in &from) {
+        HandleReceive(buf, res, from);
+    };
+    IoUringManager::GetInstance().SubmitRecvFromRequest(socket_, buffer, cb);
+}
 
-    ssize_t bytesRead = recvfrom(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0,
-                                 reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen);
-
-    if (bytesRead > 0) {
-        readBuffer_->SetSize(bytesRead);
-
-        char clientIP[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
-        uint16_t clientPort = ntohs(clientAddr.sin_port);
-
-        // Create session info
-        auto session = std::make_shared<UdpSession>(fd, clientIP, clientPort, this);
-
+void UdpServerImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read, const sockaddr_in &from_addr)
+{
+    if (bytes_read > 0) {
+        buffer->SetSize(bytes_read);
         if (auto listener = listener_.lock()) {
-            // Create a copy of the data
-            auto dataBuffer = std::make_shared<DataBuffer>(*readBuffer_);
+            char ip_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &from_addr.sin_addr, ip_str, INET_ADDRSTRLEN);
+            uint16_t port = ntohs(from_addr.sin_port);
 
-            // For UDP, call the listener directly
-            listener->OnReceive(session, dataBuffer);
+            auto session = std::make_shared<SessionImpl>(socket_, std::string(ip_str), port, shared_from_this());
+            listener->OnReceive(session, buffer);
         }
-    } else if (bytesRead == 0) {
-        LMNET_LOGD("UDP peer closed connection");
-    } else {
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LMNET_LOGE("recvfrom failed: %s", strerror(errno));
+        StartReceive(); // Continue receiving
+    } else if (bytes_read < 0) {
+        if (is_running_.load()) {
+            LMNET_LOGE("UDP receive error: %s", strerror(-bytes_read));
         }
     }
+}
+
+bool UdpServerImpl::Send(const std::string &ip, uint16_t port, const void *data, size_t len)
+{
+    if (socket_ == INVALID_SOCKET || !data || len == 0) {
+        return false;
+    }
+
+    auto buffer = std::make_shared<DataBuffer>(len);
+    buffer->Append(static_cast<const char *>(data), len);
+
+    return Send(ip, port, buffer);
+}
+
+bool UdpServerImpl::Send(const std::string &ip, uint16_t port, const std::string &str)
+{
+    return Send(ip, port, str.data(), str.size());
+}
+
+bool UdpServerImpl::Send(const std::string &ip, uint16_t port, std::shared_ptr<DataBuffer> data)
+{
+    if (!data)
+        return false;
+
+    struct sockaddr_in dest_addr;
+    memset(&dest_addr, 0, sizeof(dest_addr));
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, ip.c_str(), &dest_addr.sin_addr) <= 0) {
+        return false;
+    }
+
+    IoUringManager::GetInstance().SubmitSendToRequest(socket_, data, dest_addr, [this](int, int res) {
+        if (res < 0) {
+            LMNET_LOGE("sendto failed: %s", strerror(-res));
+        }
+    });
+
+    return true;
 }
 
 bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, const void *data, size_t len)
 {
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("Socket is not initialized");
-        return false;
-    }
-
-    struct sockaddr_in clientAddr;
-    std::memset(&clientAddr, 0, sizeof(clientAddr));
-    clientAddr.sin_family = AF_INET;
-    clientAddr.sin_port = htons(port);
-
-    if (inet_pton(AF_INET, ip.c_str(), &clientAddr.sin_addr) <= 0) {
-        LMNET_LOGE("inet_pton failed for IP: %s", ip.c_str());
-        return false;
-    }
-
-    ssize_t bytesSent =
-        sendto(socket_, data, len, 0, reinterpret_cast<struct sockaddr *>(&clientAddr), sizeof(clientAddr));
-
-    if (bytesSent < 0) {
-        LMNET_LOGE("sendto failed: %s", strerror(errno));
-        return false;
-    }
-
-    if (static_cast<size_t>(bytesSent) != len) {
-        LMNET_LOGW("Partial send: sent %zd bytes out of %zu", bytesSent, len);
-        return false;
-    }
-
-    return true;
+    return Send(ip, port, data, len);
 }
 
 bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, const std::string &str)
 {
-    return Send(fd, std::move(ip), port, str.data(), str.size());
+    return Send(ip, port, str);
 }
 
 bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data)
 {
-    if (!data) {
-        LMNET_LOGE("DataBuffer is null");
-        return false;
-    }
-    return Send(fd, std::move(ip), port, data->Data(), data->Size());
+    return Send(ip, port, data);
 }
 
 } // namespace lmshao::lmnet

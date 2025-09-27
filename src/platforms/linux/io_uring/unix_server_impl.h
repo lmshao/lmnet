@@ -6,69 +6,45 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_LMNET_LINUX_UNIX_SERVER_IMPL_H
-#define LMSHAO_LMNET_LINUX_UNIX_SERVER_IMPL_H
+#ifndef LMSHAO_LMNET_LINUX_IO_URING_UNIX_SERVER_IMPL_H
+#define LMSHAO_LMNET_LINUX_IO_URING_UNIX_SERVER_IMPL_H
 
-#include <lmcore/task_queue.h>
-#include <sys/un.h>
-
-#include <cstdint>
+#include "lmnet/unix_server.h"
+#include "lmnet/common.h"
+#include "i_server_listener.h"
+#include "lmnet/data_buffer.h"
+#include "io_uring_manager.h"
+#include <atomic>
 #include <memory>
 #include <string>
-#include <unordered_map>
+#include <vector>
+#include <sys/socket.h>
 
-#include "base_server.h"
-#include "lmnet/common.h"
-#include "lmnet/iserver_listener.h"
-#include "lmnet/session.h"
+namespace lmshao {
+namespace lmnet {
 
-namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
-class EventHandler;
-class UnixConnectionHandler;
-
-class UnixServerImpl final : public BaseServer,
-                             public std::enable_shared_from_this<UnixServerImpl>,
-                             public Creatable<UnixServerImpl> {
-    friend class EventProcessor;
-    friend class UnixServerHandler;
-    friend class UnixConnectionHandler;
-    friend class Creatable<UnixServerImpl>;
-
-public:
-    ~UnixServerImpl();
+class UnixServerImpl : public IUnixServer {
+  public:
+    explicit UnixServerImpl(std::string path);
+    ~UnixServerImpl() override;
 
     bool Init() override;
-    void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
-    bool Start() override;
-    bool Stop() override;
-    bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
-    bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
-    bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
+    void Stop() override;
+    void SetListener(IServerListener* listener) override { listener_ = listener; }
 
-    socket_t GetSocketFd() const override { return socket_; }
+  private:
+    void OnAccept(int client_fd, const sockaddr_in& client_addr);
+    void OnRead(int client_fd, std::shared_ptr<lmcore::DataBuffer> data, int res);
 
-protected:
-    UnixServerImpl(const std::string &socketPath);
-
-    void HandleAccept(socket_t fd);
-    void HandleReceive(socket_t fd);
-    void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
-
-private:
-    std::string socketPath_;
-    socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_un serverAddr_;
-
-    std::weak_ptr<IServerListener> listener_;
-    std::unordered_map<int, std::shared_ptr<Session>> sessions_;
-    std::unique_ptr<TaskQueue> taskQueue_;
-    std::shared_ptr<DataBuffer> readBuffer_;
-
-    std::shared_ptr<EventHandler> serverHandler_;
-    std::unordered_map<int, std::shared_ptr<UnixConnectionHandler>> connectionHandlers_;
+  private:
+    std::string path_;
+    int socket_ = -1;
+    IServerListener* listener_ = nullptr;
+    std::atomic_bool is_running_{false};
+    std::vector<int> client_fds_;
 };
 
-} // namespace lmshao::lmnet
+} // namespace lmnet
+} // namespace lmshao
 
-#endif // LMSHAO_LMNET_LINUX_UNIX_SERVER_IMPL_H
+#endif // LMSHAO_LMNET_LINUX_IO_URING_UNIX_SERVER_IMPL_H
