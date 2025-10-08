@@ -11,7 +11,11 @@
 #include "internal_logger.h"
 
 #ifdef __linux__
+#if defined(LMNET_LINUX_BACKEND_IOURING)
+#include "platforms/linux/io_uring/tcp_client_impl.h"
+#else
 #include "platforms/linux/epoll/tcp_client_impl.h"
+#endif
 #elif _WIN32
 #include "platforms/windows/tcp_client_impl.h"
 #endif

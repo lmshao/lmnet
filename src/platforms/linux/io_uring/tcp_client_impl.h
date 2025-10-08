@@ -13,6 +13,7 @@
 #include <lmcore/task_queue.h>
 #include <netinet/in.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -24,51 +25,46 @@
 namespace lmshao::lmnet {
 using namespace lmshao::lmcore;
 
-class TcpClientHandler;
-class EventHandler;
-class TcpClientImpl final : public ITcpClient,
-                            public std::enable_shared_from_this<TcpClientImpl>,
-                            public Creatable<TcpClientImpl> {
-    friend class TcpClientHandler;
-    friend class Creatable<TcpClientImpl>;
-
+class TcpClientImpl : public ITcpClient,
+                      public std::enable_shared_from_this<TcpClientImpl>,
+                      public Creatable<TcpClientImpl> {
 public:
-    ~TcpClientImpl();
+    TcpClientImpl(std::string remote_ip, uint16_t remote_port, std::string local_ip = "", uint16_t local_port = 0);
+    ~TcpClientImpl() override;
 
     bool Init() override;
     void SetListener(std::shared_ptr<IClientListener> listener) override { listener_ = listener; }
     bool Connect() override;
+    void Close() override;
 
     bool Send(const std::string &str) override;
     bool Send(const void *data, size_t len) override;
     bool Send(std::shared_ptr<DataBuffer> data) override;
 
-    void Close() override;
+    socket_t GetSocketFd() const override { return socket_; }
 
-    int GetSocketFd() const override { return socket_; }
-
-protected:
-    TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
-
-    void HandleReceive(socket_t fd);
-    void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+private:
     void ReInit();
+    void SubmitConnect();
+    void HandleConnect(int result);
+    void SubmitRead();
+    void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read);
+    void HandleClose(bool is_error, const std::string &reason);
 
 private:
     std::string remoteIp_;
     uint16_t remotePort_;
-
     std::string localIp_;
     uint16_t localPort_;
 
-    int socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_;
+    socket_t socket_ = INVALID_SOCKET;
+    sockaddr_in serverAddr_{};
+    sockaddr_in localAddr_{};
 
+    std::atomic_bool isRunning_{false};
+    std::atomic_bool isConnected_{false};
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
-    std::shared_ptr<DataBuffer> readBuffer_;
-
-    std::shared_ptr<TcpClientHandler> clientHandler_;
 };
 
 } // namespace lmshao::lmnet

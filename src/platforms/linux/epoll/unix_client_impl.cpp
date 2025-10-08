@@ -6,11 +6,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-// Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
-#if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
-#error "Unix domain sockets are not supported on this platform"
-#endif
-
 #include "unix_client_impl.h"
 
 #include <sys/socket.h>

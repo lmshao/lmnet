@@ -6,18 +6,17 @@
  * SPDX-License-Identifier: MIT
  */
 
-// Unix domain sockets are only supported on Unix-like systems (Linux, macOS, BSD)
-#if !defined(__unix__) && !defined(__unix) && !defined(unix) && !defined(__APPLE__)
-#error "Unix domain sockets are not supported on this platform"
-#endif
-
 #include "lmnet/unix_client.h"
 
 #include "internal_logger.h"
 #include "iunix_client.h"
 
 #ifdef __linux__
+#if defined(LMNET_LINUX_BACKEND_IOURING)
+#include "platforms/linux/io_uring/unix_client_impl.h"
+#else
 #include "platforms/linux/epoll/unix_client_impl.h"
+#endif
 #endif
 
 namespace lmshao::lmnet {

@@ -10,10 +10,8 @@
 #define LMSHAO_LMNET_LINUX_UNIX_CLIENT_IMPL_H
 
 #include <lmcore/data_buffer.h>
-#include <lmcore/task_queue.h>
-#include <sys/un.h>
 
-#include <cstdint>
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -23,16 +21,14 @@
 
 namespace lmshao::lmnet {
 using namespace lmshao::lmcore;
-class UnixClientHandler;
-class EventHandler;
+
 class UnixClientImpl final : public IUnixClient,
                              public std::enable_shared_from_this<UnixClientImpl>,
                              public Creatable<UnixClientImpl> {
-    friend class UnixClientHandler;
     friend class Creatable<UnixClientImpl>;
 
 public:
-    ~UnixClientImpl();
+    ~UnixClientImpl() override;
 
     bool Init() override;
     void SetListener(std::shared_ptr<IClientListener> listener) override { listener_ = listener; }
@@ -47,21 +43,22 @@ public:
     socket_t GetSocketFd() const override { return socket_; }
 
 protected:
-    UnixClientImpl(const std::string &socketPath);
+    explicit UnixClientImpl(const std::string &socketPath);
 
-    void HandleReceive(socket_t fd);
-    void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+private:
+    void HandleConnect(int result);
+    void StartReceive();
+    void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read);
+    void HandleClose();
 
 private:
     std::string socketPath_;
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_un serverAddr_;
+
+    std::atomic_bool isRunning_{false};
+    std::atomic_bool isConnected_{false};
 
     std::weak_ptr<IClientListener> listener_;
-    std::unique_ptr<TaskQueue> taskQueue_;
-    std::shared_ptr<DataBuffer> readBuffer_;
-
-    std::shared_ptr<UnixClientHandler> clientHandler_;
 };
 
 } // namespace lmshao::lmnet
