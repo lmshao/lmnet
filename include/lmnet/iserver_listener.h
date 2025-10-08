@@ -23,6 +23,8 @@ class IServerListener {
 public:
     virtual ~IServerListener() = default;
 
+    virtual void OnReceiveFrom(const std::string &ip, uint16_t port, std::shared_ptr<DataBuffer> buffer) {};
+
     /**
      * @brief Called when an error occurs
      * @param session Session that encountered the error

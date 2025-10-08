@@ -9,10 +9,10 @@
 #ifndef LMSHAO_LMNET_LINUX_UNIX_SERVER_IMPL_H
 #define LMSHAO_LMNET_LINUX_UNIX_SERVER_IMPL_H
 
-#include <lmcore/task_queue.h>
+#include <lmcore/data_buffer.h>
 #include <sys/un.h>
 
-#include <cstdint>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -24,19 +24,13 @@
 
 namespace lmshao::lmnet {
 using namespace lmshao::lmcore;
-class EventHandler;
-class UnixConnectionHandler;
 
 class UnixServerImpl final : public BaseServer,
                              public std::enable_shared_from_this<UnixServerImpl>,
                              public Creatable<UnixServerImpl> {
-    friend class EventProcessor;
-    friend class UnixServerHandler;
-    friend class UnixConnectionHandler;
-    friend class Creatable<UnixServerImpl>;
-
 public:
-    ~UnixServerImpl();
+    explicit UnixServerImpl(const std::string &socketPath);
+    ~UnixServerImpl() override;
 
     bool Init() override;
     void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
@@ -48,25 +42,22 @@ public:
 
     socket_t GetSocketFd() const override { return socket_; }
 
-protected:
-    UnixServerImpl(const std::string &socketPath);
-
-    void HandleAccept(socket_t fd);
-    void HandleReceive(socket_t fd);
-    void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+private:
+    void SubmitAccept();
+    void HandleAccept(int client_fd);
+    void SubmitRead(int client_fd);
+    void HandleReceive(int client_fd, std::shared_ptr<DataBuffer> buffer, int bytes_read);
+    void HandleConnectionClose(int client_fd);
 
 private:
     std::string socketPath_;
     socket_t socket_ = INVALID_SOCKET;
     struct sockaddr_un serverAddr_;
 
+    std::atomic_bool isRunning_{false};
+
     std::weak_ptr<IServerListener> listener_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
-    std::unique_ptr<TaskQueue> taskQueue_;
-    std::shared_ptr<DataBuffer> readBuffer_;
-
-    std::shared_ptr<EventHandler> serverHandler_;
-    std::unordered_map<int, std::shared_ptr<UnixConnectionHandler>> connectionHandlers_;
 };
 
 } // namespace lmshao::lmnet

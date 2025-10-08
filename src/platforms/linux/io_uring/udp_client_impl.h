@@ -10,9 +10,9 @@
 #define LMSHAO_LMNET_LINUX_UDP_CLIENT_IMPL_H
 
 #include <lmcore/data_buffer.h>
-#include <lmcore/task_queue.h>
 #include <netinet/in.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -23,12 +23,10 @@
 
 namespace lmshao::lmnet {
 using namespace lmshao::lmcore;
-class EventHandler;
 
 class UdpClientImpl : public IUdpClient,
                       public std::enable_shared_from_this<UdpClientImpl>,
                       public Creatable<UdpClientImpl> {
-    friend class UdpClientHandler;
     friend class Creatable<UdpClientImpl>;
 
 public:
@@ -50,8 +48,9 @@ protected:
     UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
 
 private:
-    void HandleReceive(socket_t fd);
-    void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+    void StartReceive();
+    void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read, const sockaddr_in &from_addr);
+    void HandleClose(bool is_error, const std::string &reason);
 
 private:
     std::string remoteIp_;
@@ -62,12 +61,10 @@ private:
 
     socket_t socket_ = INVALID_SOCKET;
     struct sockaddr_in serverAddr_;
+    struct sockaddr_in localAddr_;
 
     std::weak_ptr<IClientListener> listener_;
-    std::unique_ptr<TaskQueue> taskQueue_;
-    std::shared_ptr<DataBuffer> readBuffer_;
-
-    std::shared_ptr<EventHandler> clientHandler_;
+    std::atomic_bool isRunning_{false};
 };
 
 } // namespace lmshao::lmnet

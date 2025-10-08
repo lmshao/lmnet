@@ -11,12 +11,17 @@
 #include "internal_logger.h"
 
 #ifdef __linux__
+#if defined(LMNET_LINUX_BACKEND_IOURING)
+#include "platforms/linux/io_uring/tcp_server_impl.h"
+#else
 #include "platforms/linux/epoll/tcp_server_impl.h"
+#endif
 #elif _WIN32
 #include "platforms/windows/tcp_server_impl.h"
 #endif
 
 namespace lmshao::lmnet {
+
 TcpServer::TcpServer(std::string listenIp, uint16_t listenPort)
 {
     impl_ = TcpServerImpl::Create(std::move(listenIp), listenPort);
@@ -27,7 +32,7 @@ TcpServer::TcpServer(std::string listenIp, uint16_t listenPort)
 
 TcpServer::TcpServer(uint16_t listenPort)
 {
-    impl_ = TcpServerImpl::Create(listenPort);
+    impl_ = TcpServerImpl::Create("0.0.0.0", listenPort);
     if (!impl_) {
         LMNET_LOGE("Failed to create TCP server implementation");
     }
