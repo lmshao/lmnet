@@ -22,7 +22,6 @@
 #include "lmnet/iclient_listener.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
 
 class UdpClientImpl : public IUdpClient,
                       public std::enable_shared_from_this<UdpClientImpl>,
@@ -44,7 +43,6 @@ public:
     socket_t GetSocketFd() const override { return socket_; }
 
 protected:
-    // Constructor should be protected in IMPL pattern
     UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
 
 private:

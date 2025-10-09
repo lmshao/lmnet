@@ -174,8 +174,8 @@ void IoUringManager::HandleCompletion(Request *req, int result)
     }
 }
 
-bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::function<void(Request *)> &set_cb,
-                                     const std::function<void(io_uring_sqe *, Request *)> &prep_cb)
+bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::function<void(Request *)> &init_request,
+                                     const std::function<void(io_uring_sqe *, Request *)> &prep_sqe)
 {
     Request *req = GetRequest();
     if (!req) {
@@ -185,8 +185,8 @@ bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::functi
 
     req->event_type = type;
     req->fd = fd;
-    if (set_cb)
-        set_cb(req);
+    if (init_request)
+        init_request(req);
 
     std::lock_guard<std::mutex> lk(submitMutex_);
     io_uring_sqe *sqe = io_uring_get_sqe(&ring_);
@@ -195,8 +195,8 @@ bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::functi
         LMNET_LOGE("Failed to get SQE");
         return false;
     }
-    if (prep_cb)
-        prep_cb(sqe, req);
+    if (prep_sqe)
+        prep_sqe(sqe, req);
     io_uring_sqe_set_data(sqe, req);
     return SubmitDirect();
 }
@@ -212,29 +212,15 @@ bool IoUringManager::SubmitConnectRequest(int fd, const sockaddr_in &addr, Conne
 
 bool IoUringManager::SubmitAcceptRequest(int fd, AcceptCallback callback)
 {
-    Request *req = GetRequest();
-    if (!req) {
-        LMNET_LOGE("Failed to get request");
-        return false;
-    }
-
-    req->event_type = RequestType::ACCEPT;
-    req->fd = fd;
-    req->accept_cb = AcceptCallback(std::move(callback));
-    req->client_addr_len = sizeof(req->client_addr);
-
-    {
-        std::lock_guard<std::mutex> lk(submitMutex_);
-        io_uring_sqe *sqe = io_uring_get_sqe(&ring_);
-        if (!sqe) {
-            PutRequest(req);
-            LMNET_LOGE("Failed to get SQE");
-            return false;
-        }
-        io_uring_prep_accept(sqe, fd, (struct sockaddr *)&req->client_addr, &req->client_addr_len, 0);
-        io_uring_sqe_set_data(sqe, req);
-        return SubmitDirect();
-    }
+    return SubmitOperation(
+        RequestType::ACCEPT, fd,
+        [cb = std::move(callback)](Request *req) {
+            req->accept_cb = cb;
+            req->client_addr_len = sizeof(req->client_addr);
+        },
+        [](io_uring_sqe *sqe, Request *req) {
+            io_uring_prep_accept(sqe, req->fd, (struct sockaddr *)&req->client_addr, &req->client_addr_len, 0);
+        });
 }
 
 bool IoUringManager::SubmitReadRequest(int client_fd, std::shared_ptr<lmcore::DataBuffer> buffer, ReadCallback callback)
@@ -253,38 +239,23 @@ bool IoUringManager::SubmitReadRequest(int client_fd, std::shared_ptr<lmcore::Da
 bool IoUringManager::SubmitRecvFromRequest(int fd, std::shared_ptr<lmcore::DataBuffer> buffer,
                                            RecvFromCallback callback)
 {
-    Request *req = GetRequest();
-    if (!req) {
-        LMNET_LOGE("Failed to get request");
-        return false;
-    }
+    return SubmitOperation(
+        RequestType::RECVFROM, fd,
+        [cb = std::move(callback), buffer](Request *req) {
+            req->recvfrom_cb = cb;
+            req->buffer = buffer;
+            req->client_addr_len = sizeof(req->client_addr);
 
-    req->event_type = RequestType::RECVFROM;
-    req->fd = fd;
-    req->buffer = buffer;
-    req->recvfrom_cb = RecvFromCallback(std::move(callback));
-    req->client_addr_len = sizeof(req->client_addr);
-
-    // Persist iov/msg inside Request to avoid stack lifetime issues
-    req->iov.iov_base = buffer->Data();
-    req->iov.iov_len = buffer->Capacity();
-    req->msg = {};
-    req->msg.msg_name = &req->client_addr;
-    req->msg.msg_namelen = req->client_addr_len;
-    req->msg.msg_iov = &req->iov;
-    req->msg.msg_iovlen = 1;
-    {
-        std::lock_guard<std::mutex> lk(submitMutex_);
-        io_uring_sqe *sqe = io_uring_get_sqe(&ring_);
-        if (!sqe) {
-            PutRequest(req);
-            LMNET_LOGE("Failed to get SQE");
-            return false;
-        }
-        io_uring_prep_recvmsg(sqe, fd, &req->msg, 0);
-        io_uring_sqe_set_data(sqe, req);
-        return SubmitDirect();
-    }
+            // Persist iov/msg inside Request to avoid stack lifetime issues
+            req->iov.iov_base = buffer->Data();
+            req->iov.iov_len = buffer->Capacity();
+            req->msg = {};
+            req->msg.msg_name = &req->client_addr;
+            req->msg.msg_namelen = req->client_addr_len;
+            req->msg.msg_iov = &req->iov;
+            req->msg.msg_iovlen = 1;
+        },
+        [](io_uring_sqe *sqe, Request *req) { io_uring_prep_recvmsg(sqe, req->fd, &req->msg, 0); });
 }
 
 bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<lmcore::DataBuffer> buffer, const sockaddr_in &addr,
@@ -292,11 +263,11 @@ bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<lmcore::DataBuf
 {
     return SubmitOperation(
         RequestType::WRITE, fd,
-        [cb = std::move(callback), buffer](Request *req) {
+        [cb = std::move(callback), buffer, addr](Request *req) {
             req->write_cb = cb;
             req->buffer = buffer;
-        },
-        [buffer, addr](io_uring_sqe *sqe, Request *req) {
+
+            // Persist iov/msg inside Request to avoid stack lifetime issues
             req->iov.iov_base = buffer->Data();
             req->iov.iov_len = buffer->Size();
             req->msg = {};
@@ -308,8 +279,8 @@ bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<lmcore::DataBuf
             req->msg.msg_control = nullptr;
             req->msg.msg_controllen = 0;
             req->msg.msg_flags = 0;
-            io_uring_prep_sendmsg(sqe, req->fd, &req->msg, 0);
-        });
+        },
+        [](io_uring_sqe *sqe, Request *req) { io_uring_prep_sendmsg(sqe, req->fd, &req->msg, 0); });
 }
 
 bool IoUringManager::SubmitWriteRequest(int client_fd, std::shared_ptr<lmcore::DataBuffer> buffer,

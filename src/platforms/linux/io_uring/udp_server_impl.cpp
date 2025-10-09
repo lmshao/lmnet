@@ -7,51 +7,9 @@
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
-#include "lmnet/session.h"
+#include "session_impl.h"
 
 namespace lmshao::lmnet {
-
-// UDP Session implementation for io_uring
-class UdpSession : public Session {
-public:
-    UdpSession(socket_t fd, const std::string &remoteIp, uint16_t remotePort, UdpServerImpl *server)
-        : fd_(fd), server_(server)
-    {
-        host = remoteIp;
-        port = remotePort;
-        fd = fd_;
-    }
-
-    bool Send(std::shared_ptr<DataBuffer> buffer) const override
-    {
-        if (!server_) {
-            return false;
-        }
-        return server_->Send(fd_, host, port, buffer);
-    }
-
-    bool Send(const std::string &str) const override
-    {
-        if (!server_) {
-            return false;
-        }
-        return server_->Send(fd_, host, port, str);
-    }
-
-    bool Send(const void *data, size_t size) const override
-    {
-        if (!server_) {
-            return false;
-        }
-        return server_->Send(fd_, host, port, data, size);
-    }
-
-    std::string ClientInfo() const override { return host + ":" + std::to_string(port); }
-
-private:
-    socket_t fd_;
-    UdpServerImpl *server_;
-};
 
 UdpServerImpl::UdpServerImpl(std::string ip, uint16_t port) : ip_(std::move(ip)), port_(port) {}
 
@@ -144,8 +102,8 @@ void UdpServerImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_
             inet_ntop(AF_INET, &from_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
             uint16_t client_port = ntohs(from_addr.sin_port);
 
-            // Create session info like epoll implementation
-            auto session = std::make_shared<UdpSession>(socket_, std::string(client_ip), client_port, this);
+            // Create UDP session using unified SessionImpl
+            auto session = std::make_shared<SessionImpl>(socket_, std::string(client_ip), client_port, true);
 
             // For UDP, call the listener with session
             listener->OnReceive(session, buffer);
@@ -160,50 +118,6 @@ void UdpServerImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_
     if (isRunning_) {
         StartReceive();
     }
-}
-
-bool UdpServerImpl::Send(const std::string &ip, uint16_t port, const void *data, size_t len)
-{
-    auto buffer = std::make_shared<DataBuffer>();
-    buffer->Assign(data, len);
-    return Send(ip, port, buffer);
-}
-
-bool UdpServerImpl::Send(const std::string &ip, uint16_t port, const std::string &str)
-{
-    return Send(ip, port, str.data(), str.size());
-}
-
-bool UdpServerImpl::Send(const std::string &ip, uint16_t port, std::shared_ptr<DataBuffer> data)
-{
-    if (!isRunning_)
-        return false;
-
-    sockaddr_in client_addr{};
-    client_addr.sin_family = AF_INET;
-    client_addr.sin_port = htons(port);
-    client_addr.sin_addr.s_addr = inet_addr(ip.c_str());
-
-    IoUringManager::GetInstance().SubmitSendToRequest(socket_, data, client_addr, [](int, int res) {
-        if (res < 0) {
-            LMNET_LOGE("SendTo failed: %s", strerror(-res));
-        }
-    });
-    return true;
-}
-
-// To satisfy BaseServer interface
-bool UdpServerImpl::Send(socket_t, std::string ip, uint16_t port, const void *data, size_t len)
-{
-    return Send(ip, port, data, len);
-}
-bool UdpServerImpl::Send(socket_t, std::string ip, uint16_t port, const std::string &str)
-{
-    return Send(ip, port, str);
-}
-bool UdpServerImpl::Send(socket_t, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data)
-{
-    return Send(ip, port, data);
 }
 
 } // namespace lmshao::lmnet
