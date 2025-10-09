@@ -16,20 +16,15 @@
 #include <sys/uio.h>
 
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <string>
 #include <thread>
 #include <vector>
 
-#include "../../../internal_logger.h"
 #include "lmcore/data_buffer.h"
-#include "lmcore/object_pool.h"
 #include "lmcore/singleton.h"
-#include "lmnet/common.h"
 
 namespace lmshao::lmnet {
 
@@ -116,8 +111,8 @@ private:
     Request *GetRequest();
     bool SubmitDirect();
 
-    bool SubmitOperation(RequestType type, int fd, const std::function<void(Request *)> &set_cb,
-                         const std::function<void(io_uring_sqe *, Request *)> &prep_cb);
+    bool SubmitOperation(RequestType type, int fd, const std::function<void(Request *)> &init_request,
+                         const std::function<void(io_uring_sqe *, Request *)> &prep_sqe);
 
     void HandleCompletion(Request *req, int result);
 

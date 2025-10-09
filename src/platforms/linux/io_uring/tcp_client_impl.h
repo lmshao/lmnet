@@ -23,7 +23,6 @@
 #include "lmnet/iclient_listener.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
 
 class TcpClientImpl : public ITcpClient,
                       public std::enable_shared_from_this<TcpClientImpl>,

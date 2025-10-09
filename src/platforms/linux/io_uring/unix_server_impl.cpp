@@ -5,7 +5,7 @@
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
-#include "tcp_session_impl.h" // Reusing for simplicity
+#include "session_impl.h"
 
 namespace lmshao::lmnet {
 
@@ -101,7 +101,7 @@ void UnixServerImpl::SubmitAccept()
 void UnixServerImpl::HandleAccept(int client_fd)
 {
     if (client_fd >= 0) {
-        auto session = std::make_shared<TcpSession>(client_fd, "", 0); // Host/port not relevant for Unix sockets
+        auto session = std::make_shared<SessionImpl>(client_fd, "", 0); // Host/port not relevant for Unix sockets
         sessions_[client_fd] = session;
 
         if (auto listener = listener_.lock()) {
@@ -174,31 +174,6 @@ void UnixServerImpl::HandleConnectionClose(int client_fd)
     }
     // The actual close is submitted to io_uring, no need to call close() here directly
     IoUringManager::GetInstance().SubmitCloseRequest(client_fd, nullptr);
-}
-
-bool UnixServerImpl::Send(socket_t fd, std::string, uint16_t, const void *data, size_t size)
-{
-    auto buffer = std::make_shared<DataBuffer>();
-    buffer->Assign(data, size);
-    return Send(fd, "", 0, buffer);
-}
-
-bool UnixServerImpl::Send(socket_t fd, std::string, uint16_t, std::shared_ptr<DataBuffer> buffer)
-{
-    if (!isRunning_)
-        return false;
-
-    IoUringManager::GetInstance().SubmitWriteRequest(fd, buffer, [](int, int res) {
-        if (res < 0) {
-            LMNET_LOGE("Write failed: %s", strerror(-res));
-        }
-    });
-    return true;
-}
-
-bool UnixServerImpl::Send(socket_t fd, std::string, uint16_t, const std::string &str)
-{
-    return Send(fd, "", 0, str.data(), str.size());
 }
 
 } // namespace lmshao::lmnet

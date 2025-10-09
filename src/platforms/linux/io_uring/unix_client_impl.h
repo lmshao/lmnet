@@ -20,7 +20,6 @@
 #include "lmnet/iclient_listener.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
 
 class UnixClientImpl final : public IUnixClient,
                              public std::enable_shared_from_this<UnixClientImpl>,

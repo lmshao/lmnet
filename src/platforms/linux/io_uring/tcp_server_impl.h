@@ -24,7 +24,6 @@
 #include "lmnet/session.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
 
 class TcpServerImpl : public BaseServer,
                       public std::enable_shared_from_this<TcpServerImpl>,
@@ -38,10 +37,6 @@ public:
     bool Stop() override;
 
     void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
-
-    bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
-    bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
-    bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
 
     void Disconnect(socket_t fd);
 

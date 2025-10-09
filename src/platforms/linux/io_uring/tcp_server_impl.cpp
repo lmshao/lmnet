@@ -18,7 +18,7 @@
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
-#include "tcp_session_impl.h"
+#include "session_impl.h"
 
 namespace lmshao::lmnet {
 
@@ -150,7 +150,7 @@ void TcpServerImpl::HandleAccept(int res, const sockaddr_in &client_addr)
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
         uint16_t client_port = ntohs(client_addr.sin_port);
 
-        auto session = std::make_shared<TcpSession>(client_fd, std::string(client_ip), client_port);
+        auto session = std::make_shared<SessionImpl>(client_fd, std::string(client_ip), client_port);
 
         {
             std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -235,48 +235,6 @@ void TcpServerImpl::HandleConnectionClose(int client_fd, const std::string &reas
         });
         taskQueue_->EnqueueTask(task);
     }
-}
-
-bool TcpServerImpl::Send(socket_t fd, std::string, uint16_t, const void *data, size_t size)
-{
-    auto buffer = std::make_shared<lmcore::DataBuffer>();
-    buffer->Assign(data, size);
-    return Send(fd, "", 0, buffer);
-}
-
-bool TcpServerImpl::Send(socket_t fd, std::string, uint16_t, std::shared_ptr<DataBuffer> buffer)
-{
-    if (!isRunning_)
-        return false;
-
-    std::shared_ptr<Session> session;
-    {
-        std::lock_guard<std::mutex> lock(sessionMutex_);
-        if (sessions_.find(fd) == sessions_.end()) {
-            LMNET_LOGW("Attempted to send to an unknown session (fd: %d)", fd);
-            return false;
-        }
-        session = sessions_[fd];
-    }
-
-    auto self = shared_from_this();
-    IoUringManager::GetInstance().SubmitWriteRequest(fd, buffer, [self, session, buffer](int res_fd, int res) {
-        auto task = std::make_shared<TaskHandler<void>>([listener = self->listener_.lock(), session, res] {
-            if (listener) {
-                if (res < 0) {
-                    listener->OnError(session, strerror(-res));
-                }
-            }
-        });
-        self->taskQueue_->EnqueueTask(task);
-    });
-
-    return true;
-}
-
-bool TcpServerImpl::Send(socket_t fd, std::string, uint16_t, const std::string &str)
-{
-    return Send(fd, "", 0, str.c_str(), str.length());
 }
 
 void TcpServerImpl::Disconnect(socket_t fd)
