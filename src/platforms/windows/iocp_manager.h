@@ -41,7 +41,7 @@ public:
  * - Simplified socket lifecycle management
  * - Consistent error handling
  */
-class IocpManager : public lmshao::lmcore::ManagedSingleton<IocpManager> {
+class IocpManager : public lmshao::lmcore::Singleton<IocpManager> {
 public:
     ~IocpManager();
 
@@ -64,7 +64,7 @@ public:
     bool IsRunning() const { return running_.load(); }
 
 private:
-    friend class lmshao::lmcore::ManagedSingleton<IocpManager>;
+    friend class lmshao::lmcore::Singleton<IocpManager>;
     IocpManager() = default;
 
     void WorkerLoop();
