@@ -4,8 +4,9 @@
 
 ## 特性
 
-- **跨平台支持**：Linux（epoll）和 Windows（IOCP）
+- **跨平台支持**：Linux（epoll/io_uring）和 Windows（IOCP）
 - **高性能 I/O**：事件驱动异步 I/O，针对不同平台优化实现
+- **多种 Linux 后端**：可选择传统 epoll 或现代 io_uring 以获得最佳性能
 - **全面的套接字支持**：TCP/UDP 客户端与服务端，UNIX 域套接字（Linux）
 - **集中式资源管理**：Windows 上统一的 IOCP 管理器，优化资源利用
 - **线程池集成**：高效的任务队列与工作线程管理
@@ -70,6 +71,34 @@ CMake 构建系统会自动：
 2. 如果未找到，在同级目录 `../lmcore` 中查找 lmcore
 3. 如果两者都未找到，显示有用的错误信息和安装指导
 
+### Linux 后端选择
+
+Lmnet 在 Linux 上支持两种高性能 I/O 后端：
+
+- **io_uring**（系统支持时默认）：Linux 现代异步 I/O 接口，提供最佳性能
+- **epoll**（回退选项）：传统的 Linux 事件通知，使用 epoll + eventfd
+
+构建系统会自动检测系统能力：
+- 如果 Linux 内核 5.1+ 且 liburing 可用，默认使用 io_uring
+- 否则，回退到 epoll 后端
+
+要显式强制使用 epoll 后端：
+
+```bash
+cmake .. -DLMNET_LINUX_BACKEND_IOURING=OFF
+make -j$(nproc)
+```
+
+**io_uring 优势：**
+- 零拷贝 I/O 操作
+- 减少系统调用开销
+- 高吞吐量应用的更佳性能
+- 完成通知 vs 事件通知
+
+**io_uring 要求：**
+- Linux 内核 5.1+（推荐 5.6+）
+- 已安装 liburing 库
+
 ### Linux
 
 使用 CMake 构建：
@@ -101,7 +130,11 @@ cmake --build . --config Release
 
 ### 平台特定功能
 
-**Linux**：使用 `epoll` 实现高性能事件驱动 I/O，配合 `eventfd` 实现优雅关闭。
+**Linux**：
+
+可选择两种高性能后端（自动检测）：
+- **io_uring**：使用 Linux 现代异步 I/O 接口实现最佳性能（系统支持时默认）
+- **epoll**：使用 `epoll` 实现事件驱动 I/O，配合 `eventfd` 实现优雅关闭（回退选项）
 
 **Windows**：使用 `IOCP`（I/O 完成端口）和集中式管理器实现最优资源利用：
 - 所有网络组件共享单一 IOCP 实例
@@ -205,48 +238,93 @@ ctest -C Debug
 
 ## 架构
 
-![LMNET Architecture](https://www.plantuml.com/plantuml/svg/bP9Dxzem38Vl-HJU_xHfWjrxG32s0z9Us02X2VKGMfT6JUF8INZHjE--K52s2LLqFRNruv_TFfawBzc7LiCNz2VYvfFQi-JBZ8jQUInyO1IlV8qjWjLI6I6iB1fvG7ZPE6IOMQjL8RqYym8_1SHhzuC2n_Uv-FKNVS-7-u04hmkxGZuYvp0QJM3tyOZ6VqTPUE9t2ohiPsda8POJFjSg8iFmJPdIX-7_bsxKkJS-Xon-h0bd8AClVnhIW04DFGkaUMlfccy10-R3y9fHbaiYFOnVeNDHx0rEJxVQ1-db-r1Lo9td91t6uya_LZC83jq3a3ps0CbSF_0a8Tb94V2w-xzl7iYavO4KXZm2gqFjWQfd9w9hoW0jQGrl0QzmLNQbhJ8bdLm6Yw_pPQnjYHjak2bn7J9dScvajVGLSGjoxpp7GOgCG5F2THCXfl4sjFet)
-
-<details>
-<summary>PlantUML 源码</summary>
-
-```plantuml
-@startuml LmnetLibraryArchitecture
-!theme plain
-
-package "User Application" {
-    [YourApp]
-}
-
-package "Lmnet Library" {
-    [TcpServer] --> [EventReactor/IocpManager]
-    [TcpClient] --> [EventReactor/IocpManager]
-    [UdpServer] --> [EventReactor/IocpManager]
-    [UdpClient] --> [EventReactor/IocpManager]
-    [UnixServer] --> [EventReactor] : Linux only
-    [UnixClient] --> [EventReactor] : Linux only
-    [EventReactor/IocpManager] --> [TaskQueue]
-    [EventReactor/IocpManager] --> [ThreadPool]
-    [EventReactor/IocpManager] --> [Session]
-    [Session] --> [DataBuffer]
-}
-
-[YourApp] ..> [TcpServer] : uses
-[YourApp] ..> [TcpClient] : uses
-[YourApp] ..> [UdpServer] : uses
-[YourApp] ..> [UdpClient] : uses
-[YourApp] ..> [UnixServer] : uses (Linux)
-[YourApp] ..> [UnixClient] : uses (Linux)
-
-note right of [EventReactor/IocpManager]
-    Linux: epoll + eventfd
-    Windows: IOCP + Worker Threads
-    Cross-platform abstraction
-end note
-
-@enduml
+```mermaid
+graph TB
+    subgraph "用户应用"
+        YourApp[你的应用程序]
+    end
+    
+    subgraph "Lmnet 网络库"
+        TcpServer[TCP 服务器]
+        TcpClient[TCP 客户端]
+        UdpServer[UDP 服务器]
+        UdpClient[UDP 客户端]
+        UnixServer[Unix 服务器]
+        UnixClient[Unix 客户端]
+        
+        subgraph "I/O 后端层"
+            subgraph "Linux"
+                LinuxEpoll[epoll + eventfd]
+                LinuxIoUring[io_uring]
+            end
+            subgraph "Windows"
+                WindowsIOCP[IOCP + 工作线程]
+            end
+        end
+        
+        TaskQueue[任务队列]
+        ThreadPool[线程池]
+        Session[会话管理]
+        DataBuffer[数据缓冲区]
+        
+        TcpServer --> LinuxEpoll
+        TcpClient --> LinuxEpoll
+        UdpServer --> LinuxEpoll
+        UdpClient --> LinuxEpoll
+        UnixServer --> LinuxEpoll
+        UnixClient --> LinuxEpoll
+        
+        TcpServer --> LinuxIoUring
+        TcpClient --> LinuxIoUring
+        UdpServer --> LinuxIoUring
+        UdpClient --> LinuxIoUring
+        UnixServer --> LinuxIoUring
+        UnixClient --> LinuxIoUring
+        
+        TcpServer --> WindowsIOCP
+        TcpClient --> WindowsIOCP
+        UdpServer --> WindowsIOCP
+        UdpClient --> WindowsIOCP
+        
+        LinuxEpoll --> TaskQueue
+        LinuxIoUring --> TaskQueue
+        WindowsIOCP --> TaskQueue
+        
+        LinuxEpoll --> ThreadPool
+        LinuxIoUring --> ThreadPool
+        WindowsIOCP --> ThreadPool
+        
+        LinuxEpoll --> Session
+        LinuxIoUring --> Session
+        WindowsIOCP --> Session
+        
+        Session --> DataBuffer
+    end
+    
+    YourApp -.-> TcpServer
+    YourApp -.-> TcpClient
+    YourApp -.-> UdpServer
+    YourApp -.-> UdpClient
+    YourApp -.-> UnixServer
+    YourApp -.-> UnixClient
+    
+    classDef userApp fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef networkComp fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef linuxBackend fill:#e8f5e8,stroke:#1b5e20,stroke-width:3px
+    classDef windowsBackend fill:#fff3e0,stroke:#e65100,stroke-width:3px
+    classDef coreComp fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    
+    class YourApp userApp
+    class TcpServer,TcpClient,UdpServer,UdpClient,UnixServer,UnixClient networkComp
+    class LinuxEpoll,LinuxIoUring linuxBackend
+    class WindowsIOCP windowsBackend
+    class TaskQueue,ThreadPool,Session,DataBuffer coreComp
 ```
-</details>
+
+**平台特定的 I/O 后端：**
+- **Linux**：可选择 **epoll**（传统）或 **io_uring**（现代）- 自动检测
+- **Windows**：**IOCP**（I/O 完成端口）配合工作线程
+- **跨平台**：统一抽象层，实现无缝开发
 
 ## 贡献
 
