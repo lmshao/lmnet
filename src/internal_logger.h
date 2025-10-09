@@ -23,7 +23,7 @@ inline lmshao::lmcore::Logger &GetLmnetLoggerWithAutoInit()
 {
     static std::once_flag initFlag;
     std::call_once(initFlag, []() {
-        lmshao::lmcore::LoggerRegistry::RegisterModule<LmnetModuleTag>("Lmnet");
+        lmshao::lmcore::LoggerRegistry::RegisterModule<LmnetModuleTag>("LMNet");
         InitLmnetLogger();
     });
     return lmshao::lmcore::LoggerRegistry::GetLogger<LmnetModuleTag>();
