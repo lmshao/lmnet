@@ -211,7 +211,13 @@ message(STATUS "Platform source directory: src/${PLATFORM_DIR}")
 
 # Collect source files
 file(GLOB COMMON_SOURCES "src/*.cpp")
-file(GLOB COMMON_PLATFORM_SOURCES "src/platforms/linux/common/*.cpp")
+
+# Collect platform-specific common sources (only for Linux)
+set(COMMON_PLATFORM_SOURCES "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    file(GLOB COMMON_PLATFORM_SOURCES "src/platforms/linux/common/*.cpp")
+endif()
+
 file(GLOB_RECURSE PLATFORM_SOURCES "src/${PLATFORM_DIR}/*.cpp")
 
 # On Windows, exclude Unix domain socket files since they are not supported

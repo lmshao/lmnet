@@ -83,15 +83,15 @@ bool UdpClientImpl::Init()
     }
 
     // Initialize global IOCP manager
-    auto manager = IocpManager::GetInstance();
-    if (!manager->Initialize()) {
+    auto &manager = IocpManager::GetInstance();
+    if (!manager.Initialize()) {
         LMNET_LOGE("Failed to initialize IOCP manager");
         Close();
         return false;
     }
 
     // Register this socket with the global IOCP manager
-    if (!manager->RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
+    if (!manager.RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
         LMNET_LOGE("Failed to register socket with IOCP manager");
         Close();
         return false;
@@ -170,7 +170,7 @@ void UdpClientImpl::Close()
 
         // Unregister from IOCP manager
         if (socket_ != INVALID_SOCKET) {
-            IocpManager::GetInstance()->UnregisterSocket((ULONG_PTR)socket_);
+            IocpManager::GetInstance().UnregisterSocket((ULONG_PTR)socket_);
         }
     }
 

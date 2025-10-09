@@ -88,15 +88,15 @@ bool TcpServerImpl::Init()
     }
 
     // Initialize global IOCP manager
-    auto manager = IocpManager::GetInstance();
-    if (!manager->Initialize()) {
+    auto &manager = IocpManager::GetInstance();
+    if (!manager.Initialize()) {
         LMNET_LOGE("Failed to initialize IOCP manager");
         return false;
     }
 
     // Register socket with global IOCP
-    if (!manager->RegisterSocket((HANDLE)state_->listenSocket, (ULONG_PTR)state_->listenSocket,
-                                 std::shared_ptr<IIocpHandler>(this, [](IIocpHandler *) {}))) {
+    if (!manager.RegisterSocket((HANDLE)state_->listenSocket, (ULONG_PTR)state_->listenSocket,
+                                std::shared_ptr<IIocpHandler>(this, [](IIocpHandler *) {}))) {
         LMNET_LOGE("Associate listen socket to IOCP failed");
         return false;
     }
@@ -142,7 +142,7 @@ bool TcpServerImpl::Stop()
     state_->running = false;
 
     // Unregister socket from global IOCP
-    IocpManager::GetInstance()->UnregisterSocket((ULONG_PTR)state_->listenSocket);
+    IocpManager::GetInstance().UnregisterSocket((ULONG_PTR)state_->listenSocket);
 
     return true;
 }
@@ -256,8 +256,8 @@ void TcpServerImpl::HandleAccept(PerIoContextTCP *ctx, DWORD)
     }
 
     // associate new socket
-    IocpManager::GetInstance()->RegisterSocket((HANDLE)ctx->acceptSocket, (ULONG_PTR)ctx->acceptSocket,
-                                               std::shared_ptr<IIocpHandler>(this, [](IIocpHandler *) {}));
+    IocpManager::GetInstance().RegisterSocket((HANDLE)ctx->acceptSocket, (ULONG_PTR)ctx->acceptSocket,
+                                              std::shared_ptr<IIocpHandler>(this, [](IIocpHandler *) {}));
     // Extract addresses
     sockaddr *localSock = nullptr, *remoteSock = nullptr;
     int localLen = 0, remoteLen = 0;
