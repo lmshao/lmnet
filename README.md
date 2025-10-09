@@ -4,8 +4,9 @@ A modern C++ cross-platform asynchronous lmnet library with high performance. It
 
 ## Features
 
-- **Cross-platform support**: Linux (epoll) and Windows (IOCP)
+- **Cross-platform support**: Linux (epoll/io_uring) and Windows (IOCP)
 - **High-performance I/O**: Event-driven asynchronous I/O with platform-optimized implementations
+- **Multiple Linux backends**: Choose between traditional epoll or modern io_uring for optimal performance
 - **Comprehensive socket support**: TCP/UDP client & server, UNIX domain sockets (Linux)
 - **Centralized resource management**: Unified IOCP manager on Windows for optimal resource utilization
 - **Thread pool integration**: Efficient task queue and worker thread management
@@ -70,6 +71,34 @@ The CMake build system will automatically:
 2. If not found, look for lmcore in the sibling directory `../lmcore`
 3. If neither is found, display helpful error messages with installation instructions
 
+### Linux Backend Selection
+
+Lmnet supports two high-performance I/O backends on Linux:
+
+- **io_uring** (default when available): Linux's modern asynchronous I/O interface for maximum performance
+- **epoll** (fallback): Traditional Linux event notification using epoll + eventfd
+
+The build system automatically detects system capabilities:
+- If Linux kernel 5.1+ and liburing are available, io_uring is used by default
+- Otherwise, falls back to epoll backend
+
+To explicitly force epoll backend:
+
+```bash
+cmake .. -DLMNET_LINUX_BACKEND_IOURING=OFF
+make -j$(nproc)
+```
+
+**io_uring advantages:**
+- Zero-copy I/O operations
+- Reduced system call overhead  
+- Better performance for high-throughput applications
+- Completion-based notifications vs event-based
+
+**Requirements for io_uring:**
+- Linux kernel 5.1+ (recommended 5.6+)
+- liburing library installed
+
 ### Linux
 
 Build with CMake:
@@ -101,7 +130,11 @@ cmake --build . --config Release
 
 ### Platform-Specific Features
 
-**Linux**: Uses `epoll` for high-performance event-driven I/O with `eventfd` for graceful shutdown.
+**Linux**: 
+
+Choose between two high-performance backends (auto-detected):
+- **io_uring**: Uses Linux's modern asynchronous I/O interface for maximum performance (default when available)
+- **epoll**: Uses `epoll` for event-driven I/O with `eventfd` for graceful shutdown (fallback)
 
 **Windows**: Uses `IOCP` (I/O Completion Ports) with a centralized manager for optimal resource utilization:
 - Single IOCP instance shared across all network components
@@ -207,49 +240,93 @@ For development on Windows, you can use Visual Studio IDE:
 
 ## Architecture
 
-![Network Architecture](https://www.plantuml.com/plantuml/svg/bP9Dxzem38Vl-HJU_xHfWjrxG32s0z9Us02X2VKGMfT6JUF8INZHjE--K52s2LLqFRNruv_TFfawBzc7LiCNz2VYvfFQi-JBZ8jQUInyO1IlV8qjWjLI6I6iB1fvG7ZPE6IOMQjL8RqYym8_1SHhzuC2n_Uv-FKNVS-7-u04hmkxGZuYvp0QJM3tyOZ6VqTPUE9t2ohiPsda8POJFjSg8iFmJPdIX-7_bsxKkJS-Xon-h0bd8AClVnhIW04DFGkaUMlfccy10-R3y9fHbaiYFOnVeNDHx0rEJxVQ1-db-r1Lo9td91t6uya_LZC83jq3a3ps0CbSF_0a8Tb94V2w-xzl7iYavO4KXZm2gqFjWQfd9w9hoW0jQGrl0QzmLNQbhJ8bdLm6Yw_pPQnjYHjak2bn7J9dScvajVGLSGjoxpp7GOgCG5F2THCXfl4sjFet)
-
-<details>
-<summary>PlantUML source</summary>
-
-```plantuml
-```plantuml
-@startuml LmnetLibraryArchitecture
-!theme plain
-
-package "User Application" {
-    [YourApp]
-}
-
-package "Lmnet Library" {
-    [TcpServer] --> [EventReactor/IocpManager]
-    [TcpClient] --> [EventReactor/IocpManager]
-    [UdpServer] --> [EventReactor/IocpManager]
-    [UdpClient] --> [EventReactor/IocpManager]
-    [UnixServer] --> [EventReactor] : Linux only
-    [UnixClient] --> [EventReactor] : Linux only
-    [EventReactor/IocpManager] --> [TaskQueue]
-    [EventReactor/IocpManager] --> [ThreadPool]
-    [EventReactor/IocpManager] --> [Session]
-    [Session] --> [DataBuffer]
-}
-
-[YourApp] ..> [TcpServer] : uses
-[YourApp] ..> [TcpClient] : uses
-[YourApp] ..> [UdpServer] : uses
-[YourApp] ..> [UdpClient] : uses
-[YourApp] ..> [UnixServer] : uses (Linux)
-[YourApp] ..> [UnixClient] : uses (Linux)
-
-note right of [EventReactor/IocpManager]
-    Linux: epoll + eventfd
-    Windows: IOCP + Worker Threads
-    Cross-platform abstraction
-end note
-
-@enduml
+```mermaid
+graph TB
+    subgraph "User Application"
+        YourApp[Your Application]
+    end
+    
+    subgraph "Lmnet Library"
+        TcpServer[TCP Server]
+        TcpClient[TCP Client]
+        UdpServer[UDP Server]
+        UdpClient[UDP Client]
+        UnixServer[Unix Server]
+        UnixClient[Unix Client]
+        
+        subgraph "I/O Backend Layer"
+            subgraph "Linux"
+                LinuxEpoll[epoll + eventfd]
+                LinuxIoUring[io_uring]
+            end
+            subgraph "Windows"
+                WindowsIOCP[IOCP + Worker Threads]
+            end
+        end
+        
+        TaskQueue[Task Queue]
+        ThreadPool[Thread Pool]
+        Session[Session Management]
+        DataBuffer[Data Buffer]
+        
+        TcpServer --> LinuxEpoll
+        TcpClient --> LinuxEpoll
+        UdpServer --> LinuxEpoll
+        UdpClient --> LinuxEpoll
+        UnixServer --> LinuxEpoll
+        UnixClient --> LinuxEpoll
+        
+        TcpServer --> LinuxIoUring
+        TcpClient --> LinuxIoUring
+        UdpServer --> LinuxIoUring
+        UdpClient --> LinuxIoUring
+        UnixServer --> LinuxIoUring
+        UnixClient --> LinuxIoUring
+        
+        TcpServer --> WindowsIOCP
+        TcpClient --> WindowsIOCP
+        UdpServer --> WindowsIOCP
+        UdpClient --> WindowsIOCP
+        
+        LinuxEpoll --> TaskQueue
+        LinuxIoUring --> TaskQueue
+        WindowsIOCP --> TaskQueue
+        
+        LinuxEpoll --> ThreadPool
+        LinuxIoUring --> ThreadPool
+        WindowsIOCP --> ThreadPool
+        
+        LinuxEpoll --> Session
+        LinuxIoUring --> Session
+        WindowsIOCP --> Session
+        
+        Session --> DataBuffer
+    end
+    
+    YourApp -.-> TcpServer
+    YourApp -.-> TcpClient
+    YourApp -.-> UdpServer
+    YourApp -.-> UdpClient
+    YourApp -.-> UnixServer
+    YourApp -.-> UnixClient
+    
+    classDef userApp fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef networkComp fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef linuxBackend fill:#e8f5e8,stroke:#1b5e20,stroke-width:3px
+    classDef windowsBackend fill:#fff3e0,stroke:#e65100,stroke-width:3px
+    classDef coreComp fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    
+    class YourApp userApp
+    class TcpServer,TcpClient,UdpServer,UdpClient,UnixServer,UnixClient networkComp
+    class LinuxEpoll,LinuxIoUring linuxBackend
+    class WindowsIOCP windowsBackend
+    class TaskQueue,ThreadPool,Session,DataBuffer coreComp
 ```
-</details>
+
+**Platform-specific I/O Backends:**
+- **Linux**: Choose between **epoll** (traditional) or **io_uring** (modern) - auto-detected
+- **Windows**: **IOCP** (I/O Completion Ports) with Worker Threads
+- **Cross-platform**: Unified abstraction layer for seamless development
 
 ## Contributing
 
