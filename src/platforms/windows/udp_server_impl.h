@@ -1,5 +1,4 @@
 /**
- * UDP Server Windows Implementation Header
  *
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
@@ -8,17 +7,17 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_LMNET_WINDOWS_UDP_SERVER_IMPL_H
-#define LMSHAO_LMNET_WINDOWS_UDP_SERVER_IMPL_H
+#ifndef LMSHAO_LMNET_UDP_SERVER_IMPL_H
+#define LMSHAO_LMNET_UDP_SERVER_IMPL_H
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <thread>
 
 #include "base_server.h"
-#include "iocp_manager.h"
 #include "lmcore/data_buffer.h"
+#include "lmcore/task_queue.h"
 #include "lmnet/common.h"
 #include "lmnet/iserver_listener.h"
 
@@ -26,49 +25,44 @@ namespace lmshao::lmnet {
 
 class UdpServerImpl final : public BaseServer,
                             public std::enable_shared_from_this<UdpServerImpl>,
-                            public Creatable<UdpServerImpl>,
-                            public IIocpHandler {
+                            public Creatable<UdpServerImpl> {
     friend class Creatable<UdpServerImpl>;
 
 public:
-    ~UdpServerImpl();
+    UdpServerImpl(std::string listenIp, uint16_t listenPort);
+    UdpServerImpl(uint16_t listenPort);
+    ~UdpServerImpl() override;
 
-    // IUdpServer interface
-    bool Init() override;  // create socket & bind
-    bool Start() override; // start IOCP worker & post recvs
-    bool Stop() override;  // stop worker
-    void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
-    bool Send(socket_t fd, std::string ip, uint16_t port, const void *data, size_t len) override; // synchronous sendto
-    bool Send(socket_t fd, std::string ip, uint16_t port, const std::string &str) override;
-    bool Send(socket_t fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data) override;
-    socket_t GetSocketFd() const override { return socket_; }
-    bool SendTo(const sockaddr_in &to, const void *data, size_t len); // Helper for session replies
+    bool Init() override;
+    void SetListener(std::shared_ptr<IServerListener> listener) override;
+    bool Start() override;
+    bool Stop() override;
+    socket_t GetSocketFd() const override;
 
-    // IIocpHandler interface
-    void OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error) override;
-
-protected:
-    UdpServerImpl(std::string ip, uint16_t port);
+    bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
 
 private:
-    UdpServerImpl() = default;
+    void StartReceiving();
+    void SubmitReceive();
+    void HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError, const sockaddr_in &fromAddr);
+    void HandleSend(DWORD bytesOrError);
 
-    // Internal helpers
-    void PostRecv();
-    void HandlePacket(const char *data, size_t len, const sockaddr_in &from);
-    void CloseSocket();
-
-    friend class UdpSessionWin; // Allow session to access SendTo
-
-    // State
     std::string ip_;
-    uint16_t port_{0};
-    socket_t socket_{INVALID_SOCKET};
-    std::shared_ptr<IServerListener> listener_;
-    bool running_{false};
-    sockaddr_in ctxLastFrom_{}; // last peer for error/close callbacks
+    uint16_t port_;
+
+    SOCKET socket_{INVALID_SOCKET};
+    sockaddr_in listenAddr_{};
+
+    std::atomic<bool> isRunning_{false};
+    std::weak_ptr<IServerListener> listener_;
+    std::unique_ptr<lmcore::TaskQueue> taskQueue_;
+
+    // Number of concurrent receive operations
+    static constexpr int CONCURRENT_RECEIVES = 8;
 };
 
 } // namespace lmshao::lmnet
 
-#endif // LMSHAO_LMNET_WINDOWS_UDP_SERVER_IMPL_H
+#endif // LMSHAO_LMNET_UDP_SERVER_IMPL_H

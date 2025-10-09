@@ -1,5 +1,4 @@
 /**
- * Common IOCP utilities shared by Windows UDP server & client
  *
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming

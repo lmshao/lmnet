@@ -1,5 +1,4 @@
 /**
- * Port Discovery Utilities for Windows Platform
  *
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming

@@ -1,5 +1,4 @@
 /**
- * Windows TCP Client IOCP implementation
  *
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
@@ -10,264 +9,374 @@
 
 #include "tcp_client_impl.h"
 
-#include <mswsock.h>
 #include <ws2tcpip.h>
 
-#include "../../internal_logger.h"
+#include <chrono>
+
+#include "internal_logger.h"
 #include "iocp_manager.h"
 #include "iocp_utils.h"
+#include "lmcore/task_queue.h"
+
 #pragma comment(lib, "ws2_32.lib")
 
-#include <cstring>
-#include <thread>
-
 namespace lmshao::lmnet {
-
-struct TcpClientPerIo {
-    OVERLAPPED ov{};
-    WSABUF buf{};
-    char data[8192];
-    DWORD bytes = 0;
-    enum class Op {
-        RECV,
-        SEND,
-        CONNECT
-    } op{Op::RECV};
-    TcpClientPerIo()
-    {
-        ZeroMemory(&ov, sizeof(ov));
-        buf.buf = data;
-        buf.len = (ULONG)sizeof(data);
-    }
-};
 
 TcpClientImpl::TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(std::move(remoteIp)), remotePort_(remotePort), localIp_(std::move(localIp)), localPort_(localPort)
 {
+    taskQueue_ = std::make_unique<lmcore::TaskQueue>("TcpClient");
+    // Start task queue early to accept enqueued callbacks
+    (void)taskQueue_->Start();
+}
+
+TcpClientImpl::~TcpClientImpl()
+{
+    Close();
 }
 
 bool TcpClientImpl::Init()
 {
     EnsureWsaInit();
-    socket_ = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("WSASocket failed: %d", WSAGetLastError());
-        return false;
-    }
-    if (!localIp_.empty() || localPort_ != 0) {
-        sockaddr_in local{};
-        local.sin_family = AF_INET;
-        local.sin_port = htons(localPort_);
-        if (localIp_.empty())
-            localIp_ = "0.0.0.0";
-        inet_pton(AF_INET, localIp_.c_str(), &local.sin_addr);
-        if (bind(socket_, (sockaddr *)&local, sizeof(local)) != 0) {
-            LMNET_LOGE("bind failed: %d", WSAGetLastError());
-            return false;
-        }
-    } else {
-        // ConnectEx requires the socket to be bound first
-        sockaddr_in local{};
-        local.sin_family = AF_INET;
-        local.sin_addr.s_addr = htonl(INADDR_ANY);
-        local.sin_port = 0; // Let system choose port
-        if (bind(socket_, (sockaddr *)&local, sizeof(local)) != 0) {
-            LMNET_LOGE("Auto-bind for ConnectEx failed: %d", WSAGetLastError());
-            return false;
-        }
-    }
 
-    // Initialize global IOCP manager
+    // Initialize IOCP manager
     auto &manager = IocpManager::GetInstance();
-    if (!manager.Initialize()) {
+    if (!manager.Init()) {
         LMNET_LOGE("Failed to initialize IOCP manager");
         return false;
     }
 
-    // Register this socket with the global IOCP manager
-    if (!manager.RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
-        LMNET_LOGE("Failed to register socket with IOCP manager");
-        return false;
-    }
+    ReInit();
+    isRunning_.store(true);
 
-    running_ = true;
-    LoadConnectEx();
+    LMNET_LOGD("TCP client initialized for %s:%u", remoteIp_.c_str(), remotePort_);
     return true;
 }
 
-bool TcpClientImpl::LoadConnectEx()
+void TcpClientImpl::ReInit()
 {
-    GUID guid = WSAID_CONNECTEX;
-    DWORD bytes = 0;
-    int r = WSAIoctl(socket_, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid), &fnConnectEx,
-                     sizeof(fnConnectEx), &bytes, nullptr, nullptr);
-    if (r == SOCKET_ERROR || !fnConnectEx) {
-        LMNET_LOGE("Load ConnectEx failed: %d", WSAGetLastError());
-        return false;
+    // Close existing socket if any
+    if (socket_ != INVALID_SOCKET) {
+        closesocket(socket_);
     }
-    return true;
+
+    // Create new socket
+    socket_ = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+    if (socket_ == INVALID_SOCKET) {
+        LMNET_LOGE("WSASocket failed: %d", WSAGetLastError());
+        return;
+    }
+
+    // Setup local binding if specified
+    if (!localIp_.empty() || localPort_ != 0) {
+        localAddr_.sin_family = AF_INET;
+        localAddr_.sin_port = htons(localPort_);
+        if (localIp_.empty()) {
+            localIp_ = "0.0.0.0";
+        }
+        inet_pton(AF_INET, localIp_.c_str(), &localAddr_.sin_addr);
+
+        if (bind(socket_, (sockaddr *)&localAddr_, sizeof(localAddr_)) != 0) {
+            LMNET_LOGE("bind failed: %d", WSAGetLastError());
+            return;
+        }
+    } else {
+        // ConnectEx requires the socket to be bound first
+        localAddr_.sin_family = AF_INET;
+        localAddr_.sin_addr.s_addr = htonl(INADDR_ANY);
+        localAddr_.sin_port = 0; // Let system choose port
+
+        if (bind(socket_, (sockaddr *)&localAddr_, sizeof(localAddr_)) != 0) {
+            LMNET_LOGE("Auto-bind for ConnectEx failed: %d", WSAGetLastError());
+            return;
+        }
+    }
+
+    // Associate socket with IOCP
+    auto &manager = IocpManager::GetInstance();
+    if (!CreateIoCompletionPort((HANDLE)socket_, manager.GetIocpHandle(), (ULONG_PTR)socket_, 0)) {
+        LMNET_LOGE("Failed to associate client socket with IOCP: %lu", GetLastError());
+        closesocket(socket_);
+        socket_ = INVALID_SOCKET;
+        return;
+    }
+
+    // Setup server address
+    serverAddr_.sin_family = AF_INET;
+    serverAddr_.sin_port = htons(remotePort_);
+    if (inet_pton(AF_INET, remoteIp_.c_str(), &serverAddr_.sin_addr) != 1) {
+        LMNET_LOGE("inet_pton remote failed");
+        return;
+    }
+
+    isConnected_.store(false);
+}
+
+void TcpClientImpl::SetListener(std::shared_ptr<IClientListener> listener)
+{
+    listener_ = listener;
 }
 
 bool TcpClientImpl::Connect()
 {
-    sockaddr_in remote{};
-    remote.sin_family = AF_INET;
-    remote.sin_port = htons(remotePort_);
-    if (inet_pton(AF_INET, remoteIp_.c_str(), &remote.sin_addr) != 1) {
-        LMNET_LOGE("inet_pton remote failed");
+    if (!isRunning_.load()) {
+        LMNET_LOGE("Client not initialized");
         return false;
     }
-    if (fnConnectEx) {
-        auto *ctx = new TcpClientPerIo();
-        ctx->op = TcpClientPerIo::Op::CONNECT;
-        BOOL ok = fnConnectEx(socket_, (sockaddr *)&remote, sizeof(remote), nullptr, 0, nullptr, &ctx->ov);
-        if (!ok) {
-            int err = WSAGetLastError();
-            if (err != ERROR_IO_PENDING) {
-                LMNET_LOGE("ConnectEx failed: %d", err);
-                delete ctx;
-                return false;
-            }
-        }
-        return true; // completion will start recv
-    } else {
-        int r = ::connect(socket_, (sockaddr *)&remote, sizeof(remote));
-        if (r != 0) {
-            LMNET_LOGE("connect failed: %d", WSAGetLastError());
+
+    if (isConnected_.load()) {
+        LMNET_LOGW("Already connected");
+        return true;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(connectMutex_);
+        if (connectPending_) {
+            LMNET_LOGW("Connect already in progress");
             return false;
         }
-        PostRecv();
-        return true;
+        connectPending_ = true;
+        connectSuccess_ = false;
+        lastConnectError_ = 0;
+    }
+
+    SubmitConnect();
+
+    std::unique_lock<std::mutex> lock(connectMutex_);
+    bool completed = connectCond_.wait_for(lock, std::chrono::seconds(5), [this]() { return !connectPending_; });
+    if (!completed) {
+        LMNET_LOGE("Connect to %s:%u timed out", remoteIp_.c_str(), remotePort_);
+        connectPending_ = false;
+        return false;
+    }
+
+    if (!connectSuccess_) {
+        if (lastConnectError_ != 0) {
+            LMNET_LOGE("Connect to %s:%u failed with error %lu", remoteIp_.c_str(), remotePort_,
+                       static_cast<unsigned long>(lastConnectError_));
+        } else {
+            LMNET_LOGE("Connect to %s:%u failed", remoteIp_.c_str(), remotePort_);
+        }
+        return false;
+    }
+
+    return true;
+}
+
+void TcpClientImpl::SubmitConnect()
+{
+    auto &manager = IocpManager::GetInstance();
+    auto self = shared_from_this();
+
+    bool success = manager.SubmitConnectRequest(socket_, serverAddr_, [self](SOCKET socket, DWORD error) {
+        if (self->taskQueue_) {
+            auto task = std::make_shared<lmcore::TaskHandler<void>>([self, error]() { self->HandleConnect(error); });
+            self->taskQueue_->EnqueueTask(task);
+        }
+    });
+
+    if (!success) {
+        LMNET_LOGE("Failed to submit connect request");
+        HandleClose(true, "Failed to submit connect request");
     }
 }
 
-void TcpClientImpl::SetListener(std::shared_ptr<IClientListener> l)
+void TcpClientImpl::HandleConnect(DWORD error)
 {
-    listener_ = l;
+    const bool success = (error == 0);
+
+    {
+        std::lock_guard<std::mutex> lock(connectMutex_);
+        connectPending_ = false;
+        connectSuccess_ = success;
+        lastConnectError_ = error;
+        isConnected_.store(success);
+    }
+    connectCond_.notify_all();
+
+    if (!success) {
+        LMNET_LOGE("Connect failed: %lu", error);
+        HandleClose(true, "Connect failed: " + std::to_string(error));
+        return;
+    }
+
+    LMNET_LOGD("Connected to %s:%u", remoteIp_.c_str(), remotePort_);
+
+    // Start reading
+    SubmitRead();
+}
+
+void TcpClientImpl::SubmitRead()
+{
+    if (!isRunning_.load() || !isConnected_.load()) {
+        return;
+    }
+
+    auto buffer = lmcore::DataBuffer::Create(8192);
+    auto &manager = IocpManager::GetInstance();
+    auto self = shared_from_this();
+
+    bool success = manager.SubmitReadRequest(
+        socket_, buffer, [self, buffer](SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buf, DWORD bytesOrError) {
+            if (self->taskQueue_) {
+                auto task = std::make_shared<lmcore::TaskHandler<void>>(
+                    [self, buf, bytesOrError]() { self->HandleReceive(buf, bytesOrError); });
+                self->taskQueue_->EnqueueTask(task);
+            }
+        });
+
+    if (!success) {
+        LMNET_LOGE("Failed to submit read request");
+        HandleClose(true, "Failed to submit read request");
+    }
+}
+
+void TcpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError)
+{
+    if (bytesOrError == 0) {
+        // Connection closed by peer
+        LMNET_LOGD("Connection closed by peer");
+        HandleClose(false, "Connection closed by peer");
+        return;
+    }
+
+    if (bytesOrError > 65536) { // Assume it's an error code
+        LMNET_LOGE("Receive error: %lu", bytesOrError);
+        HandleClose(true, "Receive error: " + std::to_string(bytesOrError));
+        return;
+    }
+
+    // Valid data received
+    if (auto listener = listener_.lock()) {
+        listener->OnReceive(socket_, buffer);
+    }
+
+    // Continue reading
+    SubmitRead();
 }
 
 bool TcpClientImpl::Send(const std::string &str)
 {
     return Send(str.data(), str.size());
 }
+
 bool TcpClientImpl::Send(const void *data, size_t len)
 {
-    if (socket_ == INVALID_SOCKET || len == 0) {
+    if (!data || len == 0) {
         return false;
     }
-    PostSend(data, len);
-    return true;
+
+    auto buffer = lmcore::DataBuffer::Create(len);
+    buffer->Assign(data, len);
+    return Send(buffer);
 }
+
 bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
-    if (!data) {
+    if (!data || data->Size() == 0) {
         return false;
     }
-    return Send(data->Data(), data->Size());
+
+    if (!isRunning_.load() || !isConnected_.load()) {
+        LMNET_LOGE("Not connected");
+        return false;
+    }
+
+    auto &manager = IocpManager::GetInstance();
+    auto self = shared_from_this();
+
+    bool success = manager.SubmitWriteRequest(socket_, data, [self](SOCKET socket, DWORD bytesOrError) {
+        if (self->taskQueue_) {
+            auto task =
+                std::make_shared<lmcore::TaskHandler<void>>([self, bytesOrError]() { self->HandleSend(bytesOrError); });
+            self->taskQueue_->EnqueueTask(task);
+        } else {
+            self->HandleSend(bytesOrError);
+        }
+    });
+
+    if (!success) {
+        LMNET_LOGE("Failed to submit write request");
+        return false;
+    }
+
+    return true;
 }
 
-void TcpClientImpl::PostSend(const void *data, size_t len)
+void TcpClientImpl::HandleSend(DWORD bytesOrError)
 {
-    auto *ctx = new TcpClientPerIo();
-    ctx->op = TcpClientPerIo::Op::SEND;
-    size_t copy = len < sizeof(ctx->data) ? len : sizeof(ctx->data);
-    std::memcpy(ctx->data, data, copy);
-    ctx->buf.buf = ctx->data;
-    ctx->buf.len = (ULONG)copy;
-    DWORD bytes = 0;
-    int r = WSASend(socket_, &ctx->buf, 1, &bytes, 0, &ctx->ov, nullptr);
-    if (r == SOCKET_ERROR) {
-        int err = WSAGetLastError();
-        if (err != WSA_IO_PENDING) {
-            if (listener_) {
-                listener_->OnError(socket_, "WSASend error: " + std::to_string(err));
-            }
-            delete ctx;
-        }
+    if (bytesOrError > 65536) { // Assume it's an error code
+        LMNET_LOGE("Send error: %lu", bytesOrError);
+        HandleClose(true, "Send error: " + std::to_string(bytesOrError));
     }
-}
-
-void TcpClientImpl::PostRecv()
-{
-    auto *ctx = new TcpClientPerIo();
-    ctx->op = TcpClientPerIo::Op::RECV;
-    DWORD flags = 0;
-    DWORD bytes = 0;
-    int r = WSARecv(socket_, &ctx->buf, 1, &bytes, &flags, &ctx->ov, nullptr);
-    if (r == SOCKET_ERROR) {
-        int err = WSAGetLastError();
-        if (err != WSA_IO_PENDING) {
-            LMNET_LOGE("WSARecv failed: %d", err);
-            delete ctx;
-        }
-    }
+    // For successful sends, we don't need to do anything special
 }
 
 void TcpClientImpl::Close()
 {
-    if (running_) {
-        running_ = false;
-
-        // Unregister from IOCP manager
-        if (socket_ != INVALID_SOCKET) {
-            IocpManager::GetInstance().UnregisterSocket((ULONG_PTR)socket_);
-        }
+    if (!isRunning_.load()) {
+        return;
     }
+
+    LMNET_LOGD("Closing TCP client");
+
+    isRunning_.store(false);
+    isConnected_.store(false);
 
     if (socket_ != INVALID_SOCKET) {
         closesocket(socket_);
         socket_ = INVALID_SOCKET;
     }
+
+    {
+        std::lock_guard<std::mutex> lock(connectMutex_);
+        if (connectPending_) {
+            connectPending_ = false;
+            connectSuccess_ = false;
+            lastConnectError_ = ERROR_OPERATION_ABORTED;
+        }
+    }
+    connectCond_.notify_all();
+
+    // Stop task queue
+    if (taskQueue_) {
+        taskQueue_->Stop();
+        taskQueue_.reset();
+    }
+
+    LMNET_LOGD("TCP client closed");
 }
 
-void TcpClientImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error)
+void TcpClientImpl::HandleClose(bool isError, const std::string &reason)
 {
-    if (!running_ || !ov) {
+    if (!isRunning_.load()) {
         return;
     }
 
-    auto *ctx = reinterpret_cast<TcpClientPerIo *>(ov);
+    LMNET_LOGD("Handling close: error=%d, reason=%s", isError, reason.c_str());
 
-    if (!success) {
-        if (listener_) {
-            listener_->OnError(socket_, "IOCP completion error: " + std::to_string(error));
+    isConnected_.store(false);
+
+    {
+        std::lock_guard<std::mutex> lock(connectMutex_);
+        if (connectPending_) {
+            connectPending_ = false;
+            connectSuccess_ = false;
+            lastConnectError_ = isError ? ERROR_OPERATION_ABORTED : 0;
         }
-        delete ctx;
-        return;
+    }
+    connectCond_.notify_all();
+
+    // Notify listener
+    if (auto listener = listener_.lock()) {
+        if (isError) {
+            listener->OnError(socket_, reason);
+        } else {
+            listener->OnClose(socket_);
+        }
     }
 
-    switch (ctx->op) {
-        case TcpClientPerIo::Op::CONNECT:
-            // Connection established, start receiving
-            delete ctx;
-            PostRecv();
-            break;
-
-        case TcpClientPerIo::Op::SEND:
-            // Send completion - just cleanup
-            delete ctx;
-            break;
-
-        case TcpClientPerIo::Op::RECV:
-            if (bytes == 0) {
-                // Connection closed
-                if (listener_) {
-                    listener_->OnClose(socket_);
-                }
-                delete ctx;
-                return;
-            }
-
-            if (listener_) {
-                auto buf = DataBuffer::Create(bytes);
-                buf->Assign(ctx->data, bytes);
-                listener_->OnReceive(socket_, buf);
-            }
-
-            delete ctx;
-            PostRecv(); // Continue receiving
-            break;
-    }
+    // Don't automatically reconnect - let the application decide
 }
 
 socket_t TcpClientImpl::GetSocketFd() const

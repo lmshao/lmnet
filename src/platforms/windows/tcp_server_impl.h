@@ -1,5 +1,4 @@
 /**
- * TCP Server Windows Implementation Header
  *
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
@@ -8,63 +7,73 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef LMSHAO_LMNET_WINDOWS_TCP_SERVER_IMPL_H
-#define LMSHAO_LMNET_WINDOWS_TCP_SERVER_IMPL_H
+#ifndef LMSHAO_LMNET_TCP_SERVER_IMPL_H
+#define LMSHAO_LMNET_TCP_SERVER_IMPL_H
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <unordered_map>
 
 #include "base_server.h"
-#include "iocp_manager.h"
 #include "lmcore/data_buffer.h"
+#include "lmcore/task_queue.h"
 #include "lmnet/common.h"
 #include "lmnet/iserver_listener.h"
+#include "lmnet/session.h"
 
 namespace lmshao::lmnet {
 
-// Forward declare the per-I/O context at namespace scope (defined in cpp)
-struct PerIoContextTCP;
-
 class TcpServerImpl final : public BaseServer,
                             public std::enable_shared_from_this<TcpServerImpl>,
-                            public Creatable<TcpServerImpl>,
-                            public IIocpHandler {
+                            public Creatable<TcpServerImpl> {
     friend class Creatable<TcpServerImpl>;
 
 public:
     TcpServerImpl(std::string listenIp, uint16_t listenPort);
-    explicit TcpServerImpl(uint16_t listenPort);
-    ~TcpServerImpl() override = default;
+    TcpServerImpl(uint16_t listenPort);
+    ~TcpServerImpl() override;
 
     bool Init() override;
     void SetListener(std::shared_ptr<IServerListener> listener) override;
     bool Start() override;
     bool Stop() override;
+    socket_t GetSocketFd() const override;
+
     bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
     bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
     bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
-    socket_t GetSocketFd() const override;
-
-    // IIocpHandler interface
-    void OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error) override;
 
 private:
-    TcpServerImpl() = default;
-    void PostAccept();
-    void PostRecv(std::shared_ptr<class SessionImpl> session);
-    void HandleAccept(PerIoContextTCP *ctx, DWORD bytes);
-    void HandleRecv(PerIoContextTCP *ctx, DWORD bytes);
+    void SubmitAccept();
+    void SubmitRead(SOCKET clientSocket);
+    void HandleAccept(SOCKET clientSocket, const sockaddr_in &clientAddr);
+    void HandleReceive(SOCKET clientSocket, std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError);
+    void HandleSend(SOCKET clientSocket, DWORD bytesOrError);
+    void HandleClientClose(SOCKET clientSocket, bool isError, const std::string &reason);
+
+    // Session management
+    void AddSession(SOCKET socket, std::shared_ptr<Session> session);
+    void RemoveSession(SOCKET socket);
+    std::shared_ptr<Session> GetSession(SOCKET socket);
 
     std::string ip_;
-    uint16_t port_{0};
-    std::shared_ptr<class TcpServerState> state_;
-    std::shared_ptr<IServerListener> listener_;
+    uint16_t port_;
+
+    SOCKET listenSocket_{INVALID_SOCKET};
+    sockaddr_in listenAddr_{};
+
+    std::atomic<bool> isRunning_{false};
+    std::weak_ptr<IServerListener> listener_;
+    std::unique_ptr<lmcore::TaskQueue> taskQueue_;
+
+    // Session management
+    std::mutex sessionMutex_;
+    std::unordered_map<SOCKET, std::shared_ptr<Session>> sessions_;
 };
 
 } // namespace lmshao::lmnet
 
-#endif // LMSHAO_LMNET_WINDOWS_TCP_SERVER_IMPL_H
+#endif // LMSHAO_LMNET_TCP_SERVER_IMPL_H

@@ -1,5 +1,4 @@
 /**
- * Port Discovery Utilities Implementation for Windows Platform
  *
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
@@ -10,15 +9,13 @@
 
 #include "port_utils.h"
 
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
 #include <mutex>
 
 #include "iocp_utils.h"
 #include "lmnet/common.h"
-
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#endif
 
 namespace lmshao::lmnet {
 

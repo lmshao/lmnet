@@ -1,5 +1,4 @@
 /**
- * Windows UDP Client IOCP implementation
  *
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
@@ -10,23 +9,21 @@
 
 #include "udp_client_impl.h"
 
-#include <winsock2.h>
 #include <ws2tcpip.h>
 
-#include "../../internal_logger.h"
+#include "internal_logger.h"
 #include "iocp_manager.h"
 #include "iocp_utils.h"
+
 #pragma comment(lib, "ws2_32.lib")
 
-#include <cstring>
-#include <memory>
-
 namespace lmshao::lmnet {
-using PerIoContext = UdpPerIoContext;
 
 UdpClientImpl::UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(std::move(remoteIp)), remotePort_(remotePort), localIp_(std::move(localIp)), localPort_(localPort)
 {
+    taskQueue_ = std::make_unique<lmcore::TaskQueue>("UdpClient");
+    (void)taskQueue_->Start();
 }
 
 UdpClientImpl::~UdpClientImpl()
@@ -37,43 +34,60 @@ UdpClientImpl::~UdpClientImpl()
 bool UdpClientImpl::Init()
 {
     EnsureWsaInit();
-    socket_ = ::WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+
+    // Initialize IOCP manager
+    auto &manager = IocpManager::GetInstance();
+    if (!manager.Init()) {
+        LMNET_LOGE("Failed to initialize IOCP manager");
+        return false;
+    }
+
+    // Create UDP socket
+    socket_ = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (socket_ == INVALID_SOCKET) {
         LMNET_LOGE("WSASocket failed: %d", WSAGetLastError());
         return false;
     }
 
+    // Setup local binding
     if (!localIp_.empty() || localPort_ != 0) {
-        sockaddr_in localAddr{};
-        localAddr.sin_family = AF_INET;
-        localAddr.sin_port = htons(localPort_);
-        if (localIp_.empty())
+        localAddr_.sin_family = AF_INET;
+        localAddr_.sin_port = htons(localPort_);
+        if (localIp_.empty()) {
             localIp_ = "0.0.0.0";
-        if (inet_pton(AF_INET, localIp_.c_str(), &localAddr.sin_addr) != 1) {
+        }
+        if (inet_pton(AF_INET, localIp_.c_str(), &localAddr_.sin_addr) != 1) {
             LMNET_LOGE("inet_pton local failed: %d", WSAGetLastError());
             Close();
             return false;
         }
-        if (bind(socket_, reinterpret_cast<sockaddr *>(&localAddr), sizeof(localAddr)) != 0) {
+
+        if (bind(socket_, (sockaddr *)&localAddr_, sizeof(localAddr_)) != 0) {
             LMNET_LOGE("bind failed: %d", WSAGetLastError());
             Close();
             return false;
         }
     } else {
         // For UDP client, we need to bind to receive replies
-        // Bind to any available port
-        sockaddr_in localAddr{};
-        localAddr.sin_family = AF_INET;
-        localAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-        localAddr.sin_port = 0; // Let system choose port
-        if (bind(socket_, reinterpret_cast<sockaddr *>(&localAddr), sizeof(localAddr)) != 0) {
+        localAddr_.sin_family = AF_INET;
+        localAddr_.sin_addr.s_addr = htonl(INADDR_ANY);
+        localAddr_.sin_port = 0; // Let system choose port
+
+        if (bind(socket_, (sockaddr *)&localAddr_, sizeof(localAddr_)) != 0) {
             LMNET_LOGE("Auto-bind failed: %d", WSAGetLastError());
             Close();
             return false;
         }
     }
 
-    std::memset(&remoteAddr_, 0, sizeof(remoteAddr_));
+    // Associate socket with IOCP
+    if (!CreateIoCompletionPort((HANDLE)socket_, manager.GetIocpHandle(), (ULONG_PTR)socket_, 0)) {
+        LMNET_LOGE("Failed to associate UDP client socket with IOCP: %lu", GetLastError());
+        Close();
+        return false;
+    }
+
+    // Setup remote address
     remoteAddr_.sin_family = AF_INET;
     remoteAddr_.sin_port = htons(remotePort_);
     if (inet_pton(AF_INET, remoteIp_.c_str(), &remoteAddr_.sin_addr) != 1) {
@@ -82,26 +96,16 @@ bool UdpClientImpl::Init()
         return false;
     }
 
-    // Initialize global IOCP manager
-    auto &manager = IocpManager::GetInstance();
-    if (!manager.Initialize()) {
-        LMNET_LOGE("Failed to initialize IOCP manager");
-        Close();
-        return false;
-    }
+    isRunning_.store(true);
+    StartReceiving();
 
-    // Register this socket with the global IOCP manager
-    if (!manager.RegisterSocket((HANDLE)socket_, (ULONG_PTR)socket_, shared_from_this())) {
-        LMNET_LOGE("Failed to register socket with IOCP manager");
-        Close();
-        return false;
-    }
-
-    running_ = true;
-    for (int i = 0; i < 4; ++i)
-        PostRecv();
-    LMNET_LOGD("UDP client (IOCP) initialized: %s:%u", remoteIp_.c_str(), remotePort_);
+    LMNET_LOGD("UDP client initialized: %s:%u", remoteIp_.c_str(), remotePort_);
     return true;
+}
+
+void UdpClientImpl::SetListener(std::shared_ptr<IClientListener> listener)
+{
+    listener_ = listener;
 }
 
 bool UdpClientImpl::EnableBroadcast()
@@ -121,6 +125,76 @@ bool UdpClientImpl::EnableBroadcast()
     return true;
 }
 
+void UdpClientImpl::StartReceiving()
+{
+    // Start multiple concurrent receive operations for better performance
+    for (int i = 0; i < CONCURRENT_RECEIVES; ++i) {
+        SubmitReceive();
+    }
+}
+
+void UdpClientImpl::SubmitReceive()
+{
+    if (!isRunning_.load()) {
+        return;
+    }
+
+    auto buffer = lmcore::DataBuffer::Create(8192);
+    auto &manager = IocpManager::GetInstance();
+    auto self = shared_from_this();
+
+    bool success = manager.SubmitRecvFromRequest(
+        socket_, buffer,
+        [self, buffer](SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buf, DWORD bytesOrError,
+                       const sockaddr_in &fromAddr) {
+            if (self->taskQueue_) {
+                auto task = std::make_shared<lmcore::TaskHandler<void>>(
+                    [self, buf, bytesOrError, fromAddr]() { self->HandleReceive(buf, bytesOrError, fromAddr); });
+                self->taskQueue_->EnqueueTask(task);
+            } else {
+                self->HandleReceive(buf, bytesOrError, fromAddr);
+            }
+        });
+
+    if (!success) {
+        LMNET_LOGE("Failed to submit UDP receive request");
+        if (taskQueue_) {
+            auto task = std::make_shared<lmcore::TaskHandler<void>>(
+                [self]() { self->HandleClose(true, "Failed to submit receive request"); });
+            taskQueue_->EnqueueTask(task);
+        } else {
+            HandleClose(true, "Failed to submit receive request");
+        }
+    }
+}
+
+void UdpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError, const sockaddr_in &fromAddr)
+{
+    if (!isRunning_.load()) {
+        return;
+    }
+
+    if (bytesOrError == 0) {
+        // Zero-length datagram - just continue receiving
+        SubmitReceive();
+        return;
+    }
+
+    if (bytesOrError > 65536) { // Assume it's an error code
+        LMNET_LOGE("UDP receive error: %lu", bytesOrError);
+        HandleClose(true, "Receive error: " + std::to_string(bytesOrError));
+        return;
+    }
+
+    // Valid data received
+    if (auto listener = listener_.lock()) {
+        listener->OnReceive(socket_, buffer);
+    }
+
+    // Continue receiving
+    SubmitReceive();
+}
+
 bool UdpClientImpl::Send(const std::string &str)
 {
     return Send(str.data(), str.size());
@@ -128,135 +202,100 @@ bool UdpClientImpl::Send(const std::string &str)
 
 bool UdpClientImpl::Send(const void *data, size_t len)
 {
-    if (socket_ == INVALID_SOCKET || len == 0) {
+    if (!data || len == 0) {
         return false;
     }
-    // Async send using overlapped WSASendTo
-    auto *ctx = new PerIoContext();
-    ctx->op = PerIoContext::Op::SEND;
-    size_t copyLen = len < sizeof(ctx->data) ? len : sizeof(ctx->data);
-    std::memcpy(ctx->data, data, copyLen);
-    ctx->wsaBuf.buf = ctx->data;
-    ctx->wsaBuf.len = (ULONG)copyLen;
-    DWORD bytes = 0;
-    int r = WSASendTo(socket_, &ctx->wsaBuf, 1, &bytes, 0, (sockaddr *)&remoteAddr_, sizeof(remoteAddr_), &ctx->ov,
-                      nullptr);
-    if (r == SOCKET_ERROR) {
-        int err = WSAGetLastError();
-        if (err != WSA_IO_PENDING) {
-            if (listener_) {
-                listener_->OnError(socket_, "WSASendTo error: " + std::to_string(err));
-            }
-            LMNET_LOGE("WSASendTo failed: %d", err);
-            delete ctx;
-            return false;
-        }
-    }
-    return true;
+
+    auto buffer = lmcore::DataBuffer::Create(len);
+    buffer->Assign(data, len);
+    return Send(buffer);
 }
 
 bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
-    if (!data) {
+    if (!data || data->Size() == 0) {
         return false;
     }
-    return Send(data->Data(), data->Size());
+
+    if (!isRunning_.load()) {
+        LMNET_LOGE("UDP client not running");
+        return false;
+    }
+
+    auto &manager = IocpManager::GetInstance();
+    auto self = shared_from_this();
+
+    bool success = manager.SubmitSendToRequest(socket_, data, remoteAddr_, [self](SOCKET socket, DWORD bytesOrError) {
+        if (self->taskQueue_) {
+            auto task =
+                std::make_shared<lmcore::TaskHandler<void>>([self, bytesOrError]() { self->HandleSend(bytesOrError); });
+            self->taskQueue_->EnqueueTask(task);
+        } else {
+            self->HandleSend(bytesOrError);
+        }
+    });
+
+    if (!success) {
+        LMNET_LOGE("Failed to submit UDP send request");
+        return false;
+    }
+
+    return true;
+}
+
+void UdpClientImpl::HandleSend(DWORD bytesOrError)
+{
+    if (bytesOrError > 65536) { // Assume it's an error code
+        LMNET_LOGE("UDP send error: %lu", bytesOrError);
+        HandleClose(true, "Send error: " + std::to_string(bytesOrError));
+    }
+    // For successful sends, we don't need to do anything special
 }
 
 void UdpClientImpl::Close()
 {
-    if (running_) {
-        running_ = false;
-
-        // Unregister from IOCP manager
-        if (socket_ != INVALID_SOCKET) {
-            IocpManager::GetInstance().UnregisterSocket((ULONG_PTR)socket_);
-        }
+    if (!isRunning_.load()) {
+        return;
     }
+
+    LMNET_LOGD("Closing UDP client");
+
+    isRunning_.store(false);
 
     if (socket_ != INVALID_SOCKET) {
-        ::closesocket(socket_);
+        closesocket(socket_);
         socket_ = INVALID_SOCKET;
     }
+
+    // Stop task queue
+    if (taskQueue_) {
+        taskQueue_.reset();
+    }
+
+    LMNET_LOGD("UDP client closed");
 }
 
-void UdpClientImpl::PostRecv()
+void UdpClientImpl::HandleClose(bool isError, const std::string &reason)
 {
-    if (!running_ || socket_ == INVALID_SOCKET) {
+    if (!isRunning_.load()) {
         return;
     }
-    auto *ctx = new PerIoContext();
-    ZeroMemory(&ctx->ov, sizeof(ctx->ov));
-    ctx->wsaBuf.buf = ctx->data;
-    ctx->wsaBuf.len = (ULONG)sizeof(ctx->data);
-    ctx->fromLen = sizeof(ctx->from);
-    ctx->op = PerIoContext::Op::RECV;
 
-    DWORD flags = 0;
-    DWORD bytes = 0;
-    int r =
-        WSARecvFrom(socket_, &ctx->wsaBuf, 1, &bytes, &flags, (sockaddr *)&ctx->from, &ctx->fromLen, &ctx->ov, nullptr);
-    if (r == SOCKET_ERROR) {
-        int err = WSAGetLastError();
-        if (err != WSA_IO_PENDING) {
-            LMNET_LOGE("WSARecvFrom failed: %d", err);
-            if (listener_) {
-                listener_->OnError(socket_, "WSARecvFrom error: " + std::to_string(err));
-            }
-            delete ctx;
+    LMNET_LOGD("Handling UDP client close: error=%d, reason=%s", isError, reason.c_str());
+
+    // Notify listener
+    if (auto listener = listener_.lock()) {
+        if (isError) {
+            listener->OnError(socket_, reason);
+        } else {
+            listener->OnClose(socket_);
         }
     }
 }
 
-void UdpClientImpl::OnIoCompletion(ULONG_PTR key, LPOVERLAPPED ov, DWORD bytes, bool success, DWORD error)
+socket_t UdpClientImpl::GetSocketFd() const
 {
-    if (!running_ || !ov) {
-        return;
-    }
-
-    auto *ctx = reinterpret_cast<PerIoContext *>(ov);
-
-    if (!success) {
-        if (listener_) {
-            listener_->OnError(socket_, "IOCP completion error: " + std::to_string(error));
-        }
-        delete ctx;
-        return;
-    }
-
-    if (ctx->op == PerIoContext::Op::SEND) {
-        // Send completion - just cleanup
-        delete ctx;
-        return;
-    }
-
-    // RECV operation
-    if (bytes == 0) {
-        // Zero-length datagram or connection closed
-        delete ctx;
-        PostRecv(); // Post another recv
-        return;
-    }
-
-    if (listener_) {
-        auto buf = DataBuffer::Create(bytes);
-        buf->Assign(ctx->data, bytes);
-        listener_->OnReceive(socket_, buf);
-    }
-
-    delete ctx;
-    PostRecv(); // Post another recv
-}
-
-void UdpClientImpl::HandleReceive(socket_t fd)
-{
-    (void)fd;
-}
-void UdpClientImpl::HandleConnectionClose(socket_t fd, bool error, const std::string &info)
-{
-    (void)fd;
-    (void)error;
-    (void)info;
+    return socket_;
 }
 
 } // namespace lmshao::lmnet
