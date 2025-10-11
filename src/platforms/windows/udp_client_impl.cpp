@@ -23,22 +23,35 @@ UdpClientImpl::UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::str
     : remoteIp_(std::move(remoteIp)), remotePort_(remotePort), localIp_(std::move(localIp)), localPort_(localPort)
 {
     taskQueue_ = std::make_unique<lmcore::TaskQueue>("UdpClient");
-    (void)taskQueue_->Start();
 }
 
 UdpClientImpl::~UdpClientImpl()
 {
     Close();
+
+    // Give sufficient time for pending IOCP callbacks to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    if (taskQueue_) {
+        taskQueue_->Stop();
+    }
 }
 
 bool UdpClientImpl::Init()
 {
     EnsureWsaInit();
 
+    // Start TaskQueue first to accept callbacks
+    if (taskQueue_->Start() != 0) {
+        LMNET_LOGE("Failed to start TaskQueue");
+        return false;
+    }
+
     // Initialize IOCP manager
     auto &manager = IocpManager::GetInstance();
     if (!manager.Init()) {
         LMNET_LOGE("Failed to initialize IOCP manager");
+        taskQueue_->Stop(); // Clean up on failure
         return false;
     }
 
@@ -267,10 +280,8 @@ void UdpClientImpl::Close()
         socket_ = INVALID_SOCKET;
     }
 
-    // Stop task queue
-    if (taskQueue_) {
-        taskQueue_.reset();
-    }
+    // Note: Don't stop or reset taskQueue_ here - let the destructor handle it
+    // This avoids race conditions with IOCP worker threads still processing completions
 
     LMNET_LOGD("UDP client closed");
 }

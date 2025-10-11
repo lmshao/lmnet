@@ -16,6 +16,10 @@
 #include "lmnet/udp_client.h"
 #include "lmnet/udp_server.h"
 
+#ifdef _WIN32
+#include "../../src/platforms/windows/iocp_manager.h"
+#endif
+
 using namespace lmshao::lmnet;
 
 // Simple UDP server-client test
@@ -104,6 +108,10 @@ TEST(UdpTest, ServerClientSendRecv)
 
     client->Close();
     server->Stop();
+
+    // Give extra time for cleanup
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
     printf("UDP server-client test completed successfully.\n");
 }
 
@@ -136,4 +144,14 @@ TEST(UdpTest, GetIdlePortTest)
     printf("Port discovery test completed successfully.\n");
 }
 
-RUN_ALL_TESTS()
+int main()
+{
+    int result = TestRunner::getInstance().runAllTests();
+
+#ifdef _WIN32
+    // Explicitly stop IOCP manager before exit
+    lmshao::lmnet::IocpManager::GetInstance().Exit();
+#endif
+
+    return result;
+}
