@@ -32,8 +32,8 @@ UdpServerImpl::~UdpServerImpl()
 {
     Stop();
 
-    // Give sufficient time for pending IOCP callbacks to complete
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    // Give time for pending IOCP callbacks to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     if (taskQueue_) {
         taskQueue_->Stop();

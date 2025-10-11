@@ -32,8 +32,9 @@ TcpClientImpl::~TcpClientImpl()
 {
     Close();
 
-    // Give sufficient time for pending IOCP callbacks to complete
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    // Give time for pending IOCP callbacks to complete
+    // Keep this minimal to avoid long delays when many clients are destroyed
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     if (taskQueue_) {
         taskQueue_->Stop();
