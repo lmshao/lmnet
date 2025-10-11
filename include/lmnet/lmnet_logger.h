@@ -32,7 +32,7 @@ inline void InitLmnetLogger(lmshao::lmcore::LogLevel level =
                             const std::string &filename = "")
 {
     // Register module if not already registered
-    lmshao::lmcore::LoggerRegistry::RegisterModule<LmnetModuleTag>("Lmnet");
+    lmshao::lmcore::LoggerRegistry::RegisterModule<LmnetModuleTag>("LMNet");
     lmshao::lmcore::LoggerRegistry::InitLogger<LmnetModuleTag>(level, output, filename);
 }
 
