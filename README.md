@@ -1,13 +1,15 @@
 # Lmnet
 
-A modern C++ cross-platform asynchronous lmnet library with high performance. It provides TCP, UDP, and UNIX domain socket support across Linux and Windows platforms, focusing on event-driven programming, resource management, and scalable network applications. Suitable for learning, prototyping, and building real-world network services.
+A modern C++ cross-platform asynchronous lmnet library with high performance. It provides TCP, UDP, and UNIX domain socket support across Linux, macOS, and Windows platforms, focusing on event-driven programming, resource management, and scalable network applications. 
+
+Suitable for learning, prototyping, and building real-world network services.
 
 ## Features
 
-- **Cross-platform support**: Linux (epoll/io_uring) and Windows (IOCP)
+- **Cross-platform support**: Linux (epoll/io_uring), macOS (kqueue), and Windows (IOCP)
 - **High-performance I/O**: Event-driven asynchronous I/O with platform-optimized implementations
 - **Multiple Linux backends**: Choose between traditional epoll or modern io_uring for optimal performance
-- **Comprehensive socket support**: TCP/UDP client & server, UNIX domain sockets (Linux)
+- **Comprehensive socket support**: TCP/UDP client & server, UNIX domain sockets (Linux/macOS)
 - **Centralized resource management**: Unified IOCP manager on Windows for optimal resource utilization
 - **Thread pool integration**: Efficient task queue and worker thread management
 - **Session management**: Advanced connection lifecycle handling
@@ -99,7 +101,7 @@ make -j$(nproc)
 - Linux kernel 5.1+ (recommended 5.6+)
 - liburing library installed
 
-### Linux
+### Linux & macOS
 
 Build with CMake:
 
@@ -107,7 +109,7 @@ Build with CMake:
 cd lmnet  # After setting up lmcore dependency as described above
 mkdir build && cd build
 cmake ..
-make -j$(nproc)
+cmake --build . --parallel
 ```
 
 ### Windows
@@ -135,6 +137,11 @@ cmake --build . --config Release
 Choose between two high-performance backends (auto-detected):
 - **io_uring**: Uses Linux's modern asynchronous I/O interface for maximum performance (default when available)
 - **epoll**: Uses `epoll` for event-driven I/O with `eventfd` for graceful shutdown (fallback)
+
+**macOS**: Uses native `kqueue` for efficient event notification:
+- Single kqueue-driven reactor shared by all Darwin network components
+- Integrates with lmcore task queues for callback execution
+- Supports TCP/UDP/Unix domain sockets with consistent APIs
 
 **Windows**: Uses `IOCP` (I/O Completion Ports) with a centralized manager for optimal resource utilization:
 - Single IOCP instance shared across all network components
@@ -259,6 +266,9 @@ graph TB
                 LinuxEpoll[epoll + eventfd]
                 LinuxIoUring[io_uring]
             end
+            subgraph "macOS"
+                MacOSKqueue[kqueue]
+            end
             subgraph "Windows"
                 WindowsIOCP[IOCP + Worker Threads]
             end
@@ -283,6 +293,13 @@ graph TB
         UnixServer --> LinuxIoUring
         UnixClient --> LinuxIoUring
         
+    TcpServer --> MacOSKqueue
+    TcpClient --> MacOSKqueue
+    UdpServer --> MacOSKqueue
+    UdpClient --> MacOSKqueue
+    UnixServer --> MacOSKqueue
+    UnixClient --> MacOSKqueue
+
         TcpServer --> WindowsIOCP
         TcpClient --> WindowsIOCP
         UdpServer --> WindowsIOCP
@@ -290,14 +307,17 @@ graph TB
         
         LinuxEpoll --> TaskQueue
         LinuxIoUring --> TaskQueue
+    MacOSKqueue --> TaskQueue
         WindowsIOCP --> TaskQueue
         
         LinuxEpoll --> ThreadPool
         LinuxIoUring --> ThreadPool
+    MacOSKqueue --> ThreadPool
         WindowsIOCP --> ThreadPool
         
         LinuxEpoll --> Session
         LinuxIoUring --> Session
+    MacOSKqueue --> Session
         WindowsIOCP --> Session
         
         Session --> DataBuffer
@@ -313,18 +333,21 @@ graph TB
     classDef userApp fill:#e1f5fe,stroke:#01579b,stroke-width:2px
     classDef networkComp fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
     classDef linuxBackend fill:#e8f5e8,stroke:#1b5e20,stroke-width:3px
+    classDef macBackend fill:#e8eaf6,stroke:#283593,stroke-width:3px
     classDef windowsBackend fill:#fff3e0,stroke:#e65100,stroke-width:3px
     classDef coreComp fill:#fce4ec,stroke:#880e4f,stroke-width:2px
     
     class YourApp userApp
     class TcpServer,TcpClient,UdpServer,UdpClient,UnixServer,UnixClient networkComp
     class LinuxEpoll,LinuxIoUring linuxBackend
+    class MacOSKqueue macBackend
     class WindowsIOCP windowsBackend
     class TaskQueue,ThreadPool,Session,DataBuffer coreComp
 ```
 
 **Platform-specific I/O Backends:**
 - **Linux**: Choose between **epoll** (traditional) or **io_uring** (modern) - auto-detected
+- **macOS**: Native **kqueue** reactor with shared event loop
 - **Windows**: **IOCP** (I/O Completion Ports) with Worker Threads
 - **Cross-platform**: Unified abstraction layer for seamless development
 

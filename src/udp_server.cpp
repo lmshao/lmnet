@@ -10,13 +10,18 @@
 
 #include "internal_logger.h"
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
 #include "platforms/linux/common/port_utils.h"
+#endif
+
+#ifdef __linux__
 #if defined(LMNET_LINUX_BACKEND_IOURING)
 #include "platforms/linux/io_uring/udp_server_impl.h"
 #else
 #include "platforms/linux/epoll/udp_server_impl.h"
 #endif
+#elif defined(__APPLE__)
+#include "platforms/darwin/udp_server_impl.h"
 #elif _WIN32
 #include "platforms/windows/port_utils.h"
 #include "platforms/windows/udp_server_impl.h"

@@ -19,6 +19,7 @@
 
 using namespace lmshao::lmnet;
 
+#if defined(__linux__) || defined(__APPLE__)
 // Simple UNIX socket server-client test
 TEST(UnixTest, ServerClientSendRecv)
 {
@@ -95,5 +96,12 @@ TEST(UnixTest, ServerClientSendRecv)
     server->Stop();
     std::remove(socket_path.c_str());
 }
+#else
+TEST(UnixTest, ServerClientSendRecv)
+{
+    std::puts("Unix domain sockets are not supported on this platform. Skipping test.");
+    EXPECT_TRUE(true);
+}
+#endif
 
 RUN_ALL_TESTS()
