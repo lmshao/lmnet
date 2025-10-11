@@ -1,13 +1,15 @@
 # Lmnet（网络库）
 
-一个现代 C++ 跨平台异步网络库，具备高性能特性。支持 Linux 和 Windows 平台上的 TCP、UDP 和 UNIX 域套接字，专注于事件驱动编程、资源管理和可扩展的网络应用。适合学习、原型开发和实际服务搭建。
+一个现代 C++ 跨平台异步网络库，具备高性能特性。支持 Linux、macOS 和 Windows 平台上的 TCP、UDP 以及 UNIX 域套接字，专注于事件驱动编程、资源管理和可扩展的网络应用。
+
+适合学习、原型开发和实际服务搭建。
 
 ## 特性
 
-- **跨平台支持**：Linux（epoll/io_uring）和 Windows（IOCP）
+- **跨平台支持**：Linux（epoll/io_uring）、macOS（kqueue）和 Windows（IOCP）
 - **高性能 I/O**：事件驱动异步 I/O，针对不同平台优化实现
 - **多种 Linux 后端**：可选择传统 epoll 或现代 io_uring 以获得最佳性能
-- **全面的套接字支持**：TCP/UDP 客户端与服务端，UNIX 域套接字（Linux）
+- **全面的套接字支持**：TCP/UDP 客户端与服务端，UNIX 域套接字（Linux/macOS）
 - **集中式资源管理**：Windows 上统一的 IOCP 管理器，优化资源利用
 - **线程池集成**：高效的任务队列与工作线程管理
 - **会话（Session）管理**：完善的连接生命周期处理
@@ -99,15 +101,15 @@ make -j$(nproc)
 - Linux 内核 5.1+（推荐 5.6+）
 - 已安装 liburing 库
 
-### Linux
+### Linux & macOS
 
-使用 CMake 构建：
+使用 CMake 进行构建：
 
 ```bash
 cd lmnet  # 在按照上述说明设置好 lmcore 依赖后
 mkdir build && cd build
 cmake ..
-make -j$(nproc)
+cmake --build . --parallel
 ```
 
 ### Windows
@@ -135,6 +137,11 @@ cmake --build . --config Release
 可选择两种高性能后端（自动检测）：
 - **io_uring**：使用 Linux 现代异步 I/O 接口实现最佳性能（系统支持时默认）
 - **epoll**：使用 `epoll` 实现事件驱动 I/O，配合 `eventfd` 实现优雅关闭（回退选项）
+
+**macOS**：使用原生 `kqueue` 完成高效事件通知：
+- 全局共享的 kqueue 事件循环驱动所有 Darwin 网络组件
+- 与 lmcore 任务队列协作完成回调投递
+- 同时支持 TCP/UDP/Unix 域套接字，API 与其他平台保持一致
 
 **Windows**：使用 `IOCP`（I/O 完成端口）和集中式管理器实现最优资源利用：
 - 所有网络组件共享单一 IOCP 实例
@@ -257,6 +264,9 @@ graph TB
                 LinuxEpoll[epoll + eventfd]
                 LinuxIoUring[io_uring]
             end
+            subgraph "macOS"
+                MacOSKqueue[kqueue]
+            end
             subgraph "Windows"
                 WindowsIOCP[IOCP + 工作线程]
             end
@@ -281,6 +291,13 @@ graph TB
         UnixServer --> LinuxIoUring
         UnixClient --> LinuxIoUring
         
+    TcpServer --> MacOSKqueue
+    TcpClient --> MacOSKqueue
+    UdpServer --> MacOSKqueue
+    UdpClient --> MacOSKqueue
+    UnixServer --> MacOSKqueue
+    UnixClient --> MacOSKqueue
+
         TcpServer --> WindowsIOCP
         TcpClient --> WindowsIOCP
         UdpServer --> WindowsIOCP
@@ -288,14 +305,17 @@ graph TB
         
         LinuxEpoll --> TaskQueue
         LinuxIoUring --> TaskQueue
+    MacOSKqueue --> TaskQueue
         WindowsIOCP --> TaskQueue
         
         LinuxEpoll --> ThreadPool
         LinuxIoUring --> ThreadPool
+    MacOSKqueue --> ThreadPool
         WindowsIOCP --> ThreadPool
         
         LinuxEpoll --> Session
         LinuxIoUring --> Session
+    MacOSKqueue --> Session
         WindowsIOCP --> Session
         
         Session --> DataBuffer
@@ -311,18 +331,21 @@ graph TB
     classDef userApp fill:#e1f5fe,stroke:#01579b,stroke-width:2px
     classDef networkComp fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
     classDef linuxBackend fill:#e8f5e8,stroke:#1b5e20,stroke-width:3px
+    classDef macBackend fill:#e8eaf6,stroke:#283593,stroke-width:3px
     classDef windowsBackend fill:#fff3e0,stroke:#e65100,stroke-width:3px
     classDef coreComp fill:#fce4ec,stroke:#880e4f,stroke-width:2px
     
     class YourApp userApp
     class TcpServer,TcpClient,UdpServer,UdpClient,UnixServer,UnixClient networkComp
     class LinuxEpoll,LinuxIoUring linuxBackend
+    class MacOSKqueue macBackend
     class WindowsIOCP windowsBackend
     class TaskQueue,ThreadPool,Session,DataBuffer coreComp
 ```
 
 **平台特定的 I/O 后端：**
 - **Linux**：可选择 **epoll**（传统）或 **io_uring**（现代）- 自动检测
+- **macOS**：原生 **kqueue** 事件循环，配合任务队列完成调度
 - **Windows**：**IOCP**（I/O 完成端口）配合工作线程
 - **跨平台**：统一抽象层，实现无缝开发
 

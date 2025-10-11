@@ -15,7 +15,7 @@
 #endif
 
 namespace lmshao::lmnet {
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
 inline constexpr int INVALID_SOCKET = -1;
 using socket_t = int;
 #elif _WIN32

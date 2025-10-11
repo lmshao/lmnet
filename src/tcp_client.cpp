@@ -16,6 +16,8 @@
 #else
 #include "platforms/linux/epoll/tcp_client_impl.h"
 #endif
+#elif defined(__APPLE__)
+#include "platforms/darwin/tcp_client_impl.h"
 #elif _WIN32
 #include "platforms/windows/tcp_client_impl.h"
 #endif

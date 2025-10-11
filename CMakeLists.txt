@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(lmnet VERSION 1.4.0 LANGUAGES CXX)
+project(lmnet VERSION 1.5.0 LANGUAGES CXX)
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -87,7 +87,9 @@ if(WIN32)
     set(PLATFORM_DIR "platforms/windows")
     set(PLATFORM_NAME "Windows")
 elseif(APPLE)
-    message(FATAL_ERROR "macOS platform is not supported yet")
+    set(PLATFORM_NAME "Darwin/macOS")
+    set(PLATFORM_DIR "platforms/darwin")
+    message(STATUS "Using kqueue backend on macOS")
 elseif(UNIX)
     set(PLATFORM_NAME "Linux")
 
@@ -158,7 +160,7 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${PROJECT_SOURCE_DIR}/src/${PLATFORM_DIR})
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
     include_directories(${PROJECT_SOURCE_DIR}/src/platforms/linux/common)
 endif()
 
@@ -212,9 +214,9 @@ message(STATUS "Platform source directory: src/${PLATFORM_DIR}")
 # Collect source files
 file(GLOB COMMON_SOURCES "src/*.cpp")
 
-# Collect platform-specific common sources (only for Linux)
+# Collect platform-specific common sources (only for Linux/macOS)
 set(COMMON_PLATFORM_SOURCES "")
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
     file(GLOB COMMON_PLATFORM_SOURCES "src/platforms/linux/common/*.cpp")
 endif()
 
@@ -249,7 +251,10 @@ if(MSVC)
     set(CMAKE_CXX_FLAGS_RELEASE "/MD /O2 /DNDEBUG /DRELEASE")
 else()
     # GCC/Clang flags for Linux/Unix
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error -Wno-format-truncation -Wno-unused-result")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error -Wno-unused-result")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format-truncation")
+    endif()
     # Debug-specific flags for GCC/Clang
     set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG")
     # Release-specific flags for GCC/Clang

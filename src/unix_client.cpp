@@ -11,22 +11,29 @@
 #include "internal_logger.h"
 #include "iunix_client.h"
 
-#ifdef __linux__
+#if defined(__linux__)
 #if defined(LMNET_LINUX_BACKEND_IOURING)
 #include "platforms/linux/io_uring/unix_client_impl.h"
 #else
 #include "platforms/linux/epoll/unix_client_impl.h"
 #endif
+#elif defined(__APPLE__)
+#include "platforms/darwin/unix_client_impl.h"
 #endif
 
 namespace lmshao::lmnet {
 
 UnixClient::UnixClient(const std::string &socketPath)
 {
+#if defined(__linux__) || defined(__APPLE__)
     impl_ = UnixClientImpl::Create(socketPath);
     if (!impl_) {
         LMNET_LOGE("Failed to create Unix client implementation");
     }
+#else
+    LMNET_LOGE("Unix domain client is not supported on this platform yet");
+    (void)socketPath;
+#endif
 }
 
 UnixClient::~UnixClient() {}

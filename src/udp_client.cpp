@@ -16,6 +16,8 @@
 #else
 #include "platforms/linux/epoll/udp_client_impl.h"
 #endif
+#elif defined(__APPLE__)
+#include "platforms/darwin/udp_client_impl.h"
 #elif _WIN32
 #include "platforms/windows/udp_client_impl.h"
 #endif
