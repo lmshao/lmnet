@@ -24,7 +24,6 @@ namespace lmshao::lmnet {
 UdpServerImpl::UdpServerImpl(std::string listenIp, uint16_t listenPort) : ip_(std::move(listenIp)), port_(listenPort)
 {
     taskQueue_ = std::make_unique<lmcore::TaskQueue>("UdpServer");
-    (void)taskQueue_->Start();
 }
 
 UdpServerImpl::UdpServerImpl(uint16_t listenPort) : UdpServerImpl("0.0.0.0", listenPort) {}
@@ -32,16 +31,30 @@ UdpServerImpl::UdpServerImpl(uint16_t listenPort) : UdpServerImpl("0.0.0.0", lis
 UdpServerImpl::~UdpServerImpl()
 {
     Stop();
+
+    // Give sufficient time for pending IOCP callbacks to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    if (taskQueue_) {
+        taskQueue_->Stop();
+    }
 }
 
 bool UdpServerImpl::Init()
 {
     EnsureWsaInit();
 
+    // Start TaskQueue first to accept callbacks
+    if (taskQueue_->Start() != 0) {
+        LMNET_LOGE("Failed to start TaskQueue");
+        return false;
+    }
+
     // Initialize IOCP manager
     auto &manager = IocpManager::GetInstance();
     if (!manager.Init()) {
         LMNET_LOGE("Failed to initialize IOCP manager");
+        taskQueue_->Stop(); // Clean up on failure
         return false;
     }
 
@@ -120,16 +133,14 @@ bool UdpServerImpl::Stop()
 
     isRunning_.store(false);
 
-    // Close socket
+    // Close socket (this will cause pending I/O to complete with errors)
     if (socket_ != INVALID_SOCKET) {
         closesocket(socket_);
         socket_ = INVALID_SOCKET;
     }
 
-    // Stop task queue
-    if (taskQueue_) {
-        taskQueue_.reset();
-    }
+    // Note: Don't stop or reset taskQueue_ here - let the destructor handle it
+    // This avoids race conditions with IOCP worker threads still processing completions
 
     LMNET_LOGI("UDP server stopped");
     return true;

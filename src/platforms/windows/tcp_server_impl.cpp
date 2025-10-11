@@ -26,7 +26,6 @@ namespace lmshao::lmnet {
 TcpServerImpl::TcpServerImpl(std::string listenIp, uint16_t listenPort) : ip_(std::move(listenIp)), port_(listenPort)
 {
     taskQueue_ = std::make_unique<lmcore::TaskQueue>("TcpServer");
-    (void)taskQueue_->Start();
 }
 
 TcpServerImpl::TcpServerImpl(uint16_t listenPort) : TcpServerImpl("0.0.0.0", listenPort) {}
@@ -34,16 +33,30 @@ TcpServerImpl::TcpServerImpl(uint16_t listenPort) : TcpServerImpl("0.0.0.0", lis
 TcpServerImpl::~TcpServerImpl()
 {
     Stop();
+
+    // Give sufficient time for pending IOCP callbacks to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    if (taskQueue_) {
+        taskQueue_->Stop();
+    }
 }
 
 bool TcpServerImpl::Init()
 {
     EnsureWsaInit();
 
+    // Start TaskQueue first to accept callbacks
+    if (taskQueue_->Start() != 0) {
+        LMNET_LOGE("Failed to start TaskQueue");
+        return false;
+    }
+
     // Initialize IOCP manager
     auto &manager = IocpManager::GetInstance();
     if (!manager.Init()) {
         LMNET_LOGE("Failed to initialize IOCP manager");
+        taskQueue_->Stop(); // Clean up on failure
         return false;
     }
 
@@ -51,6 +64,7 @@ bool TcpServerImpl::Init()
     listenSocket_ = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (listenSocket_ == INVALID_SOCKET) {
         LMNET_LOGE("WSASocket listen failed: %d", WSAGetLastError());
+        taskQueue_->Stop(); // Clean up on failure
         return false;
     }
 
@@ -145,11 +159,6 @@ bool TcpServerImpl::Stop()
     if (listenSocket_ != INVALID_SOCKET) {
         closesocket(listenSocket_);
         listenSocket_ = INVALID_SOCKET;
-    }
-
-    // Stop task queue
-    if (taskQueue_) {
-        taskQueue_.reset();
     }
 
     LMNET_LOGI("TCP server stopped");

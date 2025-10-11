@@ -16,6 +16,10 @@
 #include "lmnet/tcp_client.h"
 #include "lmnet/tcp_server.h"
 
+#ifdef _WIN32
+#include "../../src/platforms/windows/iocp_manager.h"
+#endif
+
 using namespace lmshao::lmnet;
 
 // Simple TCP server-client test
@@ -89,6 +93,19 @@ TEST(TcpTest, ServerClientSendRecv)
 
     client->Close();
     server->Stop();
+
+    // Give extra time for cleanup
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
-RUN_ALL_TESTS()
+int main()
+{
+    int result = TestRunner::getInstance().runAllTests();
+
+#ifdef _WIN32
+    // Explicitly stop IOCP manager before exit
+    lmshao::lmnet::IocpManager::GetInstance().Exit();
+#endif
+
+    return result;
+}
