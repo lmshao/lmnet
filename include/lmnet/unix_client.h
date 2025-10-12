@@ -72,6 +72,15 @@ public:
      */
     bool Send(std::shared_ptr<DataBuffer> data);
 
+#if defined(__unix__) || defined(__APPLE__)
+    /**
+     * @brief Send file descriptors without additional payload
+     * @param fds File descriptors to transfer
+     * @return true on success, false on failure
+     */
+    bool SendFds(const std::vector<int> &fds);
+#endif
+
     /**
      * @brief Close the Unix client
      */

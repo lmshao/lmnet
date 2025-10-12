@@ -5,6 +5,8 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <vector>
+
 #include "internal_logger.h"
 #include "io_uring_manager.h"
 
@@ -165,6 +167,13 @@ bool UnixClientImpl::Send(std::shared_ptr<DataBuffer> data)
         }
     });
     return true;
+}
+
+bool UnixClientImpl::SendFds(const std::vector<int> &fds)
+{
+    (void)fds;
+    LMNET_LOGE("SendFds is not supported on io_uring backend");
+    return false;
 }
 
 void UnixClientImpl::Close()

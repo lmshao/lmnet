@@ -16,6 +16,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "base_server.h"
 #include "lmnet/common.h"
@@ -47,6 +48,7 @@ public:
     bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
     bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
     bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
+    bool SendFds(socket_t fd, std::string host, uint16_t port, const std::vector<int> &fds) override;
 
     socket_t GetSocketFd() const override { return socket_; }
 

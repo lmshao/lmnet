@@ -59,6 +59,15 @@ public:
         return server_->Send(fd_, host, port, data, size);
     }
 
+#if defined(__unix__) || defined(__APPLE__)
+    bool SendFds(const std::vector<int> &fds) const override
+    {
+        (void)fds;
+        LMNET_LOGE("UDP sessions do not support sending file descriptors");
+        return false;
+    }
+#endif
+
     std::string ClientInfo() const override { return host + ":" + std::to_string(port); }
 
 private:

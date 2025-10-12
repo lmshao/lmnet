@@ -13,6 +13,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "common.h"
 
@@ -45,6 +46,15 @@ public:
      * @return true on success, false on failure
      */
     virtual bool Send(const void *data, size_t size) const = 0;
+
+#if defined(__unix__) || defined(__APPLE__)
+    /**
+     * @brief Send file descriptors
+     * @param fds File descriptors to send
+     * @return true on success, false on failure
+     */
+    virtual bool SendFds(const std::vector<int> &fds) const = 0;
+#endif
 
     /**
      * @brief Get client information
