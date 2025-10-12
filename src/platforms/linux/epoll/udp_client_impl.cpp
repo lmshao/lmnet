@@ -112,7 +112,7 @@ bool UdpClientImpl::Init()
     taskQueue_->Start();
 
     clientHandler_ = std::make_shared<UdpClientHandler>(socket_, shared_from_this());
-    if (!EventReactor::GetInstance()->RegisterHandler(clientHandler_)) {
+    if (!EventReactor::GetInstance().RegisterHandler(clientHandler_)) {
         LMNET_LOGE("Failed to register UDP client handler");
         return false;
     }
@@ -141,7 +141,7 @@ bool UdpClientImpl::EnableBroadcast()
 void UdpClientImpl::Close()
 {
     if (socket_ != INVALID_SOCKET && clientHandler_) {
-        EventReactor::GetInstance()->RemoveHandler(socket_);
+        EventReactor::GetInstance().RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
         clientHandler_.reset();
@@ -241,7 +241,7 @@ void UdpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
         return;
     }
 
-    EventReactor::GetInstance()->RemoveHandler(fd);
+    EventReactor::GetInstance().RemoveHandler(fd);
     close(fd);
     socket_ = INVALID_SOCKET;
     clientHandler_.reset();

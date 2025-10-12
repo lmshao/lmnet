@@ -192,7 +192,7 @@ bool UdpServerImpl::Start()
     serverHandler_ = std::make_shared<UdpServerHandler>(socket_, self);
 
     // Add to event loop
-    if (!EventReactor::GetInstance()->RegisterHandler(serverHandler_)) {
+    if (!EventReactor::GetInstance().RegisterHandler(serverHandler_)) {
         LMNET_LOGE("Failed to add server handler to event reactor");
         return false;
     }
@@ -200,7 +200,7 @@ bool UdpServerImpl::Start()
     // Start task queue
     if (taskQueue_->Start() != 0) {
         LMNET_LOGE("Failed to start task queue");
-        EventReactor::GetInstance()->RemoveHandler(socket_);
+        EventReactor::GetInstance().RemoveHandler(socket_);
         return false;
     }
 
@@ -219,7 +219,7 @@ bool UdpServerImpl::Stop()
 
     // Remove from event loop
     if (serverHandler_) {
-        EventReactor::GetInstance()->RemoveHandler(socket_);
+        EventReactor::GetInstance().RemoveHandler(socket_);
         serverHandler_.reset();
     }
 
