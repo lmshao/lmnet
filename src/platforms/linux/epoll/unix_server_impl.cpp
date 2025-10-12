@@ -119,7 +119,7 @@ private:
     {
         if (!writeEventsEnabled_) {
             writeEventsEnabled_ = true;
-            EventReactor::GetInstance()->ModifyHandler(fd_, GetEvents());
+            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
         }
     }
 
@@ -127,7 +127,7 @@ private:
     {
         if (writeEventsEnabled_) {
             writeEventsEnabled_ = false;
-            EventReactor::GetInstance()->ModifyHandler(fd_, GetEvents());
+            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
         }
     }
 
@@ -215,7 +215,7 @@ bool UnixServerImpl::Start()
     taskQueue_->Start();
 
     serverHandler_ = std::make_shared<UnixServerHandler>(shared_from_this());
-    if (!EventReactor::GetInstance()->RegisterHandler(serverHandler_)) {
+    if (!EventReactor::GetInstance().RegisterHandler(serverHandler_)) {
         LMNET_LOGE("Failed to register server handler");
         return false;
     }
@@ -226,7 +226,7 @@ bool UnixServerImpl::Start()
 
 bool UnixServerImpl::Stop()
 {
-    auto reactor = EventReactor::GetInstance();
+    auto &reactor = EventReactor::GetInstance();
 
     std::vector<int> clientFds;
     for (const auto &pair : sessions_) {
@@ -235,7 +235,7 @@ bool UnixServerImpl::Stop()
 
     for (int clientFd : clientFds) {
         LMNET_LOGD("close client fd: %d", clientFd);
-        reactor->RemoveHandler(clientFd);
+        reactor.RemoveHandler(clientFd);
         close(clientFd);
 
         connectionHandlers_.erase(clientFd);
@@ -244,7 +244,7 @@ bool UnixServerImpl::Stop()
 
     if (socket_ != INVALID_SOCKET && serverHandler_) {
         LMNET_LOGD("close server fd: %d", socket_);
-        reactor->RemoveHandler(socket_);
+        reactor.RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
         serverHandler_.reset();
@@ -319,7 +319,7 @@ void UnixServerImpl::HandleAccept(socket_t fd)
     }
 
     auto connectionHandler = std::make_shared<UnixConnectionHandler>(clientSocket, shared_from_this());
-    if (!EventReactor::GetInstance()->RegisterHandler(connectionHandler)) {
+    if (!EventReactor::GetInstance().RegisterHandler(connectionHandler)) {
         LMNET_LOGE("Failed to register connection handler for fd: %d", clientSocket);
         close(clientSocket);
         return;
@@ -427,7 +427,7 @@ void UnixServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std:
         return;
     }
 
-    EventReactor::GetInstance()->RemoveHandler(fd);
+    EventReactor::GetInstance().RemoveHandler(fd);
 
     close(fd);
 

@@ -42,12 +42,9 @@ public:
     virtual int GetEvents() const { return static_cast<int>(EventType::READ); }
 };
 
-class EventReactor : public ManagedSingleton<EventReactor> {
+class EventReactor : public Singleton<EventReactor> {
 public:
-    friend class ManagedSingleton<EventReactor>;
-
-    EventReactor();
-    ~EventReactor();
+    friend class Singleton<EventReactor>;
 
     bool RegisterHandler(std::shared_ptr<EventHandler> handler);
     bool RemoveHandler(socket_t fd);
@@ -56,6 +53,9 @@ public:
     void SetThreadName(const std::string &name);
 
 private:
+    EventReactor();
+    ~EventReactor();
+
     void Run();
     void DispatchEvent(socket_t fd, int events);
 

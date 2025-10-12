@@ -82,7 +82,7 @@ private:
     {
         if (!writeEventsEnabled_) {
             writeEventsEnabled_ = true;
-            EventReactor::GetInstance()->ModifyHandler(fd_, GetEvents());
+            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
         }
     }
 
@@ -90,7 +90,7 @@ private:
     {
         if (writeEventsEnabled_) {
             writeEventsEnabled_ = false;
-            EventReactor::GetInstance()->ModifyHandler(fd_, GetEvents());
+            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
         }
     }
 
@@ -243,7 +243,7 @@ bool TcpClientImpl::Connect()
     taskQueue_->Start();
 
     clientHandler_ = std::make_shared<TcpClientHandler>(socket_, shared_from_this());
-    if (!EventReactor::GetInstance()->RegisterHandler(clientHandler_)) {
+    if (!EventReactor::GetInstance().RegisterHandler(clientHandler_)) {
         LMNET_LOGE("Failed to register client handler");
         return false;
     }
@@ -299,7 +299,7 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 void TcpClientImpl::Close()
 {
     if (socket_ != INVALID_SOCKET && clientHandler_) {
-        EventReactor::GetInstance()->RemoveHandler(socket_);
+        EventReactor::GetInstance().RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
         clientHandler_.reset();
@@ -361,7 +361,7 @@ void TcpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
         return;
     }
 
-    EventReactor::GetInstance()->RemoveHandler(fd);
+    EventReactor::GetInstance().RemoveHandler(fd);
     close(fd);
     socket_ = INVALID_SOCKET;
     clientHandler_.reset();
