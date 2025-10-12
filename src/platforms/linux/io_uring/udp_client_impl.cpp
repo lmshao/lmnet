@@ -90,7 +90,7 @@ void UdpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_
         if (auto listener = listener_.lock()) {
             char ip_str[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &from_addr.sin_addr, ip_str, sizeof(ip_str));
-            listener->OnReceiveFrom(socket_, std::string(ip_str), ntohs(from_addr.sin_port), buffer);
+            listener->OnReceive(socket_, buffer);
         }
     } else if (bytes_read < 0) {
         if (isRunning_) {

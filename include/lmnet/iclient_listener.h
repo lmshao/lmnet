@@ -19,11 +19,6 @@ class IClientListener {
 public:
     virtual ~IClientListener() = default;
 
-    virtual void OnReceiveFrom(socket_t fd, const std::string &ip, uint16_t port, std::shared_ptr<DataBuffer> buffer)
-    {
-        OnReceive(fd, buffer);
-    };
-
     /**
      * @brief Called when data is received
      * @param fd Socket file descriptor
