@@ -21,6 +21,7 @@
 #include "session_impl.h"
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::TaskHandler;
 
 TcpServerImpl::TcpServerImpl(std::string local_ip, uint16_t local_port)
     : localIp_(std::move(local_ip)), localPort_(local_port), taskQueue_(std::make_unique<TaskQueue>("tcp_server_tq"))
@@ -185,17 +186,16 @@ void TcpServerImpl::SubmitRead(std::shared_ptr<Session> session)
     if (!isRunning_ || !session)
         return;
 
-    auto buffer = lmcore::DataBuffer::PoolAlloc();
+    auto buffer = DataBuffer::PoolAlloc();
     auto self = shared_from_this();
 
     IoUringManager::GetInstance().SubmitReadRequest(
-        session->fd, buffer, [self, session](int fd, std::shared_ptr<lmcore::DataBuffer> buf, int bytes_read) {
+        session->fd, buffer, [self, session](int fd, std::shared_ptr<DataBuffer> buf, int bytes_read) {
             self->HandleReceive(session, buf, bytes_read);
         });
 }
 
-void TcpServerImpl::HandleReceive(std::shared_ptr<Session> session, std::shared_ptr<lmcore::DataBuffer> buffer,
-                                  int bytes_read)
+void TcpServerImpl::HandleReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer, int bytes_read)
 {
     if (bytes_read > 0) {
         buffer->SetSize(bytes_read);

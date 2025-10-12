@@ -9,8 +9,6 @@
 #ifndef LMSHAO_LMNET_UDP_CLIENT_H
 #define LMSHAO_LMNET_UDP_CLIENT_H
 
-#include <lmcore/data_buffer.h>
-
 #include <cstdint>
 #include <memory>
 #include <string>

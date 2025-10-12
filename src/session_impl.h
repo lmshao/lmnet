@@ -23,7 +23,6 @@
 #include "lmnet/session.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
 
 class SessionImpl : public Session {
 public:

@@ -20,7 +20,7 @@
 #include "lmnet/common.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
+using lmshao::lmcore::Singleton;
 
 enum class EventType {
     READ = 0x01,

@@ -9,8 +9,6 @@
 #ifndef LMSHAO_LMNET_SESSION_H
 #define LMSHAO_LMNET_SESSION_H
 
-#include <lmcore/data_buffer.h>
-
 #include <cstdint>
 #include <memory>
 #include <sstream>
@@ -19,7 +17,6 @@
 #include "common.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
 
 class Session {
 public:

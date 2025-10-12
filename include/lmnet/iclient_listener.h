@@ -9,15 +9,11 @@
 #ifndef LMSHAO_LMNET_ICLIENT_LISTENER_H
 #define LMSHAO_LMNET_ICLIENT_LISTENER_H
 
-#include <lmcore/data_buffer.h>
-
 #include <memory>
 
 #include "common.h"
 
 namespace lmshao::lmnet {
-
-using namespace lmshao::lmcore;
 
 class IClientListener {
 public:

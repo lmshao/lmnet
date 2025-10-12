@@ -10,6 +10,8 @@
 #ifndef LMSHAO_LMNET_TCP_CLIENT_IMPL_H
 #define LMSHAO_LMNET_TCP_CLIENT_IMPL_H
 
+#include <lmcore/task_queue.h>
+
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -18,12 +20,11 @@
 #include <string>
 
 #include "itcp_client.h"
-#include "lmcore/data_buffer.h"
-#include "lmcore/task_queue.h"
 #include "lmnet/common.h"
 #include "lmnet/iclient_listener.h"
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::TaskQueue;
 
 class TcpClientImpl final : public ITcpClient,
                             public std::enable_shared_from_this<TcpClientImpl>,
@@ -64,7 +65,7 @@ private:
     std::atomic<bool> isRunning_{false};
     std::atomic<bool> isConnected_{false};
     std::weak_ptr<IClientListener> listener_;
-    std::unique_ptr<lmcore::TaskQueue> taskQueue_;
+    std::unique_ptr<TaskQueue> taskQueue_;
 
     // Connect synchronization to provide blocking semantics similar to other platforms
     std::mutex connectMutex_;

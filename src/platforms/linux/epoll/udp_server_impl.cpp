@@ -23,6 +23,8 @@
 
 namespace lmshao::lmnet {
 
+using lmshao::lmcore::TaskHandler;
+
 // UDP Session implementation
 class UdpSession : public Session {
 public:

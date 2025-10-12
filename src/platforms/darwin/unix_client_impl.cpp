@@ -23,6 +23,7 @@
 
 namespace lmshao::lmnet {
 
+using lmshao::lmcore::TaskHandler;
 using namespace darwin;
 
 namespace {
@@ -75,7 +76,7 @@ public:
         return events;
     }
 
-    void QueueSend(std::shared_ptr<lmcore::DataBuffer> buffer)
+    void QueueSend(std::shared_ptr<DataBuffer> buffer)
     {
         if (!buffer || buffer->Size() == 0) {
             return;
@@ -111,7 +112,7 @@ private:
                 if (static_cast<size_t>(bytesSent) == buf->Size()) {
                     sendQueue_.pop();
                 } else {
-                    auto remaining = lmcore::DataBuffer::PoolAlloc(buf->Size() - bytesSent);
+                    auto remaining = DataBuffer::PoolAlloc(buf->Size() - bytesSent);
                     remaining->Assign(buf->Data() + bytesSent, buf->Size() - bytesSent);
                     sendQueue_.front() = remaining;
                     break;
@@ -135,13 +136,13 @@ private:
 private:
     socket_t fd_;
     std::weak_ptr<UnixClientImpl> client_;
-    std::queue<std::shared_ptr<lmcore::DataBuffer>> sendQueue_;
+    std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
 };
 
 UnixClientImpl::UnixClientImpl(const std::string &socketPath) : socketPath_(socketPath)
 {
-    taskQueue_ = std::make_unique<lmcore::TaskQueue>("UnixClientCb");
+    taskQueue_ = std::make_unique<TaskQueue>("UnixClientCb");
 }
 
 UnixClientImpl::~UnixClientImpl()
@@ -234,7 +235,7 @@ bool UnixClientImpl::Send(const std::string &str)
         return false;
     }
 
-    auto buf = lmcore::DataBuffer::PoolAlloc(str.size());
+    auto buf = DataBuffer::PoolAlloc(str.size());
     buf->Assign(str.data(), str.size());
     return Send(buf);
 }
@@ -246,12 +247,12 @@ bool UnixClientImpl::Send(const void *data, size_t len)
         return false;
     }
 
-    auto buf = lmcore::DataBuffer::PoolAlloc(len);
+    auto buf = DataBuffer::PoolAlloc(len);
     buf->Assign(data, len);
     return Send(buf);
 }
 
-bool UnixClientImpl::Send(std::shared_ptr<lmcore::DataBuffer> data)
+bool UnixClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
     if (!data || data->Size() == 0) {
         LMNET_LOGE("Invalid data buffer");
@@ -285,7 +286,7 @@ void UnixClientImpl::HandleReceive(socket_t fd)
 {
     LMNET_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
-        readBuffer_ = lmcore::DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
+        readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
     }
 
     while (true) {
@@ -293,10 +294,10 @@ void UnixClientImpl::HandleReceive(socket_t fd)
 
         if (nbytes > 0) {
             if (!listener_.expired()) {
-                auto dataBuffer = lmcore::DataBuffer::PoolAlloc(nbytes);
+                auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
                 auto listenerWeak = listener_;
-                auto task = std::make_shared<lmcore::TaskHandler<void>>([listenerWeak, dataBuffer, fd]() {
+                auto task = std::make_shared<TaskHandler<void>>([listenerWeak, dataBuffer, fd]() {
                     auto listener = listenerWeak.lock();
                     if (listener) {
                         listener->OnReceive(fd, dataBuffer);
@@ -341,7 +342,7 @@ void UnixClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std:
 
     if (!listener_.expired()) {
         auto listenerWeak = listener_;
-        auto task = std::make_shared<lmcore::TaskHandler<void>>([listenerWeak, reason, isError, fd]() {
+        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, reason, isError, fd]() {
             auto listener = listenerWeak.lock();
             if (listener != nullptr) {
                 if (isError) {

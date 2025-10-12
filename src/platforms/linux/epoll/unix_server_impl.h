@@ -23,7 +23,7 @@
 #include "lmnet/session.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
+using lmshao::lmcore::TaskQueue;
 class EventHandler;
 class UnixConnectionHandler;
 

@@ -223,7 +223,7 @@ bool IoUringManager::SubmitAcceptRequest(int fd, AcceptCallback callback)
         });
 }
 
-bool IoUringManager::SubmitReadRequest(int client_fd, std::shared_ptr<lmcore::DataBuffer> buffer, ReadCallback callback)
+bool IoUringManager::SubmitReadRequest(int client_fd, std::shared_ptr<DataBuffer> buffer, ReadCallback callback)
 {
     return SubmitOperation(
         RequestType::READ, client_fd,
@@ -236,8 +236,7 @@ bool IoUringManager::SubmitReadRequest(int client_fd, std::shared_ptr<lmcore::Da
         });
 }
 
-bool IoUringManager::SubmitRecvFromRequest(int fd, std::shared_ptr<lmcore::DataBuffer> buffer,
-                                           RecvFromCallback callback)
+bool IoUringManager::SubmitRecvFromRequest(int fd, std::shared_ptr<DataBuffer> buffer, RecvFromCallback callback)
 {
     return SubmitOperation(
         RequestType::RECVFROM, fd,
@@ -258,7 +257,7 @@ bool IoUringManager::SubmitRecvFromRequest(int fd, std::shared_ptr<lmcore::DataB
         [](io_uring_sqe *sqe, Request *req) { io_uring_prep_recvmsg(sqe, req->fd, &req->msg, 0); });
 }
 
-bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<lmcore::DataBuffer> buffer, const sockaddr_in &addr,
+bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr,
                                          WriteCallback callback)
 {
     return SubmitOperation(
@@ -283,8 +282,7 @@ bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<lmcore::DataBuf
         [](io_uring_sqe *sqe, Request *req) { io_uring_prep_sendmsg(sqe, req->fd, &req->msg, 0); });
 }
 
-bool IoUringManager::SubmitWriteRequest(int client_fd, std::shared_ptr<lmcore::DataBuffer> buffer,
-                                        WriteCallback callback)
+bool IoUringManager::SubmitWriteRequest(int client_fd, std::shared_ptr<DataBuffer> buffer, WriteCallback callback)
 {
     return SubmitOperation(
         RequestType::WRITE, client_fd,

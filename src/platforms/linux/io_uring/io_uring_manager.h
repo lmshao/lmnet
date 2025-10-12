@@ -11,6 +11,7 @@
 
 #include <arpa/inet.h>
 #include <liburing.h>
+#include <lmcore/singleton.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -23,10 +24,10 @@
 #include <thread>
 #include <vector>
 
-#include "lmcore/data_buffer.h"
-#include "lmcore/singleton.h"
+#include "lmnet/common.h"
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::Singleton;
 
 enum class RequestType {
     ACCEPT,
@@ -40,10 +41,10 @@ enum class RequestType {
 
 using ConnectCallback = std::function<void(int, int)>;                               // fd, result
 using AcceptCallback = std::function<void(int, int, const sockaddr *, socklen_t *)>; // listen_fd, client_fd, addr, len
-using ReadCallback = std::function<void(int, std::shared_ptr<lmcore::DataBuffer>, int)>; // fd, buffer, bytes/err
-using WriteCallback = std::function<void(int, int)>;                                     // fd, bytes/err
-using CloseCallback = std::function<void(int, int)>;                                     // fd, result
-using RecvFromCallback = std::function<void(int, std::shared_ptr<lmcore::DataBuffer>, int,
+using ReadCallback = std::function<void(int, std::shared_ptr<DataBuffer>, int)>;     // fd, buffer, bytes/err
+using WriteCallback = std::function<void(int, int)>;                                 // fd, bytes/err
+using CloseCallback = std::function<void(int, int)>;                                 // fd, result
+using RecvFromCallback = std::function<void(int, std::shared_ptr<DataBuffer>, int,
                                             const sockaddr_in &)>; // fd, buffer, bytes/err, addr
 
 struct Request {
@@ -55,7 +56,7 @@ struct Request {
     WriteCallback write_cb;
     CloseCallback close_cb;
     RecvFromCallback recvfrom_cb;
-    std::shared_ptr<lmcore::DataBuffer> buffer;
+    std::shared_ptr<DataBuffer> buffer;
     struct sockaddr_storage client_addr;
     socklen_t client_addr_len;
     struct iovec iov;
@@ -81,7 +82,7 @@ struct Request {
     }
 };
 
-class IoUringManager : public lmcore::Singleton<IoUringManager> {
+class IoUringManager : public Singleton<IoUringManager> {
 public:
     ~IoUringManager();
     bool Init(int entries = 256);
@@ -98,11 +99,11 @@ public:
 
     bool SubmitConnectRequest(int fd, const sockaddr_in &addr, ConnectCallback callback);
     bool SubmitAcceptRequest(int fd, AcceptCallback callback);
-    bool SubmitReadRequest(int client_fd, std::shared_ptr<lmcore::DataBuffer> buffer, ReadCallback callback);
-    bool SubmitRecvFromRequest(int fd, std::shared_ptr<lmcore::DataBuffer> buffer, RecvFromCallback callback);
-    bool SubmitSendToRequest(int fd, std::shared_ptr<lmcore::DataBuffer> buffer, const sockaddr_in &addr,
+    bool SubmitReadRequest(int client_fd, std::shared_ptr<DataBuffer> buffer, ReadCallback callback);
+    bool SubmitRecvFromRequest(int fd, std::shared_ptr<DataBuffer> buffer, RecvFromCallback callback);
+    bool SubmitSendToRequest(int fd, std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr,
                              WriteCallback callback);
-    bool SubmitWriteRequest(int client_fd, std::shared_ptr<lmcore::DataBuffer> buffer, WriteCallback callback);
+    bool SubmitWriteRequest(int client_fd, std::shared_ptr<DataBuffer> buffer, WriteCallback callback);
     bool SubmitCloseRequest(int client_fd, CloseCallback callback);
 
 private:
@@ -118,7 +119,7 @@ private:
 
 private:
     IoUringManager() = default;
-    friend class lmcore::Singleton<IoUringManager>;
+    friend class Singleton<IoUringManager>;
 
 private:
     struct io_uring ring_;

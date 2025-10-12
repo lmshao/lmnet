@@ -9,6 +9,7 @@
 #include "io_uring_manager.h"
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::TaskHandler;
 
 TcpClientImpl::TcpClientImpl(std::string remote_ip, uint16_t remote_port, std::string local_ip, uint16_t local_port)
     : remoteIp_(std::move(remote_ip)), remotePort_(remote_port), localIp_(std::move(local_ip)), localPort_(local_port),

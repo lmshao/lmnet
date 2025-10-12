@@ -23,6 +23,7 @@ struct kevent;
 #include "lmnet/common.h"
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::Singleton;
 
 enum class EventType {
     READ = 0x01,
@@ -44,9 +45,9 @@ public:
     virtual int GetEvents() const { return static_cast<int>(EventType::READ); }
 };
 
-class EventReactor : public lmcore::Singleton<EventReactor> {
+class EventReactor : public Singleton<EventReactor> {
 public:
-    friend class lmcore::Singleton<EventReactor>;
+    friend class Singleton<EventReactor>;
 
     EventReactor();
     ~EventReactor();

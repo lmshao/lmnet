@@ -9,7 +9,6 @@
 #ifndef LMSHAO_LMNET_LINUX_TCP_CLIENT_IMPL_H
 #define LMSHAO_LMNET_LINUX_TCP_CLIENT_IMPL_H
 
-#include <lmcore/data_buffer.h>
 #include <lmcore/task_queue.h>
 #include <netinet/in.h>
 
@@ -23,6 +22,8 @@
 #include "lmnet/iclient_listener.h"
 
 namespace lmshao::lmnet {
+
+using lmshao::lmcore::TaskQueue;
 
 class TcpClientImpl : public ITcpClient,
                       public std::enable_shared_from_this<TcpClientImpl>,

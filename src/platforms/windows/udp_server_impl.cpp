@@ -21,9 +21,11 @@
 
 namespace lmshao::lmnet {
 
+using lmshao::lmcore::TaskHandler;
+
 UdpServerImpl::UdpServerImpl(std::string listenIp, uint16_t listenPort) : ip_(std::move(listenIp)), port_(listenPort)
 {
-    taskQueue_ = std::make_unique<lmcore::TaskQueue>("UdpServer");
+    taskQueue_ = std::make_unique<TaskQueue>("UdpServer");
 }
 
 UdpServerImpl::UdpServerImpl(uint16_t listenPort) : UdpServerImpl("0.0.0.0", listenPort) {}
@@ -160,16 +162,16 @@ void UdpServerImpl::SubmitReceive()
         return;
     }
 
-    auto buffer = lmcore::DataBuffer::Create(8192);
+    auto buffer = DataBuffer::Create(8192);
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
     bool success = manager.SubmitRecvFromRequest(
         socket_, buffer,
-        [self, buffer](SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buf, DWORD bytesOrError,
+        [self, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesOrError,
                        const sockaddr_in &fromAddr) {
             if (self->taskQueue_) {
-                auto task = std::make_shared<lmcore::TaskHandler<void>>(
+                auto task = std::make_shared<TaskHandler<void>>(
                     [self, buf, bytesOrError, fromAddr]() { self->HandleReceive(buf, bytesOrError, fromAddr); });
                 self->taskQueue_->EnqueueTask(task);
             } else {
@@ -183,7 +185,7 @@ void UdpServerImpl::SubmitReceive()
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (isRunning_.load()) {
             if (taskQueue_) {
-                auto task = std::make_shared<lmcore::TaskHandler<void>>([self]() { self->SubmitReceive(); });
+                auto task = std::make_shared<TaskHandler<void>>([self]() { self->SubmitReceive(); });
                 taskQueue_->EnqueueTask(task);
             } else {
                 SubmitReceive();
@@ -240,7 +242,7 @@ bool UdpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const voi
         return false;
     }
 
-    auto buffer = lmcore::DataBuffer::Create(size);
+    auto buffer = DataBuffer::Create(size);
     buffer->Assign(data, size);
     return Send(fd, std::move(host), port, buffer);
 }
@@ -270,8 +272,7 @@ bool UdpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shar
 
     bool success = manager.SubmitSendToRequest(socket_, buffer, destAddr, [self](SOCKET socket, DWORD bytesOrError) {
         if (self->taskQueue_) {
-            auto task =
-                std::make_shared<lmcore::TaskHandler<void>>([self, bytesOrError]() { self->HandleSend(bytesOrError); });
+            auto task = std::make_shared<TaskHandler<void>>([self, bytesOrError]() { self->HandleSend(bytesOrError); });
             self->taskQueue_->EnqueueTask(task);
         } else {
             self->HandleSend(bytesOrError);

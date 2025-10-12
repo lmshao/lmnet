@@ -16,16 +16,17 @@
 #include "internal_logger.h"
 #include "iocp_manager.h"
 #include "iocp_utils.h"
-#include "lmcore/task_queue.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
 namespace lmshao::lmnet {
 
+using lmshao::lmcore::TaskHandler;
+
 TcpClientImpl::TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(std::move(remoteIp)), remotePort_(remotePort), localIp_(std::move(localIp)), localPort_(localPort)
 {
-    taskQueue_ = std::make_unique<lmcore::TaskQueue>("TcpClient");
+    taskQueue_ = std::make_unique<TaskQueue>("TcpClient");
 }
 
 TcpClientImpl::~TcpClientImpl()
@@ -183,7 +184,7 @@ void TcpClientImpl::SubmitConnect()
 
     bool success = manager.SubmitConnectRequest(socket_, serverAddr_, [self](SOCKET socket, DWORD error) {
         if (self->taskQueue_) {
-            auto task = std::make_shared<lmcore::TaskHandler<void>>([self, error]() { self->HandleConnect(error); });
+            auto task = std::make_shared<TaskHandler<void>>([self, error]() { self->HandleConnect(error); });
             self->taskQueue_->EnqueueTask(task);
         }
     });
@@ -225,14 +226,14 @@ void TcpClientImpl::SubmitRead()
         return;
     }
 
-    auto buffer = lmcore::DataBuffer::Create(8192);
+    auto buffer = DataBuffer::Create(8192);
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
     bool success = manager.SubmitReadRequest(
-        socket_, buffer, [self, buffer](SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buf, DWORD bytesOrError) {
+        socket_, buffer, [self, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesOrError) {
             if (self->taskQueue_) {
-                auto task = std::make_shared<lmcore::TaskHandler<void>>(
+                auto task = std::make_shared<TaskHandler<void>>(
                     [self, buf, bytesOrError]() { self->HandleReceive(buf, bytesOrError); });
                 self->taskQueue_->EnqueueTask(task);
             }
@@ -279,7 +280,7 @@ bool TcpClientImpl::Send(const void *data, size_t len)
         return false;
     }
 
-    auto buffer = lmcore::DataBuffer::Create(len);
+    auto buffer = DataBuffer::Create(len);
     buffer->Assign(data, len);
     return Send(buffer);
 }
@@ -300,8 +301,7 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 
     bool success = manager.SubmitWriteRequest(socket_, data, [self](SOCKET socket, DWORD bytesOrError) {
         if (self->taskQueue_) {
-            auto task =
-                std::make_shared<lmcore::TaskHandler<void>>([self, bytesOrError]() { self->HandleSend(bytesOrError); });
+            auto task = std::make_shared<TaskHandler<void>>([self, bytesOrError]() { self->HandleSend(bytesOrError); });
             self->taskQueue_->EnqueueTask(task);
         } else {
             self->HandleSend(bytesOrError);

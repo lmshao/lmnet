@@ -10,6 +10,8 @@
 #ifndef LMSHAO_LMNET_IOCP_MANAGER_H
 #define LMSHAO_LMNET_IOCP_MANAGER_H
 
+#include <lmcore/singleton.h>
+
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -22,12 +24,11 @@
 #include <WS2tcpip.h>
 #include <MSWSock.h>
 
-#include "lmcore/data_buffer.h"
-#include "lmcore/singleton.h"
 #include "lmnet/common.h"
 // clang-format on
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::Singleton;
 
 enum class IocpRequestType {
     ACCEPT,
@@ -40,13 +41,12 @@ enum class IocpRequestType {
     EXIT
 };
 
-using ConnectCallback = std::function<void(SOCKET, DWORD)>;                      // socket, error
-using AcceptCallback = std::function<void(SOCKET, SOCKET, const sockaddr_in &)>; // listen_fd, client_fd, addr
-using ReadCallback =
-    std::function<void(SOCKET, std::shared_ptr<lmcore::DataBuffer>, DWORD)>; // socket, buffer, bytes/error
-using WriteCallback = std::function<void(SOCKET, DWORD)>;                    // socket, bytes/error
-using CloseCallback = std::function<void(SOCKET, DWORD)>;                    // socket, result
-using RecvFromCallback = std::function<void(SOCKET, std::shared_ptr<lmcore::DataBuffer>, DWORD,
+using ConnectCallback = std::function<void(SOCKET, DWORD)>;                           // socket, error
+using AcceptCallback = std::function<void(SOCKET, SOCKET, const sockaddr_in &)>;      // listen_fd, client_fd, addr
+using ReadCallback = std::function<void(SOCKET, std::shared_ptr<DataBuffer>, DWORD)>; // socket, buffer, bytes/error
+using WriteCallback = std::function<void(SOCKET, DWORD)>;                             // socket, bytes/error
+using CloseCallback = std::function<void(SOCKET, DWORD)>;                             // socket, result
+using RecvFromCallback = std::function<void(SOCKET, std::shared_ptr<DataBuffer>, DWORD,
                                             const sockaddr_in &)>; // socket, buffer, bytes/error, addr
 using SendToCallback = std::function<void(SOCKET, DWORD)>;         // socket, bytes/error
 
@@ -69,7 +69,7 @@ struct IocpRequest {
     SendToCallback sendto_cb;
 
     // Data buffer management
-    std::shared_ptr<lmcore::DataBuffer> buffer;
+    std::shared_ptr<DataBuffer> buffer;
 
     // IOCP-specific data
     WSABUF wsaBuf{};
@@ -108,7 +108,7 @@ struct IocpRequest {
     }
 };
 
-class IocpManager : public lmcore::Singleton<IocpManager> {
+class IocpManager : public Singleton<IocpManager> {
 public:
     ~IocpManager();
 
@@ -132,15 +132,15 @@ public:
     // Unified async operations - similar to io_uring interface
     bool SubmitConnectRequest(SOCKET socket, const sockaddr_in &addr, ConnectCallback callback);
     bool SubmitAcceptRequest(SOCKET listenSocket, AcceptCallback callback);
-    bool SubmitReadRequest(SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buffer, ReadCallback callback);
-    bool SubmitWriteRequest(SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buffer, WriteCallback callback);
-    bool SubmitRecvFromRequest(SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buffer, RecvFromCallback callback);
-    bool SubmitSendToRequest(SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buffer, const sockaddr_in &addr,
+    bool SubmitReadRequest(SOCKET socket, std::shared_ptr<DataBuffer> buffer, ReadCallback callback);
+    bool SubmitWriteRequest(SOCKET socket, std::shared_ptr<DataBuffer> buffer, WriteCallback callback);
+    bool SubmitRecvFromRequest(SOCKET socket, std::shared_ptr<DataBuffer> buffer, RecvFromCallback callback);
+    bool SubmitSendToRequest(SOCKET socket, std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr,
                              SendToCallback callback);
     bool SubmitCloseRequest(SOCKET socket, CloseCallback callback);
 
 private:
-    friend class lmcore::Singleton<IocpManager>;
+    friend class Singleton<IocpManager>;
     IocpManager() = default;
 
     void WorkerLoop();

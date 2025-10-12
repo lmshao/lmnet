@@ -9,6 +9,7 @@
 #ifndef LMSHAO_LMNET_LINUX_TCP_SERVER_IMPL_H
 #define LMSHAO_LMNET_LINUX_TCP_SERVER_IMPL_H
 
+#include <lmcore/task_queue.h>
 #include <netinet/in.h>
 
 #include <atomic>
@@ -18,12 +19,13 @@
 #include <unordered_map>
 
 #include "base_server.h"
-#include "lmcore/task_queue.h"
 #include "lmnet/common.h"
 #include "lmnet/iserver_listener.h"
 #include "lmnet/session.h"
 
 namespace lmshao::lmnet {
+
+using lmshao::lmcore::TaskQueue;
 
 class TcpServerImpl : public BaseServer,
                       public std::enable_shared_from_this<TcpServerImpl>,
