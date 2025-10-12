@@ -9,8 +9,6 @@
 #ifndef LMSHAO_LMNET_LINUX_UNIX_CLIENT_IMPL_H
 #define LMSHAO_LMNET_LINUX_UNIX_CLIENT_IMPL_H
 
-#include <lmcore/data_buffer.h>
-
 #include <atomic>
 #include <memory>
 #include <string>

@@ -10,18 +10,19 @@
 #ifndef LMSHAO_LMNET_UDP_SERVER_IMPL_H
 #define LMSHAO_LMNET_UDP_SERVER_IMPL_H
 
+#include <lmcore/task_queue.h>
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
 
 #include "base_server.h"
-#include "lmcore/data_buffer.h"
-#include "lmcore/task_queue.h"
 #include "lmnet/common.h"
 #include "lmnet/iserver_listener.h"
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::TaskQueue;
 
 class UdpServerImpl final : public BaseServer,
                             public std::enable_shared_from_this<UdpServerImpl>,
@@ -57,7 +58,7 @@ private:
 
     std::atomic<bool> isRunning_{false};
     std::weak_ptr<IServerListener> listener_;
-    std::unique_ptr<lmcore::TaskQueue> taskQueue_;
+    std::unique_ptr<TaskQueue> taskQueue_;
 
     // Number of concurrent receive operations
     static constexpr int CONCURRENT_RECEIVES = 8;

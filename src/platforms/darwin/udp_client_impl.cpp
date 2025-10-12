@@ -22,6 +22,7 @@
 
 namespace lmshao::lmnet {
 
+using lmshao::lmcore::TaskHandler;
 using namespace darwin;
 
 namespace {
@@ -73,7 +74,7 @@ private:
 UdpClientImpl::UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(std::move(remoteIp)), remotePort_(remotePort), localIp_(std::move(localIp)), localPort_(localPort)
 {
-    taskQueue_ = std::make_unique<lmcore::TaskQueue>("UdpClientCb");
+    taskQueue_ = std::make_unique<TaskQueue>("UdpClientCb");
 }
 
 UdpClientImpl::~UdpClientImpl()
@@ -204,7 +205,7 @@ bool UdpClientImpl::Send(const std::string &str)
     return Send(str.data(), str.size());
 }
 
-bool UdpClientImpl::Send(std::shared_ptr<lmcore::DataBuffer> data)
+bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
     if (!data) {
         LMNET_LOGE("Data buffer is null");
@@ -228,17 +229,17 @@ void UdpClientImpl::Close()
 void UdpClientImpl::HandleReceive(socket_t fd)
 {
     if (!readBuffer_) {
-        readBuffer_ = lmcore::DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
+        readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
     }
 
     while (true) {
         ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
         if (nbytes > 0) {
             if (!listener_.expired()) {
-                auto dataBuffer = lmcore::DataBuffer::PoolAlloc(static_cast<size_t>(nbytes));
+                auto dataBuffer = DataBuffer::PoolAlloc(static_cast<size_t>(nbytes));
                 dataBuffer->Assign(readBuffer_->Data(), static_cast<size_t>(nbytes));
                 auto listenerWeak = listener_;
-                auto task = std::make_shared<lmcore::TaskHandler<void>>([listenerWeak, dataBuffer, fd]() {
+                auto task = std::make_shared<TaskHandler<void>>([listenerWeak, dataBuffer, fd]() {
                     if (auto listener = listenerWeak.lock()) {
                         listener->OnReceive(fd, dataBuffer);
                     }
@@ -280,7 +281,7 @@ void UdpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
 
     if (!listener_.expired()) {
         auto listenerWeak = listener_;
-        auto task = std::make_shared<lmcore::TaskHandler<void>>([listenerWeak, reason, isError, fd]() {
+        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, reason, isError, fd]() {
             if (auto listener = listenerWeak.lock()) {
                 if (isError) {
                     listener->OnError(fd, reason);

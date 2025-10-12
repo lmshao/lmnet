@@ -413,7 +413,7 @@ bool IocpManager::SubmitAcceptRequest(SOCKET listenSocket, AcceptCallback callba
         });
 }
 
-bool IocpManager::SubmitReadRequest(SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buffer, ReadCallback callback)
+bool IocpManager::SubmitReadRequest(SOCKET socket, std::shared_ptr<DataBuffer> buffer, ReadCallback callback)
 {
     return SubmitOperation(
         IocpRequestType::READ, socket,
@@ -435,7 +435,7 @@ bool IocpManager::SubmitReadRequest(SOCKET socket, std::shared_ptr<lmcore::DataB
         });
 }
 
-bool IocpManager::SubmitWriteRequest(SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buffer, WriteCallback callback)
+bool IocpManager::SubmitWriteRequest(SOCKET socket, std::shared_ptr<DataBuffer> buffer, WriteCallback callback)
 {
     return SubmitOperation(
         IocpRequestType::WRITE, socket,
@@ -456,8 +456,7 @@ bool IocpManager::SubmitWriteRequest(SOCKET socket, std::shared_ptr<lmcore::Data
         });
 }
 
-bool IocpManager::SubmitRecvFromRequest(SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buffer,
-                                        RecvFromCallback callback)
+bool IocpManager::SubmitRecvFromRequest(SOCKET socket, std::shared_ptr<DataBuffer> buffer, RecvFromCallback callback)
 {
     return SubmitOperation(
         IocpRequestType::RECVFROM, socket,
@@ -481,8 +480,8 @@ bool IocpManager::SubmitRecvFromRequest(SOCKET socket, std::shared_ptr<lmcore::D
         });
 }
 
-bool IocpManager::SubmitSendToRequest(SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buffer,
-                                      const sockaddr_in &addr, SendToCallback callback)
+bool IocpManager::SubmitSendToRequest(SOCKET socket, std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr,
+                                      SendToCallback callback)
 {
     return SubmitOperation(
         IocpRequestType::SENDTO, socket,

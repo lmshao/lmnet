@@ -23,6 +23,7 @@
 #include "lmnet/session.h"
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::TaskQueue;
 
 class EventHandler;
 class UnixServerHandler;
@@ -44,7 +45,7 @@ public:
     bool Start() override;
     bool Stop() override;
     bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
-    bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<lmcore::DataBuffer> buffer) override;
+    bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
     bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
 
     socket_t GetSocketFd() const override { return socket_; }
@@ -63,8 +64,8 @@ private:
 
     std::weak_ptr<IServerListener> listener_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
-    std::unique_ptr<lmcore::TaskQueue> taskQueue_;
-    std::shared_ptr<lmcore::DataBuffer> readBuffer_;
+    std::unique_ptr<TaskQueue> taskQueue_;
+    std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<EventHandler> serverHandler_;
     std::unordered_map<int, std::shared_ptr<UnixConnectionHandler>> connectionHandlers_;

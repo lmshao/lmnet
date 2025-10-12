@@ -15,8 +15,6 @@
 #error "Unix domain sockets are not supported on this platform"
 #endif
 
-#include <lmcore/data_buffer.h>
-
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -25,7 +23,6 @@
 #include "lmnet/iclient_listener.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
 
 class IUnixClient {
 public:

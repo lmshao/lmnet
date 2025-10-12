@@ -22,6 +22,7 @@
 #include "session_impl.h"
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::TaskHandler;
 
 const int TCP_BACKLOG = 10;
 const int RECV_BUFFER_MAX_SIZE = 4096;

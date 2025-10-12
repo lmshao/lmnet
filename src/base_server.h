@@ -9,14 +9,11 @@
 #ifndef LMSHAO_LMNET_BASE_SERVER_H
 #define LMSHAO_LMNET_BASE_SERVER_H
 
-#include <lmcore/data_buffer.h>
-
 #include <memory>
 
 #include "lmnet/common.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
 
 class IServerListener;
 class BaseServer {

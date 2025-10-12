@@ -23,9 +23,11 @@
 
 namespace lmshao::lmnet {
 
+using lmshao::lmcore::TaskHandler;
+
 TcpServerImpl::TcpServerImpl(std::string listenIp, uint16_t listenPort) : ip_(std::move(listenIp)), port_(listenPort)
 {
-    taskQueue_ = std::make_unique<lmcore::TaskQueue>("TcpServer");
+    taskQueue_ = std::make_unique<TaskQueue>("TcpServer");
 }
 
 TcpServerImpl::TcpServerImpl(uint16_t listenPort) : TcpServerImpl("0.0.0.0", listenPort) {}
@@ -178,7 +180,7 @@ void TcpServerImpl::SubmitAccept()
         listenSocket_, [self](SOCKET listenSocket, SOCKET clientSocket, const sockaddr_in &clientAddr) {
             if (clientSocket != INVALID_SOCKET) {
                 if (self->taskQueue_) {
-                    auto task = std::make_shared<lmcore::TaskHandler<void>>(
+                    auto task = std::make_shared<TaskHandler<void>>(
                         [self, clientSocket, clientAddr]() { self->HandleAccept(clientSocket, clientAddr); });
                     self->taskQueue_->EnqueueTask(task);
                 } else {
@@ -253,15 +255,15 @@ void TcpServerImpl::SubmitRead(SOCKET clientSocket)
         return;
     }
 
-    auto buffer = lmcore::DataBuffer::Create(8192);
+    auto buffer = DataBuffer::Create(8192);
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
     bool success = manager.SubmitReadRequest(
         clientSocket, buffer,
-        [self, clientSocket, buffer](SOCKET socket, std::shared_ptr<lmcore::DataBuffer> buf, DWORD bytesOrError) {
+        [self, clientSocket, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesOrError) {
             if (self->taskQueue_) {
-                auto task = std::make_shared<lmcore::TaskHandler<void>>([self, clientSocket, buf, bytesOrError]() {
+                auto task = std::make_shared<TaskHandler<void>>([self, clientSocket, buf, bytesOrError]() {
                     self->HandleReceive(clientSocket, buf, bytesOrError);
                 });
                 self->taskQueue_->EnqueueTask(task);
@@ -274,7 +276,7 @@ void TcpServerImpl::SubmitRead(SOCKET clientSocket)
         LMNET_LOGE("Failed to submit read request for client socket %llu",
                    static_cast<unsigned long long>(clientSocket));
         if (taskQueue_) {
-            auto task = std::make_shared<lmcore::TaskHandler<void>>([self, clientSocket]() {
+            auto task = std::make_shared<TaskHandler<void>>([self, clientSocket]() {
                 self->HandleClientClose(clientSocket, true, "Failed to submit read request");
             });
             taskQueue_->EnqueueTask(task);
@@ -346,7 +348,7 @@ bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const voi
         return false;
     }
 
-    auto buffer = lmcore::DataBuffer::Create(size);
+    auto buffer = DataBuffer::Create(size);
     buffer->Assign(data, size);
     return Send(fd, "", 0, buffer);
 }

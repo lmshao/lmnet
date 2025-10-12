@@ -22,18 +22,17 @@ struct LmnetModuleTag {};
  * @param output Output destination (default: CONSOLE)
  * @param filename Log file name (optional)
  */
-inline void InitLmnetLogger(lmshao::lmcore::LogLevel level =
+inline void InitLmnetLogger(lmcore::LogLevel level =
 #if defined(_DEBUG) || defined(DEBUG) || !defined(NDEBUG)
-                                lmshao::lmcore::LogLevel::kDebug,
+                                lmcore::LogLevel::kDebug,
 #else
-                                lmshao::lmcore::LogLevel::kWarn,
+                                lmcore::LogLevel::kWarn,
 #endif
-                            lmshao::lmcore::LogOutput output = lmshao::lmcore::LogOutput::CONSOLE,
-                            const std::string &filename = "")
+                            lmcore::LogOutput output = lmcore::LogOutput::CONSOLE, const std::string &filename = "")
 {
     // Register module if not already registered
-    lmshao::lmcore::LoggerRegistry::RegisterModule<LmnetModuleTag>("LMNet");
-    lmshao::lmcore::LoggerRegistry::InitLogger<LmnetModuleTag>(level, output, filename);
+    lmcore::LoggerRegistry::RegisterModule<LmnetModuleTag>("LMNet");
+    lmcore::LoggerRegistry::InitLogger<LmnetModuleTag>(level, output, filename);
 }
 
 } // namespace lmshao::lmnet

@@ -19,59 +19,59 @@ namespace lmshao::lmnet {
  * Used internally by Lmnet modules.
  * Ensures the logger is initialized before first use.
  */
-inline lmshao::lmcore::Logger &GetLmnetLoggerWithAutoInit()
+inline lmcore::Logger &GetLmnetLoggerWithAutoInit()
 {
     static std::once_flag initFlag;
     std::call_once(initFlag, []() {
-        lmshao::lmcore::LoggerRegistry::RegisterModule<LmnetModuleTag>("LMNet");
+        lmcore::LoggerRegistry::RegisterModule<LmnetModuleTag>("LMNet");
         InitLmnetLogger();
     });
-    return lmshao::lmcore::LoggerRegistry::GetLogger<LmnetModuleTag>();
+    return lmcore::LoggerRegistry::GetLogger<LmnetModuleTag>();
 }
 
 // Internal Lmnet logging macros with auto-initialization and module tagging
 #define LMNET_LOGD(fmt, ...)                                                                                           \
     do {                                                                                                               \
-        auto &logger = lmshao::lmnet::GetLmnetLoggerWithAutoInit();                                                    \
-        if (logger.ShouldLog(lmshao::lmcore::LogLevel::kDebug)) {                                                      \
-            logger.LogWithModuleTag<lmshao::lmnet::LmnetModuleTag>(lmshao::lmcore::LogLevel::kDebug, __FILE__,         \
-                                                                   __LINE__, __FUNCTION__, fmt, ##__VA_ARGS__);        \
+        auto &logger = GetLmnetLoggerWithAutoInit();                                                                   \
+        if (logger.ShouldLog(lmcore::LogLevel::kDebug)) {                                                              \
+            logger.LogWithModuleTag<LmnetModuleTag>(lmcore::LogLevel::kDebug, __FILE__, __LINE__, __FUNCTION__, fmt,   \
+                                                    ##__VA_ARGS__);                                                    \
         }                                                                                                              \
     } while (0)
 
 #define LMNET_LOGI(fmt, ...)                                                                                           \
     do {                                                                                                               \
-        auto &logger = lmshao::lmnet::GetLmnetLoggerWithAutoInit();                                                    \
-        if (logger.ShouldLog(lmshao::lmcore::LogLevel::kInfo)) {                                                       \
-            logger.LogWithModuleTag<lmshao::lmnet::LmnetModuleTag>(lmshao::lmcore::LogLevel::kInfo, __FILE__,          \
-                                                                   __LINE__, __FUNCTION__, fmt, ##__VA_ARGS__);        \
+        auto &logger = GetLmnetLoggerWithAutoInit();                                                                   \
+        if (logger.ShouldLog(lmcore::LogLevel::kInfo)) {                                                               \
+            logger.LogWithModuleTag<LmnetModuleTag>(lmcore::LogLevel::kInfo, __FILE__, __LINE__, __FUNCTION__, fmt,    \
+                                                    ##__VA_ARGS__);                                                    \
         }                                                                                                              \
     } while (0)
 
 #define LMNET_LOGW(fmt, ...)                                                                                           \
     do {                                                                                                               \
-        auto &logger = lmshao::lmnet::GetLmnetLoggerWithAutoInit();                                                    \
-        if (logger.ShouldLog(lmshao::lmcore::LogLevel::kWarn)) {                                                       \
-            logger.LogWithModuleTag<lmshao::lmnet::LmnetModuleTag>(lmshao::lmcore::LogLevel::kWarn, __FILE__,          \
-                                                                   __LINE__, __FUNCTION__, fmt, ##__VA_ARGS__);        \
+        auto &logger = GetLmnetLoggerWithAutoInit();                                                                   \
+        if (logger.ShouldLog(lmcore::LogLevel::kWarn)) {                                                               \
+            logger.LogWithModuleTag<LmnetModuleTag>(lmcore::LogLevel::kWarn, __FILE__, __LINE__, __FUNCTION__, fmt,    \
+                                                    ##__VA_ARGS__);                                                    \
         }                                                                                                              \
     } while (0)
 
 #define LMNET_LOGE(fmt, ...)                                                                                           \
     do {                                                                                                               \
-        auto &logger = lmshao::lmnet::GetLmnetLoggerWithAutoInit();                                                    \
-        if (logger.ShouldLog(lmshao::lmcore::LogLevel::kError)) {                                                      \
-            logger.LogWithModuleTag<lmshao::lmnet::LmnetModuleTag>(lmshao::lmcore::LogLevel::kError, __FILE__,         \
-                                                                   __LINE__, __FUNCTION__, fmt, ##__VA_ARGS__);        \
+        auto &logger = GetLmnetLoggerWithAutoInit();                                                                   \
+        if (logger.ShouldLog(lmcore::LogLevel::kError)) {                                                              \
+            logger.LogWithModuleTag<LmnetModuleTag>(lmcore::LogLevel::kError, __FILE__, __LINE__, __FUNCTION__, fmt,   \
+                                                    ##__VA_ARGS__);                                                    \
         }                                                                                                              \
     } while (0)
 
 #define LMNET_LOGF(fmt, ...)                                                                                           \
     do {                                                                                                               \
-        auto &logger = lmshao::lmnet::GetLmnetLoggerWithAutoInit();                                                    \
-        if (logger.ShouldLog(lmshao::lmcore::LogLevel::kFatal)) {                                                      \
-            logger.LogWithModuleTag<lmshao::lmnet::LmnetModuleTag>(lmshao::lmcore::LogLevel::kFatal, __FILE__,         \
-                                                                   __LINE__, __FUNCTION__, fmt, ##__VA_ARGS__);        \
+        auto &logger = GetLmnetLoggerWithAutoInit();                                                                   \
+        if (logger.ShouldLog(lmcore::LogLevel::kFatal)) {                                                              \
+            logger.LogWithModuleTag<LmnetModuleTag>(lmcore::LogLevel::kFatal, __FILE__, __LINE__, __FUNCTION__, fmt,   \
+                                                    ##__VA_ARGS__);                                                    \
         }                                                                                                              \
     } while (0)
 

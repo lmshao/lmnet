@@ -14,6 +14,9 @@
 #include <winsock2.h>
 #endif
 
+#include <lmcore/data_buffer.h>
+#include <lmcore/logger.h>
+
 namespace lmshao::lmnet {
 #if defined(__linux__) || defined(__APPLE__)
 inline constexpr int INVALID_SOCKET = -1;
@@ -35,6 +38,9 @@ public:
 protected:
     friend T;
 };
+
+using DataBuffer = lmshao::lmcore::DataBuffer;
+
 } // namespace lmshao::lmnet
 
 #endif // LMSHAO_LMNET_COMMON_H

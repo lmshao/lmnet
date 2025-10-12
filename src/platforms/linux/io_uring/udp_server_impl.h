@@ -9,7 +9,6 @@
 #ifndef LMSHAO_LMNET_LINUX_UDP_SERVER_IMPL_H
 #define LMSHAO_LMNET_LINUX_UDP_SERVER_IMPL_H
 
-#include <lmcore/data_buffer.h>
 #include <netinet/in.h>
 
 #include <atomic>

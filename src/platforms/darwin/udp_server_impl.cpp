@@ -35,7 +35,7 @@ public:
         fd = fd_;
     }
 
-    bool Send(std::shared_ptr<lmcore::DataBuffer> buffer) const override
+    bool Send(std::shared_ptr<DataBuffer> buffer) const override
     {
         if (!server_) {
             return false;
@@ -99,8 +99,8 @@ private:
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;
 
 UdpServerImpl::UdpServerImpl(std::string ip, uint16_t port)
-    : ip_(std::move(ip)), port_(port), taskQueue_(std::make_unique<lmcore::TaskQueue>("UdpServer")),
-      readBuffer_(std::make_shared<lmcore::DataBuffer>(RECV_BUFFER_MAX_SIZE))
+    : ip_(std::move(ip)), port_(port), taskQueue_(std::make_unique<TaskQueue>("UdpServer")),
+      readBuffer_(std::make_shared<DataBuffer>(RECV_BUFFER_MAX_SIZE))
 {
 }
 
@@ -225,7 +225,7 @@ void UdpServerImpl::HandleReceive(socket_t fd)
         auto session = std::make_shared<UdpSession>(fd, clientIP, clientPort, this);
 
         if (auto listener = listener_.lock()) {
-            auto dataBuffer = std::make_shared<lmcore::DataBuffer>(*readBuffer_);
+            auto dataBuffer = std::make_shared<DataBuffer>(*readBuffer_);
             listener->OnReceive(session, dataBuffer);
         }
     } else if (bytesRead == 0) {
@@ -275,7 +275,7 @@ bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, const std::
     return Send(fd, std::move(ip), port, str.data(), str.size());
 }
 
-bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, std::shared_ptr<lmcore::DataBuffer> data)
+bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data)
 {
     if (!data) {
         LMNET_LOGE("DataBuffer is null");

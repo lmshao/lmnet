@@ -20,6 +20,7 @@
 #include "internal_logger.h"
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::TaskHandler;
 
 const int RECV_BUFFER_MAX_SIZE = 4096;
 

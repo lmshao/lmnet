@@ -9,7 +9,6 @@
 #ifndef LMSHAO_LMNET_LINUX_UDP_CLIENT_IMPL_H
 #define LMSHAO_LMNET_LINUX_UDP_CLIENT_IMPL_H
 
-#include <lmcore/data_buffer.h>
 #include <lmcore/task_queue.h>
 #include <netinet/in.h>
 
@@ -22,7 +21,7 @@
 #include "lmnet/iclient_listener.h"
 
 namespace lmshao::lmnet {
-using namespace lmshao::lmcore;
+using lmshao::lmcore::TaskQueue;
 class EventHandler;
 
 class UdpClientImpl : public IUdpClient,

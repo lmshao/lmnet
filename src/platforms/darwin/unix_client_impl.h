@@ -9,7 +9,6 @@
 #ifndef LMSHAO_LMNET_DARWIN_UNIX_CLIENT_IMPL_H
 #define LMSHAO_LMNET_DARWIN_UNIX_CLIENT_IMPL_H
 
-#include <lmcore/data_buffer.h>
 #include <lmcore/task_queue.h>
 #include <sys/un.h>
 
@@ -22,6 +21,7 @@
 #include "lmnet/iclient_listener.h"
 
 namespace lmshao::lmnet {
+using lmshao::lmcore::TaskQueue;
 
 class UnixClientHandler;
 class EventHandler;
@@ -41,7 +41,7 @@ public:
 
     bool Send(const std::string &str) override;
     bool Send(const void *data, size_t len) override;
-    bool Send(std::shared_ptr<lmcore::DataBuffer> data) override;
+    bool Send(std::shared_ptr<DataBuffer> data) override;
 
     void Close() override;
 
@@ -59,8 +59,8 @@ private:
     struct sockaddr_un serverAddr_;
 
     std::weak_ptr<IClientListener> listener_;
-    std::unique_ptr<lmcore::TaskQueue> taskQueue_;
-    std::shared_ptr<lmcore::DataBuffer> readBuffer_;
+    std::unique_ptr<TaskQueue> taskQueue_;
+    std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<UnixClientHandler> clientHandler_;
 };
