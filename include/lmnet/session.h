@@ -53,7 +53,7 @@ public:
      * @param fds File descriptors to send
      * @return true on success, false on failure
      */
-    virtual bool SendFds(const std::vector<int> &fds) const = 0;
+    virtual bool SendFds(const std::vector<int> &fds) const { return false; }
 #endif
 
     /**

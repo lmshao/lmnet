@@ -5,7 +5,7 @@
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
-#include "session_impl.h"
+#include "io_uring_session_impl.h"
 
 namespace lmshao::lmnet {
 
@@ -101,7 +101,7 @@ void UnixServerImpl::SubmitAccept()
 void UnixServerImpl::HandleAccept(int client_fd)
 {
     if (client_fd >= 0) {
-        auto session = std::make_shared<SessionImpl>(client_fd, "", 0); // Host/port not relevant for Unix sockets
+        auto session = std::make_shared<IoUringSessionImpl>(client_fd, "", 0);
         sessions_[client_fd] = session;
 
         if (auto listener = listener_.lock()) {

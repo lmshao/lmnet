@@ -43,10 +43,10 @@ public:
     void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
     bool Start() override;
     bool Stop() override;
-    bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
-    bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
-    bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
-    bool SendFds(socket_t fd, std::string host, uint16_t port, const std::vector<int> &fds) override;
+    bool Send(socket_t fd, const void *data, size_t size);
+    bool Send(socket_t fd, std::shared_ptr<DataBuffer> buffer);
+    bool Send(socket_t fd, const std::string &str);
+    bool SendFds(socket_t fd, const std::vector<int> &fds);
 
     socket_t GetSocketFd() const override { return socket_; }
 
