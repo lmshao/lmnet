@@ -115,6 +115,23 @@ public:
 #endif
     }
 
+#if defined(__unix__) || defined(__APPLE__)
+    bool SendFds(const std::vector<int> &fds) const override
+    {
+#ifdef LMNET_LINUX_BACKEND_IOURING
+        (void)fds;
+        LMNET_LOGE("SendFds is not supported in io_uring backend");
+        return false;
+#else
+        auto server = server_.lock();
+        if (server) {
+            return server->SendFds(fd, host, port, fds);
+        }
+        return false;
+#endif
+    }
+#endif
+
     std::string ClientInfo() const override
     {
         std::stringstream ss;

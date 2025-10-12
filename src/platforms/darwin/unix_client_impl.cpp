@@ -16,6 +16,7 @@
 #include <cerrno>
 #include <cstring>
 #include <queue>
+#include <vector>
 
 #include "event_reactor.h"
 #include "internal_logger.h"
@@ -269,6 +270,13 @@ bool UnixClientImpl::Send(std::shared_ptr<DataBuffer> data)
         return true;
     }
     LMNET_LOGE("Client handler not found");
+    return false;
+}
+
+bool UnixClientImpl::SendFds(const std::vector<int> &fds)
+{
+    (void)fds;
+    LMNET_LOGE("SendFds is not supported on macOS backend yet");
     return false;
 }
 

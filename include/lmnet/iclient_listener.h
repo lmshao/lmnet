@@ -10,6 +10,11 @@
 #define LMSHAO_LMNET_ICLIENT_LISTENER_H
 
 #include <memory>
+#include <vector>
+
+#if defined(__unix__) || defined(__APPLE__)
+#include <unistd.h>
+#endif
 
 #include "common.h"
 
@@ -25,6 +30,22 @@ public:
      * @param buffer Received data buffer
      */
     virtual void OnReceive(socket_t fd, std::shared_ptr<DataBuffer> buffer) = 0;
+
+#if defined(__unix__) || defined(__APPLE__)
+    /**
+     * @brief Called when file descriptors are received
+     * @param fd Socket file descriptor
+     * @param fds File descriptors passed from the peer
+     */
+    virtual void OnReceiveFds(socket_t fd, std::vector<int> fds)
+    {
+        for (int descriptor : fds) {
+            if (descriptor >= 0) {
+                ::close(descriptor);
+            }
+        }
+    }
+#endif
 
     /**
      * @brief Called when connection is closed

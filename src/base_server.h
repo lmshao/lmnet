@@ -10,6 +10,7 @@
 #define LMSHAO_LMNET_BASE_SERVER_H
 
 #include <memory>
+#include <vector>
 
 #include "lmnet/common.h"
 
@@ -49,6 +50,15 @@ public:
         (void)host;
         (void)port;
         (void)str;
+        return false;
+    }
+
+    virtual bool SendFds(socket_t fd, std::string host, uint16_t port, const std::vector<int> &fds)
+    {
+        (void)fd;
+        (void)host;
+        (void)port;
+        (void)fds;
         return false;
     }
     virtual socket_t GetSocketFd() const = 0;

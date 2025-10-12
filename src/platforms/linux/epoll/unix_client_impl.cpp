@@ -8,13 +8,17 @@
 
 #include "unix_client_impl.h"
 
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <array>
 #include <cerrno>
 #include <cstring>
 #include <queue>
+#include <utility>
+#include <vector>
 
 #include "event_reactor.h"
 #include "internal_logger.h"
@@ -23,6 +27,14 @@ namespace lmshao::lmnet {
 using lmshao::lmcore::TaskHandler;
 
 constexpr int RECV_BUFFER_MAX_SIZE = 4096;
+constexpr size_t MAX_FDS_PER_MESSAGE = 16;
+
+struct PendingSend {
+    std::shared_ptr<DataBuffer> data;
+    size_t offset = 0;
+    std::vector<int> fds;
+    bool fdsSent = false;
+};
 
 class UnixClientHandler : public EventHandler {
 public:
@@ -70,12 +82,12 @@ public:
         return events;
     }
 
-    void QueueSend(std::shared_ptr<DataBuffer> buffer)
+    void QueueSend(PendingSend pending)
     {
-        if (!buffer || buffer->Size() == 0) {
+        if ((!pending.data || pending.data->Size() == 0) && pending.fds.empty()) {
             return;
         }
-        sendQueue_.push(buffer);
+        sendQueue_.push(std::move(pending));
         EnableWriteEvents();
     }
 
@@ -99,25 +111,72 @@ private:
     void ProcessSendQueue()
     {
         while (!sendQueue_.empty()) {
-            auto &buf = sendQueue_.front();
-            ssize_t bytesSent = send(fd_, buf->Data(), buf->Size(), MSG_NOSIGNAL);
+            auto &pending = sendQueue_.front();
 
+            std::array<char, 1> placeholder{{0}};
+            struct iovec iov;
+            if (pending.data && pending.data->Size() > pending.offset) {
+                iov.iov_base = pending.data->Data() + pending.offset;
+                iov.iov_len = pending.data->Size() - pending.offset;
+            } else {
+                iov.iov_base = placeholder.data();
+                iov.iov_len = placeholder.size();
+            }
+
+            std::vector<char> controlBuffer;
+            struct msghdr msg = {};
+            msg.msg_iov = &iov;
+            msg.msg_iovlen = 1;
+
+            if (!pending.fds.empty() && !pending.fdsSent) {
+                controlBuffer.resize(CMSG_SPACE(sizeof(int) * pending.fds.size()));
+                msg.msg_control = controlBuffer.data();
+                msg.msg_controllen = controlBuffer.size();
+
+                struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+                cmsg->cmsg_level = SOL_SOCKET;
+                cmsg->cmsg_type = SCM_RIGHTS;
+                cmsg->cmsg_len = CMSG_LEN(sizeof(int) * pending.fds.size());
+                std::memcpy(CMSG_DATA(cmsg), pending.fds.data(), sizeof(int) * pending.fds.size());
+            }
+
+            ssize_t bytesSent = sendmsg(fd_, &msg, MSG_NOSIGNAL);
             if (bytesSent > 0) {
-                if (static_cast<size_t>(bytesSent) == buf->Size()) {
+                pending.fdsSent = true;
+                CloseDescriptors(pending.fds);
+
+                size_t sentBytes = static_cast<size_t>(bytesSent);
+                if (pending.data && pending.data->Size() > pending.offset) {
+                    pending.offset += sentBytes;
+                    if (pending.offset >= pending.data->Size()) {
+                        pending.data.reset();
+                    }
+                } else {
+                    pending.offset = 1; // placeholder consumed
+                }
+
+                if (!pending.data || (pending.data->Size() <= pending.offset)) {
                     sendQueue_.pop();
                 } else {
-                    auto remaining = DataBuffer::PoolAlloc(buf->Size() - bytesSent);
-                    remaining->Assign(buf->Data() + bytesSent, buf->Size() - bytesSent);
-                    sendQueue_.front() = remaining;
                     break;
                 }
             } else if (bytesSent == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     break;
-                } else {
-                    LMNET_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
-                    return;
                 }
+
+                LMNET_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
+                CloseDescriptors(pending.fds);
+                if (auto client = client_.lock()) {
+                    client->HandleConnectionClose(fd_, true, strerror(errno));
+                }
+                sendQueue_.pop();
+                break;
+            } else {
+                // bytesSent == 0, treat as success and remove entry
+                pending.fdsSent = true;
+                CloseDescriptors(pending.fds);
+                sendQueue_.pop();
             }
         }
 
@@ -126,10 +185,20 @@ private:
         }
     }
 
+    static void CloseDescriptors(std::vector<int> &fds)
+    {
+        for (int descriptor : fds) {
+            if (descriptor >= 0) {
+                ::close(descriptor);
+            }
+        }
+        fds.clear();
+    }
+
 private:
     socket_t fd_;
     std::weak_ptr<UnixClientImpl> client_;
-    std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
+    std::queue<PendingSend> sendQueue_;
     bool writeEventsEnabled_;
 };
 
@@ -250,9 +319,61 @@ bool UnixClientImpl::Send(std::shared_ptr<DataBuffer> data)
     }
 
     if (clientHandler_) {
-        clientHandler_->QueueSend(data);
+        PendingSend pending;
+        pending.data = std::move(data);
+        clientHandler_->QueueSend(std::move(pending));
         return true;
     }
+    LMNET_LOGE("Client handler not found");
+    return false;
+}
+
+bool UnixClientImpl::SendFds(const std::vector<int> &fds)
+{
+    if (fds.empty()) {
+        LMNET_LOGE("No file descriptors provided");
+        return false;
+    }
+
+    if (socket_ == INVALID_SOCKET) {
+        LMNET_LOGE("socket not initialized");
+        return false;
+    }
+
+    std::vector<int> duplicatedFds;
+    duplicatedFds.reserve(fds.size());
+    for (int descriptor : fds) {
+        if (descriptor < 0) {
+            LMNET_LOGE("Invalid file descriptor: %d", descriptor);
+            continue;
+        }
+        int duplicated = fcntl(descriptor, F_DUPFD_CLOEXEC, 0);
+        if (duplicated < 0) {
+            LMNET_LOGE("Failed to duplicate fd %d: %s", descriptor, strerror(errno));
+            for (int dupFd : duplicatedFds) {
+                ::close(dupFd);
+            }
+            return false;
+        }
+        duplicatedFds.push_back(duplicated);
+    }
+
+    if (duplicatedFds.empty()) {
+        LMNET_LOGE("No valid file descriptors duplicated");
+        return false;
+    }
+
+    if (clientHandler_) {
+        PendingSend pending;
+        pending.fds = std::move(duplicatedFds);
+        clientHandler_->QueueSend(std::move(pending));
+        return true;
+    }
+
+    for (int dupFd : duplicatedFds) {
+        ::close(dupFd);
+    }
+
     LMNET_LOGE("Client handler not found");
     return false;
 }
@@ -275,19 +396,69 @@ void UnixClientImpl::HandleReceive(socket_t fd)
     }
 
     while (true) {
-        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
+        std::array<char, CMSG_SPACE(sizeof(int) * MAX_FDS_PER_MESSAGE)> controlBuffer{};
+        struct iovec iov;
+        iov.iov_base = readBuffer_->Data();
+        iov.iov_len = readBuffer_->Capacity();
+
+        struct msghdr msg = {};
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = controlBuffer.data();
+        msg.msg_controllen = controlBuffer.size();
+
+        ssize_t nbytes = recvmsg(fd, &msg, MSG_DONTWAIT);
 
         if (nbytes > 0) {
+            if (msg.msg_flags & MSG_CTRUNC) {
+                LMNET_LOGE("Ancillary data truncated on recvmsg");
+            }
+
             if (!listener_.expired()) {
-                auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
-                dataBuffer->Assign(readBuffer_->Data(), nbytes);
-                auto listenerWeak = listener_;
-                auto task = std::make_shared<TaskHandler<void>>([listenerWeak, dataBuffer, fd]() {
-                    auto listener = listenerWeak.lock();
-                    if (listener) {
-                        listener->OnReceive(fd, dataBuffer);
+                std::vector<int> receivedFds;
+
+                for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != nullptr; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+                    if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+                        size_t fdCount = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+                        if (fdCount > 0) {
+                            int *fds = reinterpret_cast<int *>(CMSG_DATA(cmsg));
+                            receivedFds.insert(receivedFds.end(), fds, fds + fdCount);
+                        }
                     }
-                });
+                }
+
+                std::shared_ptr<DataBuffer> dataBuffer;
+                if (nbytes > 0) {
+                    bool isPlaceholder = !receivedFds.empty() && nbytes == 1 && readBuffer_->Data()[0] == 0;
+                    if (!isPlaceholder) {
+                        dataBuffer = DataBuffer::PoolAlloc(nbytes);
+                        dataBuffer->Assign(readBuffer_->Data(), nbytes);
+                    }
+                }
+
+                auto listenerWeak = listener_;
+                auto task = std::make_shared<TaskHandler<void>>(
+                    [listenerWeak, fd, dataBuffer, fds = std::move(receivedFds)]() mutable {
+                        auto listener = listenerWeak.lock();
+                        if (listener) {
+                            if (dataBuffer) {
+                                listener->OnReceive(fd, dataBuffer);
+                            }
+                            if (!fds.empty()) {
+                                listener->OnReceiveFds(fd, std::move(fds));
+                            }
+                        } else {
+#if defined(__unix__) || defined(__APPLE__)
+                            for (int descriptor : fds) {
+                                if (descriptor >= 0) {
+                                    ::close(descriptor);
+                                }
+                            }
+#else
+                            (void)fds;
+#endif
+                        }
+                    });
                 if (taskQueue_) {
                     taskQueue_->EnqueueTask(task);
                 }
@@ -306,10 +477,12 @@ void UnixClientImpl::HandleReceive(socket_t fd)
             std::string info = strerror(errno);
             LMNET_LOGE("recv error: %s(%d)", info.c_str(), errno);
             HandleConnectionClose(fd, true, info);
-        }
 
-        break;
+            break;
+        }
     }
+
+    // exit while loop
 }
 
 void UnixClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)

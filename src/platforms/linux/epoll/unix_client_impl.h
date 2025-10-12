@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "iunix_client.h"
 #include "lmnet/common.h"
@@ -40,6 +41,7 @@ public:
     bool Send(const std::string &str) override;
     bool Send(const void *data, size_t len) override;
     bool Send(std::shared_ptr<DataBuffer> data) override;
+    bool SendFds(const std::vector<int> &fds) override;
 
     void Close() override;
 
