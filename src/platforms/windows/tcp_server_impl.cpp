@@ -17,7 +17,7 @@
 #include "internal_logger.h"
 #include "iocp_manager.h"
 #include "iocp_utils.h"
-#include "session_impl.h"
+#include "tcp_session_impl.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -234,7 +234,7 @@ void TcpServerImpl::HandleAccept(SOCKET clientSocket, const sockaddr_in &clientA
     port = ntohs(clientAddr.sin_port);
 
     // Create session
-    auto session = std::make_shared<SessionImpl>((socket_t)clientSocket, host, port, shared_from_this());
+    auto session = std::make_shared<TcpSessionImpl>((socket_t)clientSocket, host, port, shared_from_this());
     AddSession(clientSocket, session);
 
     LMNET_LOGD("New client connected: %s:%u (socket=%llu)", host.c_str(), port,
@@ -339,25 +339,19 @@ void TcpServerImpl::HandleClientClose(SOCKET clientSocket, bool isError, const s
     closesocket(clientSocket);
 }
 
-bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size)
+bool TcpServerImpl::Send(socket_t fd, const void *data, size_t size)
 {
-    (void)host; // Not used for TCP
-    (void)port; // Not used for TCP
-
     if (!data || size == 0 || fd == INVALID_SOCKET) {
         return false;
     }
 
     auto buffer = DataBuffer::Create(size);
     buffer->Assign(data, size);
-    return Send(fd, "", 0, buffer);
+    return Send(fd, buffer);
 }
 
-bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool TcpServerImpl::Send(socket_t fd, std::shared_ptr<DataBuffer> buffer)
 {
-    (void)host; // Not used for TCP
-    (void)port; // Not used for TCP
-
     if (!buffer || buffer->Size() == 0 || fd == INVALID_SOCKET) {
         return false;
     }
@@ -382,12 +376,14 @@ bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shar
     return true;
 }
 
-bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std::string &str)
+bool TcpServerImpl::Send(socket_t fd, const std::string &str)
 {
     if (str.empty()) {
         return false;
     }
-    return Send(fd, std::move(host), port, str.data(), str.size());
+    auto buffer = DataBuffer::Create(str.size());
+    buffer->Assign(str.data(), str.size());
+    return Send(fd, buffer);
 }
 
 void TcpServerImpl::HandleSend(SOCKET clientSocket, DWORD bytesOrError)

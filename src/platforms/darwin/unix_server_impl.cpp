@@ -19,8 +19,8 @@
 
 #include "event_reactor.h"
 #include "internal_logger.h"
-#include "session_impl.h"
 #include "socket_utils.h"
+#include "unix_session_impl.h"
 
 namespace lmshao::lmnet {
 
@@ -280,25 +280,19 @@ bool UnixServerImpl::Stop()
     return true;
 }
 
-bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size)
+bool UnixServerImpl::Send(socket_t fd, const void *data, size_t size)
 {
-    (void)host;
-    (void)port;
-
     if (!data || size == 0) {
         LMNET_LOGE("invalid data or size");
         return false;
     }
     auto buf = DataBuffer::PoolAlloc(size);
     buf->Assign(reinterpret_cast<const char *>(data), size);
-    return Send(fd, host, port, buf);
+    return Send(fd, std::move(buf));
 }
 
-bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool UnixServerImpl::Send(socket_t fd, std::shared_ptr<DataBuffer> buffer)
 {
-    (void)host;
-    (void)port;
-
     if (!buffer || buffer->Size() == 0) {
         return false;
     }
@@ -320,25 +314,20 @@ bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::sha
     return false;
 }
 
-bool UnixServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std::string &str)
+bool UnixServerImpl::Send(socket_t fd, const std::string &str)
 {
-    (void)host;
-    (void)port;
-
     if (str.empty()) {
         LMNET_LOGE("invalid string data");
         return false;
     }
     auto buf = DataBuffer::PoolAlloc(str.size());
     buf->Assign(str.data(), str.size());
-    return Send(fd, host, port, buf);
+    return Send(fd, std::move(buf));
 }
 
-bool UnixServerImpl::SendFds(socket_t fd, std::string host, uint16_t port, const std::vector<int> &fds)
+bool UnixServerImpl::SendFds(socket_t fd, const std::vector<int> &fds)
 {
     (void)fd;
-    (void)host;
-    (void)port;
     (void)fds;
     LMNET_LOGE("SendFds is not supported on macOS backend yet");
     return false;
@@ -374,7 +363,7 @@ void UnixServerImpl::HandleAccept(socket_t fd)
     LMNET_LOGD("New Unix client connection client[%d]", clientSocket);
 
     // Unix domain socket uses empty host and port
-    auto session = std::make_shared<SessionImpl>(clientSocket, socketPath_, 0, shared_from_this());
+    auto session = std::make_shared<UnixSessionImpl>(clientSocket, socketPath_, shared_from_this());
     sessions_.emplace(clientSocket, session);
 
     if (!listener_.expired()) {

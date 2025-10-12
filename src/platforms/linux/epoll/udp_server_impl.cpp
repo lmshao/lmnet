@@ -16,65 +16,15 @@
 #include <unistd.h>
 
 #include <cstring>
+#include <utility>
 
 #include "event_reactor.h"
 #include "internal_logger.h"
-#include "lmnet/session.h"
+#include "udp_session_impl.h"
 
 namespace lmshao::lmnet {
 
 using lmshao::lmcore::TaskHandler;
-
-// UDP Session implementation
-class UdpSession : public Session {
-public:
-    UdpSession(socket_t fd, const std::string &remoteIp, uint16_t remotePort, UdpServerImpl *server)
-        : fd_(fd), server_(server)
-    {
-        host = remoteIp;
-        port = remotePort;
-        fd = fd_;
-    }
-
-    bool Send(std::shared_ptr<DataBuffer> buffer) const override
-    {
-        if (!server_) {
-            return false;
-        }
-        return server_->Send(fd_, host, port, buffer->Data(), buffer->Size());
-    }
-
-    bool Send(const std::string &str) const override
-    {
-        if (!server_) {
-            return false;
-        }
-        return server_->Send(fd_, host, port, str);
-    }
-
-    bool Send(const void *data, size_t size) const override
-    {
-        if (!server_) {
-            return false;
-        }
-        return server_->Send(fd_, host, port, data, size);
-    }
-
-#if defined(__unix__) || defined(__APPLE__)
-    bool SendFds(const std::vector<int> &fds) const override
-    {
-        (void)fds;
-        LMNET_LOGE("UDP sessions do not support sending file descriptors");
-        return false;
-    }
-#endif
-
-    std::string ClientInfo() const override { return host + ":" + std::to_string(port); }
-
-private:
-    socket_t fd_;
-    UdpServerImpl *server_;
-};
 
 // UDP Server Handler
 class UdpServerHandler : public EventHandler {
@@ -263,13 +213,10 @@ void UdpServerImpl::HandleReceive(socket_t fd)
         uint16_t clientPort = ntohs(clientAddr.sin_port);
 
         // Create session info
-        auto session = std::make_shared<UdpSession>(fd, clientIP, clientPort, this);
+        auto session = std::make_shared<UdpSessionImpl>(fd, clientIP, clientPort, shared_from_this());
 
         if (auto listener = listener_.lock()) {
-            // Create a copy of the data
             auto dataBuffer = std::make_shared<DataBuffer>(*readBuffer_);
-
-            // For UDP, call the listener directly
             listener->OnReceive(session, dataBuffer);
         }
     } else if (bytesRead == 0) {
@@ -281,7 +228,7 @@ void UdpServerImpl::HandleReceive(socket_t fd)
     }
 }
 
-bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, const void *data, size_t len)
+bool UdpServerImpl::Send(std::string ip, uint16_t port, const void *data, size_t len)
 {
     if (socket_ == INVALID_SOCKET) {
         LMNET_LOGE("Socket is not initialized");
@@ -314,18 +261,18 @@ bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, const void 
     return true;
 }
 
-bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, const std::string &str)
+bool UdpServerImpl::Send(std::string ip, uint16_t port, const std::string &str)
 {
-    return Send(fd, std::move(ip), port, str.data(), str.size());
+    return Send(std::move(ip), port, str.data(), str.size());
 }
 
-bool UdpServerImpl::Send(socket_t fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data)
+bool UdpServerImpl::Send(std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data)
 {
     if (!data) {
         LMNET_LOGE("DataBuffer is null");
         return false;
     }
-    return Send(fd, std::move(ip), port, data->Data(), data->Size());
+    return Send(std::move(ip), port, data->Data(), data->Size());
 }
 
 } // namespace lmshao::lmnet

@@ -19,8 +19,8 @@
 
 #include "event_reactor.h"
 #include "internal_logger.h"
-#include "session_impl.h"
 #include "socket_utils.h"
+#include "tcp_session_impl.h"
 
 namespace lmshao::lmnet {
 
@@ -284,7 +284,7 @@ bool TcpServerImpl::Stop()
     return true;
 }
 
-bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size)
+bool TcpServerImpl::Send(socket_t fd, const void *data, size_t size)
 {
     if (!data || size == 0) {
         LMNET_LOGE("invalid data or size");
@@ -292,13 +292,11 @@ bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const voi
     }
     auto buf = DataBuffer::PoolAlloc(size);
     buf->Assign(reinterpret_cast<const char *>(data), size);
-    return Send(fd, std::move(host), port, buf);
+    return Send(fd, std::move(buf));
 }
 
-bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool TcpServerImpl::Send(socket_t fd, std::shared_ptr<DataBuffer> buffer)
 {
-    (void)host;
-    (void)port;
     if (!buffer || buffer->Size() == 0) {
         return false;
     }
@@ -320,7 +318,7 @@ bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shar
     return false;
 }
 
-bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std::string &str)
+bool TcpServerImpl::Send(socket_t fd, const std::string &str)
 {
     if (str.empty()) {
         LMNET_LOGE("invalid string data");
@@ -328,7 +326,7 @@ bool TcpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std
     }
     auto buf = DataBuffer::PoolAlloc(str.size());
     buf->Assign(str.data(), str.size());
-    return Send(fd, std::move(host), port, buf);
+    return Send(fd, std::move(buf));
 }
 
 void TcpServerImpl::HandleAccept(socket_t fd)
@@ -362,7 +360,7 @@ void TcpServerImpl::HandleAccept(socket_t fd)
 
     LMNET_LOGD("New client connections client[%d] %s:%d", clientSocket, host.c_str(), port);
 
-    auto session = std::make_shared<SessionImpl>(clientSocket, host, port, shared_from_this());
+    auto session = std::make_shared<TcpSessionImpl>(clientSocket, host, port, shared_from_this());
     sessions_.emplace(clientSocket, session);
 
     if (!listener_.expired()) {

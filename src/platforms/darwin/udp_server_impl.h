@@ -40,9 +40,9 @@ public:
     bool Stop() override;
     void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
 
-    bool Send(socket_t fd, std::string ip, uint16_t port, const void *data, size_t len) override;
-    bool Send(socket_t fd, std::string ip, uint16_t port, const std::string &str) override;
-    bool Send(socket_t fd, std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data) override;
+    bool Send(std::string ip, uint16_t port, const void *data, size_t len);
+    bool Send(std::string ip, uint16_t port, const std::string &str);
+    bool Send(std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data);
     socket_t GetSocketFd() const override { return socket_; }
 
 protected:

@@ -15,7 +15,7 @@
 #include "internal_logger.h"
 #include "iocp_manager.h"
 #include "iocp_utils.h"
-#include "session_impl.h"
+#include "udp_session_impl.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -223,9 +223,7 @@ void UdpServerImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD byte
     }
     port = ntohs(fromAddr.sin_port);
 
-    // Create a temporary session for this UDP packet
-    // Note: UDP is connectionless, so we create ephemeral sessions
-    auto session = std::make_shared<SessionImpl>((socket_t)socket_, host, port, shared_from_this());
+    auto session = std::make_shared<UdpSessionImpl>((socket_t)socket_, host, port, shared_from_this());
 
     // Notify listener
     if (auto listener = listener_.lock()) {
@@ -236,7 +234,7 @@ void UdpServerImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD byte
     SubmitReceive();
 }
 
-bool UdpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size)
+bool UdpServerImpl::Send(std::string host, uint16_t port, const void *data, size_t size)
 {
     if (!data || size == 0) {
         return false;
@@ -244,10 +242,10 @@ bool UdpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const voi
 
     auto buffer = DataBuffer::Create(size);
     buffer->Assign(data, size);
-    return Send(fd, std::move(host), port, buffer);
+    return Send(std::move(host), port, buffer);
 }
 
-bool UdpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
+bool UdpServerImpl::Send(std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer)
 {
     if (!buffer || buffer->Size() == 0 || host.empty()) {
         return false;
@@ -287,12 +285,12 @@ bool UdpServerImpl::Send(socket_t fd, std::string host, uint16_t port, std::shar
     return true;
 }
 
-bool UdpServerImpl::Send(socket_t fd, std::string host, uint16_t port, const std::string &str)
+bool UdpServerImpl::Send(std::string host, uint16_t port, const std::string &str)
 {
     if (str.empty()) {
         return false;
     }
-    return Send(fd, std::move(host), port, str.data(), str.size());
+    return Send(std::move(host), port, str.data(), str.size());
 }
 
 void UdpServerImpl::HandleSend(DWORD bytesOrError)

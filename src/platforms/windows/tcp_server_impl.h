@@ -43,9 +43,9 @@ public:
     bool Stop() override;
     socket_t GetSocketFd() const override;
 
-    bool Send(socket_t fd, std::string host, uint16_t port, const void *data, size_t size) override;
-    bool Send(socket_t fd, std::string host, uint16_t port, std::shared_ptr<DataBuffer> buffer) override;
-    bool Send(socket_t fd, std::string host, uint16_t port, const std::string &str) override;
+    bool Send(socket_t fd, const void *data, size_t size);
+    bool Send(socket_t fd, std::shared_ptr<DataBuffer> buffer);
+    bool Send(socket_t fd, const std::string &str);
 
 private:
     void SubmitAccept();

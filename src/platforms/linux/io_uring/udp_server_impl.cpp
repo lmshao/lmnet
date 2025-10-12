@@ -7,7 +7,7 @@
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
-#include "session_impl.h"
+#include "io_uring_session_impl.h"
 
 namespace lmshao::lmnet {
 
@@ -102,8 +102,7 @@ void UdpServerImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_
             inet_ntop(AF_INET, &from_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
             uint16_t client_port = ntohs(from_addr.sin_port);
 
-            // Create UDP session using unified SessionImpl
-            auto session = std::make_shared<SessionImpl>(socket_, std::string(client_ip), client_port, true);
+            auto session = std::make_shared<IoUringSessionImpl>(socket_, std::string(client_ip), client_port, true);
 
             // For UDP, call the listener with session
             listener->OnReceive(session, buffer);

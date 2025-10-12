@@ -18,7 +18,7 @@
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
-#include "session_impl.h"
+#include "io_uring_session_impl.h"
 
 namespace lmshao::lmnet {
 using lmshao::lmcore::TaskHandler;
@@ -151,7 +151,7 @@ void TcpServerImpl::HandleAccept(int res, const sockaddr_in &client_addr)
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
         uint16_t client_port = ntohs(client_addr.sin_port);
 
-        auto session = std::make_shared<SessionImpl>(client_fd, std::string(client_ip), client_port);
+        auto session = std::make_shared<IoUringSessionImpl>(client_fd, std::string(client_ip), client_port);
 
         {
             std::lock_guard<std::mutex> lock(sessionMutex_);
