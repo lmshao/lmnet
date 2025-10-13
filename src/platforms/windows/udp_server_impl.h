@@ -18,7 +18,6 @@
 #include <string>
 
 #include "base_server.h"
-#include "lmnet/common.h"
 #include "lmnet/iserver_listener.h"
 
 namespace lmshao::lmnet {

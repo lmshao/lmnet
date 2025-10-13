@@ -279,10 +279,12 @@ if(NOT WIN32)
     find_package(Threads REQUIRED)
 endif()
 
-# Platform-specific libraries
+# Platform-specific libraries and compiler definitions
 if(WIN32)
     # Windows socket libraries
     set(PLATFORM_LIBS ws2_32 wsock32)
+    # Define WIN32_LEAN_AND_MEAN to prevent windows.h from including winsock.h
+    add_compile_definitions(WIN32_LEAN_AND_MEAN)
 else()
     # Unix/Linux libraries
     find_package(Threads REQUIRED)
