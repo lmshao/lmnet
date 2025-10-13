@@ -333,6 +333,15 @@ bool UnixServerImpl::SendFds(socket_t fd, const std::vector<int> &fds)
     return false;
 }
 
+bool UnixServerImpl::SendWithFds(socket_t fd, std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds)
+{
+    (void)fd;
+    (void)buffer;
+    (void)fds;
+    LMNET_LOGE("SendWithFds is not supported on macOS backend yet");
+    return false;
+}
+
 void UnixServerImpl::HandleAccept(socket_t fd)
 {
     LMNET_LOGD("enter");

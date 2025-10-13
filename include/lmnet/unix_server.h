@@ -15,6 +15,7 @@
 #include "common.h"
 #include "iserver_listener.h"
 
+#if defined(__linux__) || defined(__APPLE__)
 namespace lmshao::lmnet {
 
 class BaseServer;
@@ -65,7 +66,8 @@ public:
 private:
     std::shared_ptr<BaseServer> impl_;
 };
-
 } // namespace lmshao::lmnet
+
+#endif
 
 #endif // LMSHAO_LMNET_UNIX_SERVER_H

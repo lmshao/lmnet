@@ -37,7 +37,7 @@ public:
      */
     virtual void OnReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer) = 0;
 
-#if defined(__unix__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__)
     /**
      * @brief Called when file descriptors are received
      * @param session Session that received the descriptors

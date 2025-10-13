@@ -313,19 +313,7 @@ bool UnixClientImpl::Send(std::shared_ptr<DataBuffer> data)
         return false;
     }
 
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("socket not initialized");
-        return false;
-    }
-
-    if (clientHandler_) {
-        PendingSend pending;
-        pending.data = std::move(data);
-        clientHandler_->QueueSend(std::move(pending));
-        return true;
-    }
-    LMNET_LOGE("Client handler not found");
-    return false;
+    return SendWithFds(data, {});
 }
 
 bool UnixClientImpl::SendFds(const std::vector<int> &fds)
@@ -335,47 +323,45 @@ bool UnixClientImpl::SendFds(const std::vector<int> &fds)
         return false;
     }
 
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("socket not initialized");
+    return SendWithFds(nullptr, fds);
+}
+
+bool UnixClientImpl::SendWithFds(std::shared_ptr<DataBuffer> data, const std::vector<int> &fds)
+{
+    if (!clientHandler_ || socket_ == INVALID_SOCKET) {
+        LMNET_LOGE("Cannot send data with file descriptors: not initialized or not connected");
         return false;
     }
 
-    std::vector<int> duplicatedFds;
-    duplicatedFds.reserve(fds.size());
-    for (int descriptor : fds) {
-        if (descriptor < 0) {
-            LMNET_LOGE("Invalid file descriptor: %d", descriptor);
-            continue;
-        }
-        int duplicated = fcntl(descriptor, F_DUPFD_CLOEXEC, 0);
-        if (duplicated < 0) {
-            LMNET_LOGE("Failed to duplicate fd %d: %s", descriptor, strerror(errno));
-            for (int dupFd : duplicatedFds) {
-                ::close(dupFd);
-            }
-            return false;
-        }
-        duplicatedFds.push_back(duplicated);
-    }
-
-    if (duplicatedFds.empty()) {
-        LMNET_LOGE("No valid file descriptors duplicated");
-        return false;
-    }
-
-    if (clientHandler_) {
-        PendingSend pending;
-        pending.fds = std::move(duplicatedFds);
-        clientHandler_->QueueSend(std::move(pending));
+    if ((!data || data->Size() == 0) && fds.empty()) {
+        LMNET_LOGW("No data and no file descriptors to send");
         return true;
     }
 
-    for (int dupFd : duplicatedFds) {
-        ::close(dupFd);
+    PendingSend pending;
+    pending.data = data;
+
+    // Duplicate fds to avoid closing original descriptors prematurely
+    pending.fds.reserve(fds.size());
+    for (int fd : fds) {
+        if (fd < 0) {
+            LMNET_LOGE("Invalid file descriptor: %d", fd);
+            continue;
+        }
+        int dupFd = ::dup(fd);
+        if (dupFd == -1) {
+            LMNET_LOGE("Failed to duplicate file descriptor: %s", strerror(errno));
+            // Clean up already duplicated descriptors
+            for (int i = 0; i < static_cast<int>(pending.fds.size()); ++i) {
+                ::close(pending.fds[i]);
+            }
+            return false;
+        }
+        pending.fds.push_back(dupFd);
     }
 
-    LMNET_LOGE("Client handler not found");
-    return false;
+    clientHandler_->QueueSend(std::move(pending));
+    return true;
 }
 
 void UnixClientImpl::Close()
@@ -448,15 +434,11 @@ void UnixClientImpl::HandleReceive(socket_t fd)
                                 listener->OnReceiveFds(fd, std::move(fds));
                             }
                         } else {
-#if defined(__unix__) || defined(__APPLE__)
                             for (int descriptor : fds) {
                                 if (descriptor >= 0) {
                                     ::close(descriptor);
                                 }
                             }
-#else
-                            (void)fds;
-#endif
                         }
                     });
                 if (taskQueue_) {

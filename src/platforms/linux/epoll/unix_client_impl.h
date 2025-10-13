@@ -42,6 +42,7 @@ public:
     bool Send(const void *data, size_t len) override;
     bool Send(std::shared_ptr<DataBuffer> data) override;
     bool SendFds(const std::vector<int> &fds) override;
+    bool SendWithFds(std::shared_ptr<DataBuffer> data, const std::vector<int> &fds) override;
 
     void Close() override;
 
