@@ -20,7 +20,6 @@
 #include <string>
 
 #include "itcp_client.h"
-#include "lmnet/common.h"
 #include "lmnet/iclient_listener.h"
 
 namespace lmshao::lmnet {
