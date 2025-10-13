@@ -57,6 +57,12 @@ public:
         return server ? server->SendFds(fd, fds) : false;
     }
 
+    bool SendWithFds(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds) const override
+    {
+        auto server = server_.lock();
+        return server ? server->SendWithFds(fd, std::move(buffer), fds) : false;
+    }
+
     std::string ClientInfo() const override
     {
         std::stringstream ss;

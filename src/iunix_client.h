@@ -35,9 +35,8 @@ public:
     virtual bool Send(const std::string &str) = 0;
     virtual bool Send(const void *data, size_t len) = 0;
     virtual bool Send(std::shared_ptr<DataBuffer> data) = 0;
-#if defined(__unix__) || defined(__APPLE__)
     virtual bool SendFds(const std::vector<int> &fds) = 0;
-#endif
+    virtual bool SendWithFds(std::shared_ptr<DataBuffer> data, const std::vector<int> &fds) = 0;
     virtual void Close() = 0;
     virtual socket_t GetSocketFd() const = 0;
 };

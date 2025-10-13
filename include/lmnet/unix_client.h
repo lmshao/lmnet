@@ -15,10 +15,11 @@
 #include "common.h"
 #include "iclient_listener.h"
 
+#if defined(__linux__) || defined(__APPLE__)
+
 namespace lmshao::lmnet {
 
 class IUnixClient;
-
 class UnixClient : public Creatable<UnixClient> {
 public:
     /**
@@ -72,14 +73,20 @@ public:
      */
     bool Send(std::shared_ptr<DataBuffer> data);
 
-#if defined(__unix__) || defined(__APPLE__)
     /**
      * @brief Send file descriptors without additional payload
      * @param fds File descriptors to transfer
      * @return true on success, false on failure
      */
     bool SendFds(const std::vector<int> &fds);
-#endif
+
+    /**
+     * @brief Send data along with file descriptors
+     * @param data Data buffer to send
+     * @param fds File descriptors to transfer
+     * @return true on success, false on failure
+     */
+    bool SendWithFds(std::shared_ptr<DataBuffer> data, const std::vector<int> &fds);
 
     /**
      * @brief Close the Unix client
@@ -97,5 +104,7 @@ private:
 };
 
 } // namespace lmshao::lmnet
+
+#endif
 
 #endif // LMSHAO_LMNET_UNIX_CLIENT_H

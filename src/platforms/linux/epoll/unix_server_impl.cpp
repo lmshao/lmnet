@@ -429,6 +429,62 @@ bool UnixServerImpl::SendFds(socket_t fd, const std::vector<int> &fds)
     for (int dupFd : duplicatedFds) {
         ::close(dupFd);
     }
+    return false;
+}
+
+bool UnixServerImpl::SendWithFds(socket_t fd, std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds)
+{
+    if ((!buffer || buffer->Size() == 0) && fds.empty()) {
+        LMNET_LOGE("No data or file descriptors provided");
+        return false;
+    }
+
+    if (sessions_.find(fd) == sessions_.end()) {
+        LMNET_LOGE("Invalid session fd");
+        return false;
+    }
+
+    std::vector<int> duplicatedFds;
+    if (!fds.empty()) {
+        duplicatedFds.reserve(fds.size());
+        for (int descriptor : fds) {
+            if (descriptor < 0) {
+                LMNET_LOGE("Invalid file descriptor: %d", descriptor);
+                continue;
+            }
+            int duplicated = fcntl(descriptor, F_DUPFD_CLOEXEC, 0);
+            if (duplicated < 0) {
+                LMNET_LOGE("Failed to duplicate fd %d: %s", descriptor, strerror(errno));
+                for (int dupFd : duplicatedFds) {
+                    ::close(dupFd);
+                }
+                return false;
+            }
+            duplicatedFds.push_back(duplicated);
+        }
+
+        if (duplicatedFds.empty() && (!buffer || buffer->Size() == 0)) {
+            LMNET_LOGE("No valid file descriptors duplicated and no data");
+            return false;
+        }
+    }
+
+    auto handlerIt = connectionHandlers_.find(fd);
+    if (handlerIt != connectionHandlers_.end()) {
+        auto unixHandler = handlerIt->second;
+        if (unixHandler) {
+            PendingSend pending;
+            pending.data = std::move(buffer);
+            pending.fds = std::move(duplicatedFds);
+            unixHandler->QueueSend(std::move(pending));
+            return true;
+        }
+    }
+
+    // Clean up duplicated file descriptors if send failed
+    for (int dupFd : duplicatedFds) {
+        ::close(dupFd);
+    }
 
     LMNET_LOGE("Connection handler not found for fd: %d", fd);
     return false;
@@ -543,15 +599,11 @@ void UnixServerImpl::HandleReceive(socket_t fd)
                                     listener->OnReceiveFds(session, std::move(fds));
                                 }
                             } else {
-#if defined(__unix__) || defined(__APPLE__)
                                 for (int descriptor : fds) {
                                     if (descriptor >= 0) {
                                         ::close(descriptor);
                                     }
                                 }
-#else
-                                (void)fds;
-#endif
                             }
                         });
                     if (taskQueue_) {

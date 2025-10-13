@@ -280,6 +280,14 @@ bool UnixClientImpl::SendFds(const std::vector<int> &fds)
     return false;
 }
 
+bool UnixClientImpl::SendWithFds(std::shared_ptr<DataBuffer> data, const std::vector<int> &fds)
+{
+    (void)data;
+    (void)fds;
+    LMNET_LOGE("SendWithFds is not supported on macOS backend yet");
+    return false;
+}
+
 void UnixClientImpl::Close()
 {
     if (socket_ != INVALID_SOCKET && clientHandler_) {

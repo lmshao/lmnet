@@ -47,6 +47,7 @@ public:
     bool Send(socket_t fd, std::shared_ptr<DataBuffer> buffer);
     bool Send(socket_t fd, const std::string &str);
     bool SendFds(socket_t fd, const std::vector<int> &fds);
+    bool SendWithFds(socket_t fd, std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds);
 
     socket_t GetSocketFd() const override { return socket_; }
 

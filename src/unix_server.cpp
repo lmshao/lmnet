@@ -25,15 +25,10 @@ namespace lmshao::lmnet {
 
 UnixServer::UnixServer(const std::string &socketPath)
 {
-#if defined(__linux__) || defined(__APPLE__)
     impl_ = UnixServerImpl::Create(socketPath);
     if (!impl_) {
         LMNET_LOGE("Failed to create Unix server implementation");
     }
-#else
-    LMNET_LOGE("Unix domain server is not supported on this platform yet");
-    (void)socketPath;
-#endif
 }
 
 UnixServer::~UnixServer() = default;

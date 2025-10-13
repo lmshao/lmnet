@@ -12,7 +12,7 @@
 #include <memory>
 #include <vector>
 
-#if defined(__unix__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__)
 #include <unistd.h>
 #endif
 
@@ -31,7 +31,7 @@ public:
      */
     virtual void OnReceive(socket_t fd, std::shared_ptr<DataBuffer> buffer) = 0;
 
-#if defined(__unix__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__)
     /**
      * @brief Called when file descriptors are received
      * @param fd Socket file descriptor

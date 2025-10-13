@@ -25,15 +25,10 @@ namespace lmshao::lmnet {
 
 UnixClient::UnixClient(const std::string &socketPath)
 {
-#if defined(__linux__) || defined(__APPLE__)
     impl_ = UnixClientImpl::Create(socketPath);
     if (!impl_) {
         LMNET_LOGE("Failed to create Unix client implementation");
     }
-#else
-    LMNET_LOGE("Unix domain client is not supported on this platform yet");
-    (void)socketPath;
-#endif
 }
 
 UnixClient::~UnixClient() {}
@@ -90,6 +85,24 @@ bool UnixClient::Send(std::shared_ptr<DataBuffer> data)
         return false;
     }
     return impl_->Send(std::move(data));
+}
+
+bool UnixClient::SendFds(const std::vector<int> &fds)
+{
+    if (!impl_) {
+        LMNET_LOGE("Unix client implementation is not initialized");
+        return false;
+    }
+    return impl_->SendFds(fds);
+}
+
+bool UnixClient::SendWithFds(std::shared_ptr<DataBuffer> data, const std::vector<int> &fds)
+{
+    if (!impl_) {
+        LMNET_LOGE("Unix client implementation is not initialized");
+        return false;
+    }
+    return impl_->SendWithFds(data, fds);
 }
 
 void UnixClient::Close()
