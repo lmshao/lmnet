@@ -85,6 +85,14 @@ void IoUringManager::Run()
         }
 
         Request *req = (Request *)io_uring_cqe_get_data(cqe);
+
+        // Check for null request pointer
+        if (!req) {
+            LMNET_LOGW("Received null request pointer in CQE, result=%d", cqe->res);
+            io_uring_cqe_seen(&ring_, cqe);
+            continue;
+        }
+
         if (req->event_type == RequestType::EXIT) {
             io_uring_cqe_seen(&ring_, cqe);
             break;
@@ -204,7 +212,54 @@ bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::functi
 {
     Request *req = GetRequest();
     if (!req) {
-        LMNET_LOGE("Failed to get request");
+        LMNET_LOGE("Request pool exhausted (capacity: %d)", entries_);
+
+        // Create a temporary Request to extract and invoke the callback with error
+        Request tempReq;
+        tempReq.event_type = type;
+        tempReq.fd = fd;
+        if (init_request) {
+            init_request(&tempReq);
+        }
+
+        // Invoke the callback with -ENOMEM error to notify user
+        constexpr int ERROR_NO_RESOURCE = -ENOMEM;
+        switch (type) {
+            case RequestType::CONNECT:
+                if (tempReq.connect_cb)
+                    tempReq.connect_cb(fd, ERROR_NO_RESOURCE);
+                break;
+            case RequestType::ACCEPT:
+                if (tempReq.accept_cb)
+                    tempReq.accept_cb(fd, -1, nullptr, nullptr);
+                break;
+            case RequestType::READ:
+                if (tempReq.read_cb)
+                    tempReq.read_cb(fd, tempReq.buffer, ERROR_NO_RESOURCE);
+                break;
+            case RequestType::WRITE:
+                if (tempReq.write_cb)
+                    tempReq.write_cb(fd, ERROR_NO_RESOURCE);
+                break;
+            case RequestType::RECVFROM:
+                if (tempReq.recvfrom_cb)
+                    tempReq.recvfrom_cb(fd, tempReq.buffer, ERROR_NO_RESOURCE, {});
+                break;
+            case RequestType::SENDMSG:
+                if (tempReq.sendmsg_cb)
+                    tempReq.sendmsg_cb(fd, ERROR_NO_RESOURCE);
+                break;
+            case RequestType::RECVMSG:
+                if (tempReq.recvmsg_cb)
+                    tempReq.recvmsg_cb(fd, tempReq.buffer, ERROR_NO_RESOURCE, {});
+                break;
+            case RequestType::CLOSE:
+                if (tempReq.close_cb)
+                    tempReq.close_cb(fd, ERROR_NO_RESOURCE);
+                break;
+            default:
+                break;
+        }
         return false;
     }
 
@@ -216,8 +271,48 @@ bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::functi
     std::lock_guard<std::mutex> lk(submitMutex_);
     io_uring_sqe *sqe = io_uring_get_sqe(&ring_);
     if (!sqe) {
+        LMNET_LOGE("Failed to get SQE (submission queue full)");
+
+        // Invoke the callback with error before returning request to pool
+        constexpr int ERROR_NO_RESOURCE = -ENOMEM;
+        switch (type) {
+            case RequestType::CONNECT:
+                if (req->connect_cb)
+                    req->connect_cb(fd, ERROR_NO_RESOURCE);
+                break;
+            case RequestType::ACCEPT:
+                if (req->accept_cb)
+                    req->accept_cb(fd, -1, nullptr, nullptr);
+                break;
+            case RequestType::READ:
+                if (req->read_cb)
+                    req->read_cb(fd, req->buffer, ERROR_NO_RESOURCE);
+                break;
+            case RequestType::WRITE:
+                if (req->write_cb)
+                    req->write_cb(fd, ERROR_NO_RESOURCE);
+                break;
+            case RequestType::RECVFROM:
+                if (req->recvfrom_cb)
+                    req->recvfrom_cb(fd, req->buffer, ERROR_NO_RESOURCE, {});
+                break;
+            case RequestType::SENDMSG:
+                if (req->sendmsg_cb)
+                    req->sendmsg_cb(fd, ERROR_NO_RESOURCE);
+                break;
+            case RequestType::RECVMSG:
+                if (req->recvmsg_cb)
+                    req->recvmsg_cb(fd, req->buffer, ERROR_NO_RESOURCE, {});
+                break;
+            case RequestType::CLOSE:
+                if (req->close_cb)
+                    req->close_cb(fd, ERROR_NO_RESOURCE);
+                break;
+            default:
+                break;
+        }
+
         PutRequest(req);
-        LMNET_LOGE("Failed to get SQE");
         return false;
     }
     if (prep_sqe)

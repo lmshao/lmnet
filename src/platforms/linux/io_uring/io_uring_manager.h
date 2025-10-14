@@ -73,7 +73,11 @@ struct Request {
     std::vector<int> received_fds;    // File descriptors received
     char placeholder_byte;            // Placeholder byte for FD-only messages
 
-    Request() : fd(-1), event_type(RequestType::ACCEPT), client_addr_len(sizeof(sockaddr_storage)), iov{}, msg{}, placeholder_byte(0) {}
+    Request()
+        : fd(-1), event_type(RequestType::ACCEPT), client_addr_len(sizeof(sockaddr_storage)), iov{}, msg{},
+          placeholder_byte(0)
+    {
+    }
 
     // Clear the request for reuse
     void Clear()
