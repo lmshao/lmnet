@@ -17,6 +17,7 @@
 #include "internal_logger.h"
 #include "io_uring_manager.h"
 #include "lmnet/session.h"
+#include "unix_socket_utils.h"
 
 namespace lmshao::lmnet {
 
@@ -62,7 +63,8 @@ public:
                 }
             });
         }
-        return IoUringManager::GetInstance().SubmitWriteRequest(fd, buffer, nullptr);
+        // Use unified SendUnixMessage for consistency (Unix Socket)
+        return SendUnixMessage(buffer, {});
     }
 
     bool Send(const std::string &str) const override
@@ -74,9 +76,27 @@ public:
 
     bool SendFds(const std::vector<int> &fds) const override
     {
-        (void)fds;
-        LMNET_LOGE("SendFds is not supported in io_uring backend");
-        return false;
+        if (is_udp_) {
+            LMNET_LOGE("SendFds is not supported on UDP sockets");
+            return false;
+        }
+
+        return SendUnixMessage(nullptr, fds);
+    }
+
+    bool SendWithFds(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds) const override
+    {
+        if (is_udp_) {
+            LMNET_LOGE("SendWithFds is not supported on UDP sockets");
+            return false;
+        }
+
+        if ((!buffer || buffer->Size() == 0) && fds.empty()) {
+            LMNET_LOGW("No data and no file descriptors to send");
+            return true;
+        }
+
+        return SendUnixMessage(buffer, fds);
     }
 
     std::string ClientInfo() const override
@@ -84,6 +104,26 @@ public:
         std::stringstream ss;
         ss << host << ":" << port << " (" << fd << ")";
         return ss.str();
+    }
+
+private:
+    // Common Unix Socket send method
+    bool SendUnixMessage(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds) const
+    {
+        // Only duplicate file descriptors if we actually have them
+        std::vector<int> duplicatedFds;
+        if (!fds.empty()) {
+            duplicatedFds = UnixSocketUtils::DuplicateFds(fds);
+            if (duplicatedFds.empty()) {
+                return false; // Failed to duplicate fds
+            }
+        }
+
+        // Create a copy for cleanup callback before moving duplicatedFds
+        std::vector<int> fdsForCleanup = duplicatedFds;
+        return IoUringManager::GetInstance().SubmitSendMsgRequest(
+            fd, buffer, std::move(duplicatedFds),
+            UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message"));
     }
 
 private:

@@ -23,6 +23,7 @@
 #include "event_reactor.h"
 #include "internal_logger.h"
 #include "unix_session_impl.h"
+#include "unix_socket_utils.h"
 
 namespace lmshao::lmnet {
 
@@ -333,105 +334,6 @@ bool UnixServerImpl::Stop()
     return true;
 }
 
-bool UnixServerImpl::Send(socket_t fd, const void *data, size_t size)
-{
-    if (!data || size == 0) {
-        LMNET_LOGE("invalid data or size");
-        return false;
-    }
-    auto buf = DataBuffer::PoolAlloc(size);
-    buf->Assign(reinterpret_cast<const char *>(data), size);
-    return Send(fd, std::move(buf));
-}
-
-bool UnixServerImpl::Send(socket_t fd, std::shared_ptr<DataBuffer> buffer)
-{
-    if (!buffer || buffer->Size() == 0) {
-        return false;
-    }
-
-    if (sessions_.find(fd) == sessions_.end()) {
-        LMNET_LOGE("invalid session fd");
-        return false;
-    }
-
-    auto handlerIt = connectionHandlers_.find(fd);
-    if (handlerIt != connectionHandlers_.end()) {
-        auto unixHandler = handlerIt->second;
-        if (unixHandler) {
-            PendingSend pending;
-            pending.data = std::move(buffer);
-            unixHandler->QueueSend(std::move(pending));
-            return true;
-        }
-    }
-    LMNET_LOGE("Connection handler not found for fd: %d", fd);
-    return false;
-}
-
-bool UnixServerImpl::Send(socket_t fd, const std::string &str)
-{
-    if (str.empty()) {
-        LMNET_LOGE("invalid string data");
-        return false;
-    }
-    auto buf = DataBuffer::PoolAlloc(str.size());
-    buf->Assign(str.data(), str.size());
-    return Send(fd, std::move(buf));
-}
-
-bool UnixServerImpl::SendFds(socket_t fd, const std::vector<int> &fds)
-{
-    if (fds.empty()) {
-        LMNET_LOGE("No file descriptors provided");
-        return false;
-    }
-
-    if (sessions_.find(fd) == sessions_.end()) {
-        LMNET_LOGE("invalid session fd");
-        return false;
-    }
-
-    std::vector<int> duplicatedFds;
-    duplicatedFds.reserve(fds.size());
-    for (int descriptor : fds) {
-        if (descriptor < 0) {
-            LMNET_LOGE("Invalid file descriptor: %d", descriptor);
-            continue;
-        }
-        int duplicated = fcntl(descriptor, F_DUPFD_CLOEXEC, 0);
-        if (duplicated < 0) {
-            LMNET_LOGE("Failed to duplicate fd %d: %s", descriptor, strerror(errno));
-            for (int dupFd : duplicatedFds) {
-                ::close(dupFd);
-            }
-            return false;
-        }
-        duplicatedFds.push_back(duplicated);
-    }
-
-    if (duplicatedFds.empty()) {
-        LMNET_LOGE("No valid file descriptors duplicated");
-        return false;
-    }
-
-    auto handlerIt = connectionHandlers_.find(fd);
-    if (handlerIt != connectionHandlers_.end()) {
-        auto unixHandler = handlerIt->second;
-        if (unixHandler) {
-            PendingSend pending;
-            pending.fds = std::move(duplicatedFds);
-            unixHandler->QueueSend(std::move(pending));
-            return true;
-        }
-    }
-
-    for (int dupFd : duplicatedFds) {
-        ::close(dupFd);
-    }
-    return false;
-}
-
 bool UnixServerImpl::SendWithFds(socket_t fd, std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds)
 {
     if ((!buffer || buffer->Size() == 0) && fds.empty()) {
@@ -446,25 +348,10 @@ bool UnixServerImpl::SendWithFds(socket_t fd, std::shared_ptr<DataBuffer> buffer
 
     std::vector<int> duplicatedFds;
     if (!fds.empty()) {
-        duplicatedFds.reserve(fds.size());
-        for (int descriptor : fds) {
-            if (descriptor < 0) {
-                LMNET_LOGE("Invalid file descriptor: %d", descriptor);
-                continue;
-            }
-            int duplicated = fcntl(descriptor, F_DUPFD_CLOEXEC, 0);
-            if (duplicated < 0) {
-                LMNET_LOGE("Failed to duplicate fd %d: %s", descriptor, strerror(errno));
-                for (int dupFd : duplicatedFds) {
-                    ::close(dupFd);
-                }
-                return false;
-            }
-            duplicatedFds.push_back(duplicated);
-        }
-
-        if (duplicatedFds.empty() && (!buffer || buffer->Size() == 0)) {
-            LMNET_LOGE("No valid file descriptors duplicated and no data");
+        // Duplicate file descriptors to avoid closing original descriptors
+        duplicatedFds = UnixSocketUtils::DuplicateFds(fds);
+        if (duplicatedFds.empty()) {
+            LMNET_LOGE("Failed to duplicate file descriptors");
             return false;
         }
     }
@@ -592,18 +479,9 @@ void UnixServerImpl::HandleReceive(socket_t fd)
                         [listenerWeak, session, dataBuffer, fds = std::move(receivedFds)]() mutable {
                             auto listener = listenerWeak.lock();
                             if (listener != nullptr) {
-                                if (dataBuffer) {
-                                    listener->OnReceive(session, dataBuffer);
-                                }
-                                if (!fds.empty()) {
-                                    listener->OnReceiveFds(session, std::move(fds));
-                                }
+                                UnixSocketUtils::ProcessServerMessage(listener, session, dataBuffer, std::move(fds));
                             } else {
-                                for (int descriptor : fds) {
-                                    if (descriptor >= 0) {
-                                        ::close(descriptor);
-                                    }
-                                }
+                                UnixSocketUtils::CleanupFds(fds);
                             }
                         });
                     if (taskQueue_) {

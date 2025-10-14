@@ -1,11 +1,14 @@
 #include "unix_server_impl.h"
 
+#include <errno.h>
 #include <sys/un.h>
 #include <unistd.h>
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
 #include "io_uring_session_impl.h"
+#include "lmnet/unix_message.h"
+#include "unix_socket_utils.h"
 
 namespace lmshao::lmnet {
 
@@ -129,16 +132,21 @@ void UnixServerImpl::SubmitRead(int client_fd)
     auto buffer = DataBuffer::PoolAlloc();
     auto self = shared_from_this();
 
-    IoUringManager::GetInstance().SubmitReadRequest(
-        client_fd, buffer, [self, client_fd](int fd, std::shared_ptr<DataBuffer> buf, int bytes_read) {
-            self->HandleReceive(client_fd, buf, bytes_read);
+    // Use SubmitRecvMsgRequest to receive both data and file descriptors
+    IoUringManager::GetInstance().SubmitRecvMsgRequest(
+        client_fd, buffer,
+        [self, client_fd](int fd, std::shared_ptr<DataBuffer> buf, int bytes_read, std::vector<int> fds) {
+            self->HandleReceiveWithFds(client_fd, buf, bytes_read, std::move(fds));
         });
 }
 
-void UnixServerImpl::HandleReceive(int client_fd, std::shared_ptr<DataBuffer> buffer, int bytes_read)
+void UnixServerImpl::HandleReceiveWithFds(int client_fd, std::shared_ptr<DataBuffer> buffer, int bytes_read,
+                                          std::vector<int> fds)
 {
     auto it = sessions_.find(client_fd);
     if (it == sessions_.end()) {
+        // Clean up any received file descriptors if session not found
+        UnixSocketUtils::CleanupFds(fds);
         return; // Session already closed
     }
     auto session = it->second;
@@ -146,20 +154,32 @@ void UnixServerImpl::HandleReceive(int client_fd, std::shared_ptr<DataBuffer> bu
     if (bytes_read > 0) {
         buffer->SetSize(bytes_read);
         if (auto listener = listener_.lock()) {
-            listener->OnReceive(session, buffer);
+            UnixSocketUtils::ProcessServerMessage(listener, session, buffer, std::move(fds));
+        } else {
+            UnixSocketUtils::CleanupFds(fds);
         }
         SubmitRead(client_fd); // Continue reading
     } else if (bytes_read == 0) {
+        // Clean up any received file descriptors if connection closed
+        UnixSocketUtils::CleanupFds(fds);
         LMNET_LOGI("Client %d disconnected.", client_fd);
         HandleConnectionClose(client_fd);
     } else {
-        if (isRunning_) {
+        // Clean up any received file descriptors on error
+        UnixSocketUtils::CleanupFds(fds);
+
+        // Handle different error types
+        if (bytes_read == -EAGAIN || bytes_read == -EWOULDBLOCK) {
+            // Non-blocking I/O would block - this is normal, retry
+            SubmitRead(client_fd);
+        } else if (isRunning_) {
+            // Other errors - log and close
             LMNET_LOGE("Read failed on client %d: %s", client_fd, strerror(-bytes_read));
             if (auto listener = listener_.lock()) {
                 listener->OnError(session, strerror(-bytes_read));
             }
+            HandleConnectionClose(client_fd);
         }
-        HandleConnectionClose(client_fd);
     }
 }
 

@@ -36,6 +36,7 @@ public:
     bool Send(const void *data, size_t len) override;
     bool Send(std::shared_ptr<DataBuffer> data) override;
     bool SendFds(const std::vector<int> &fds) override;
+    bool SendWithFds(std::shared_ptr<DataBuffer> data, const std::vector<int> &fds) override;
 
     void Close() override;
 
@@ -47,8 +48,11 @@ protected:
 private:
     void HandleConnect(int result);
     void StartReceive();
-    void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read);
+    void HandleReceiveWithFds(std::shared_ptr<DataBuffer> buffer, int bytes_read, std::vector<int> fds);
     void HandleClose();
+
+    // Common Unix Socket send method
+    bool SendUnixMessage(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds);
 
 private:
     std::string socketPath_;

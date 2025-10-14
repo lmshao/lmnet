@@ -41,7 +41,7 @@ private:
     void SubmitAccept();
     void HandleAccept(int client_fd);
     void SubmitRead(int client_fd);
-    void HandleReceive(int client_fd, std::shared_ptr<DataBuffer> buffer, int bytes_read);
+    void HandleReceiveWithFds(int client_fd, std::shared_ptr<DataBuffer> buffer, int bytes_read, std::vector<int> fds);
     void HandleConnectionClose(int client_fd);
 
 private:

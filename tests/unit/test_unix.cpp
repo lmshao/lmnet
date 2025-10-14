@@ -155,16 +155,16 @@ TEST(UnixTest, FileDescriptorTransfer)
 
         void OnReceive(int, std::shared_ptr<DataBuffer>) override {}
 
-        void OnReceiveFds(socket_t, std::vector<int> fds) override
+        void OnReceiveUnixMessage(socket_t, const UnixMessage &message) override
         {
-            if (!fds.empty()) {
-                fd_ref_ = fds.front();
+            if (message.HasFds()) {
+                fd_ref_ = message.fds.front();
                 received_ = true;
-                fds.erase(fds.begin());
-            }
-            for (int descriptor : fds) {
-                if (descriptor >= 0) {
-                    close(descriptor);
+                // Close remaining FDs
+                for (size_t i = 1; i < message.fds.size(); ++i) {
+                    if (message.fds[i] >= 0) {
+                        close(message.fds[i]);
+                    }
                 }
             }
         }

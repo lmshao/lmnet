@@ -36,6 +36,8 @@ enum class RequestType {
     WRITE,
     CLOSE,
     RECVFROM,
+    SENDMSG, // For sending with file descriptors
+    RECVMSG, // For receiving with file descriptors
     EXIT
 };
 
@@ -46,6 +48,9 @@ using WriteCallback = std::function<void(int, int)>;                            
 using CloseCallback = std::function<void(int, int)>;                                 // fd, result
 using RecvFromCallback = std::function<void(int, std::shared_ptr<DataBuffer>, int,
                                             const sockaddr_in &)>; // fd, buffer, bytes/err, addr
+using SendMsgCallback = std::function<void(int, int)>;             // fd, bytes/err
+using RecvMsgCallback =
+    std::function<void(int, std::shared_ptr<DataBuffer>, int, std::vector<int>)>; // fd, buffer, bytes/err, fds
 
 struct Request {
     int fd;
@@ -56,11 +61,16 @@ struct Request {
     WriteCallback write_cb;
     CloseCallback close_cb;
     RecvFromCallback recvfrom_cb;
+    SendMsgCallback sendmsg_cb;
+    RecvMsgCallback recvmsg_cb;
     std::shared_ptr<DataBuffer> buffer;
     struct sockaddr_storage client_addr;
     socklen_t client_addr_len;
     struct iovec iov;
     struct msghdr msg;
+    std::vector<char> control_buffer; // For ancillary data (file descriptors)
+    std::vector<int> fds_to_send;     // File descriptors to send
+    std::vector<int> received_fds;    // File descriptors received
 
     Request() : fd(-1), event_type(RequestType::ACCEPT), client_addr_len(sizeof(sockaddr_storage)), iov{}, msg{} {}
 
@@ -75,10 +85,15 @@ struct Request {
         write_cb = nullptr;
         close_cb = nullptr;
         recvfrom_cb = nullptr;
+        sendmsg_cb = nullptr;
+        recvmsg_cb = nullptr;
         buffer.reset();
         client_addr_len = sizeof(sockaddr_storage);
         iov = {};
         msg = {};
+        control_buffer.clear();
+        fds_to_send.clear();
+        received_fds.clear();
     }
 };
 
@@ -105,6 +120,11 @@ public:
                              WriteCallback callback);
     bool SubmitWriteRequest(int client_fd, std::shared_ptr<DataBuffer> buffer, WriteCallback callback);
     bool SubmitCloseRequest(int client_fd, CloseCallback callback);
+
+    // Unix Socket file descriptor transfer operations
+    bool SubmitSendMsgRequest(int fd, std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds,
+                              SendMsgCallback callback);
+    bool SubmitRecvMsgRequest(int fd, std::shared_ptr<DataBuffer> buffer, RecvMsgCallback callback);
 
 private:
     void Run();

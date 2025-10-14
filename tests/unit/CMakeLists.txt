@@ -18,4 +18,16 @@ if(NOT WIN32)
     target_link_libraries(test_unix lmnet ${PLATFORM_LIBS})
     add_test(NAME UnixTests COMMAND $<TARGET_FILE:test_unix>)
     set_tests_properties(UnixTests PROPERTIES LABELS "unit")
+    
+    # Enhanced UNIX FD transfer tests
+    add_executable(test_unix_fd_enhanced test_unix_fd_enhanced.cpp)
+    target_link_libraries(test_unix_fd_enhanced lmnet ${PLATFORM_LIBS})
+    add_test(NAME UnixFdEnhancedTests COMMAND $<TARGET_FILE:test_unix_fd_enhanced>)
+    set_tests_properties(UnixFdEnhancedTests PROPERTIES LABELS "unit;fd_transfer")
+    
+    # Simple UNIX FD transfer tests (for debugging)
+    add_executable(test_unix_fd_simple test_unix_fd_simple.cpp)
+    target_link_libraries(test_unix_fd_simple lmnet ${PLATFORM_LIBS})
+    add_test(NAME UnixFdSimpleTests COMMAND $<TARGET_FILE:test_unix_fd_simple>)
+    set_tests_properties(UnixFdSimpleTests PROPERTIES LABELS "unit;fd_transfer;simple")
 endif()

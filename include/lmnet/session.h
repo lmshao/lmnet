@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "common.h"
+#include "unix_message.h"
 
 namespace lmshao::lmnet {
 
@@ -61,6 +62,23 @@ public:
      * @return true on success, false on failure
      */
     virtual bool SendWithFds(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds) const { return false; }
+
+    /**
+     * @brief Send Unix message (unified interface for data and/or file descriptors)
+     * @param message Unix message to send
+     * @return true on success, false on failure
+     */
+    virtual bool SendUnixMessage(const UnixMessage &message) const
+    {
+        if (message.HasData() && message.HasFds()) {
+            return SendWithFds(message.data, message.fds);
+        } else if (message.HasData()) {
+            return Send(message.data);
+        } else if (message.HasFds()) {
+            return SendFds(message.fds);
+        }
+        return false; // Empty message
+    }
 #endif
 
     /**
