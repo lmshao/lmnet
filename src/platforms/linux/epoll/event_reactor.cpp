@@ -107,9 +107,10 @@ void EventReactor::Run()
             std::shared_lock<std::shared_mutex> lock(mutex_);
             auto handlerIt = handlers_.find(readyFd);
             if (handlerIt != handlers_.end()) {
-                auto handler = handlerIt->second;
+                auto handler = handlerIt->second; // Make a copy to increase ref count
                 lock.unlock();
-                DispatchEvent(readyFd, events);
+                // Now safe to use handler even if it's removed from map
+                DispatchEvent(handler, readyFd, events);
                 continue;
             }
         }
@@ -248,17 +249,12 @@ bool EventReactor::ModifyHandler(socket_t fd, int events)
     return true;
 }
 
-void EventReactor::DispatchEvent(socket_t fd, int events)
+void EventReactor::DispatchEvent(std::shared_ptr<EventHandler> handler, socket_t fd, int events)
 {
-    std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = handlers_.find(fd);
-    if (it == handlers_.end()) {
-        LMNET_LOGW("Handler not found for fd:%d", fd);
+    if (!handler) {
+        LMNET_LOGW("Handler is null for fd:%d", fd);
         return;
     }
-
-    auto handler = it->second;
-    lock.unlock();
 
     try {
         if (events & EPOLLIN) {

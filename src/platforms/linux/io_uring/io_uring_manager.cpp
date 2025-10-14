@@ -250,6 +250,14 @@ bool IoUringManager::SubmitAcceptRequest(int fd, AcceptCallback callback)
 
 bool IoUringManager::SubmitReadRequest(int client_fd, std::shared_ptr<DataBuffer> buffer, ReadCallback callback)
 {
+    if (!buffer) {
+        LMNET_LOGE("Buffer is nullptr in SubmitReadRequest");
+        if (callback) {
+            callback(client_fd, buffer, -EINVAL);
+        }
+        return false;
+    }
+
     return SubmitOperation(
         RequestType::READ, client_fd,
         [cb = std::move(callback), buffer](Request *req) {
@@ -263,6 +271,14 @@ bool IoUringManager::SubmitReadRequest(int client_fd, std::shared_ptr<DataBuffer
 
 bool IoUringManager::SubmitRecvFromRequest(int fd, std::shared_ptr<DataBuffer> buffer, RecvFromCallback callback)
 {
+    if (!buffer) {
+        LMNET_LOGE("Buffer is nullptr in SubmitRecvFromRequest");
+        if (callback) {
+            callback(fd, buffer, -EINVAL, {});
+        }
+        return false;
+    }
+
     return SubmitOperation(
         RequestType::RECVFROM, fd,
         [cb = std::move(callback), buffer](Request *req) {
@@ -285,6 +301,14 @@ bool IoUringManager::SubmitRecvFromRequest(int fd, std::shared_ptr<DataBuffer> b
 bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr,
                                          WriteCallback callback)
 {
+    if (!buffer) {
+        LMNET_LOGE("Buffer is nullptr in SubmitSendToRequest");
+        if (callback) {
+            callback(fd, -EINVAL);
+        }
+        return false;
+    }
+
     return SubmitOperation(
         RequestType::WRITE, fd,
         [cb = std::move(callback), buffer, addr](Request *req) {
@@ -309,6 +333,14 @@ bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<DataBuffer> buf
 
 bool IoUringManager::SubmitWriteRequest(int client_fd, std::shared_ptr<DataBuffer> buffer, WriteCallback callback)
 {
+    if (!buffer) {
+        LMNET_LOGE("Buffer is nullptr in SubmitWriteRequest");
+        if (callback) {
+            callback(client_fd, -EINVAL);
+        }
+        return false;
+    }
+
     return SubmitOperation(
         RequestType::WRITE, client_fd,
         [cb = std::move(callback), buffer](Request *req) {
@@ -357,10 +389,10 @@ bool IoUringManager::SubmitSendMsgRequest(int fd, std::shared_ptr<DataBuffer> bu
             req->iov.iov_base = buffer ? buffer->Data() : nullptr;
             req->iov.iov_len = buffer ? buffer->Size() : 0;
 
-            // If no data, send a single placeholder byte
+            // If no data, send a single placeholder byte using Request member
             if (!buffer || buffer->Size() == 0) {
-                static char placeholder = 0;
-                req->iov.iov_base = &placeholder;
+                req->placeholder_byte = 0;
+                req->iov.iov_base = &req->placeholder_byte;
                 req->iov.iov_len = 1;
             }
 
@@ -387,6 +419,14 @@ bool IoUringManager::SubmitSendMsgRequest(int fd, std::shared_ptr<DataBuffer> bu
 
 bool IoUringManager::SubmitRecvMsgRequest(int fd, std::shared_ptr<DataBuffer> buffer, RecvMsgCallback callback)
 {
+    if (!buffer) {
+        LMNET_LOGE("Buffer is nullptr in SubmitRecvMsgRequest");
+        if (callback) {
+            callback(fd, buffer, -EINVAL, {});
+        }
+        return false;
+    }
+
     constexpr int MAX_FDS_PER_MESSAGE = 32;
 
     return SubmitOperation(

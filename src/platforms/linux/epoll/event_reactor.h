@@ -57,7 +57,7 @@ private:
     ~EventReactor();
 
     void Run();
-    void DispatchEvent(socket_t fd, int events);
+    void DispatchEvent(std::shared_ptr<EventHandler> handler, socket_t fd, int events);
 
     int epollFd_ = -1;
     int wakeupFd_ = -1;
