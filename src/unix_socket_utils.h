@@ -30,6 +30,7 @@ public:
      * @brief Duplicate file descriptors safely
      * @param fds Original file descriptors
      * @return Vector of duplicated fds, or empty if failed (all duplicated fds are cleaned up on failure)
+     * @note All-or-nothing: if any FD is invalid or duplication fails, all duplicated FDs are cleaned up
      */
     static std::vector<int> DuplicateFds(const std::vector<int> &fds)
     {
@@ -38,16 +39,16 @@ public:
 
         for (int fd : fds) {
             if (fd < 0) {
-                LMNET_LOGE("Invalid file descriptor: %d", fd);
-                continue;
+                LMNET_LOGE("Invalid file descriptor: %d (all-or-nothing policy)", fd);
+                // Clean up already duplicated descriptors
+                CleanupFds(duplicatedFds);
+                return {}; // Return empty vector on failure
             }
             int dupFd = ::dup(fd);
             if (dupFd == -1) {
                 LMNET_LOGE("Failed to duplicate file descriptor %d: %s", fd, strerror(errno));
                 // Clean up already duplicated descriptors
-                for (int i : duplicatedFds) {
-                    ::close(i);
-                }
+                CleanupFds(duplicatedFds);
                 return {}; // Return empty vector on failure
             }
             duplicatedFds.push_back(dupFd);
