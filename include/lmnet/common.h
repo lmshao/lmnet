@@ -26,19 +26,6 @@ using socket_t = SOCKET;
 using pid_t = DWORD;
 #endif
 
-template <typename T>
-class Creatable {
-public:
-    template <typename... Args>
-    static std::shared_ptr<T> Create(Args &&...args)
-    {
-        return std::shared_ptr<T>(new T(std::forward<Args>(args)...));
-    }
-
-protected:
-    friend T;
-};
-
 using DataBuffer = lmshao::lmcore::DataBuffer;
 
 } // namespace lmshao::lmnet

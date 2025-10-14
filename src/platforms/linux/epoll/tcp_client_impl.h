@@ -26,11 +26,8 @@ using lmshao::lmcore::TaskQueue;
 
 class TcpClientHandler;
 class EventHandler;
-class TcpClientImpl final : public ITcpClient,
-                            public std::enable_shared_from_this<TcpClientImpl>,
-                            public Creatable<TcpClientImpl> {
+class TcpClientImpl final : public ITcpClient, public std::enable_shared_from_this<TcpClientImpl> {
     friend class TcpClientHandler;
-    friend class Creatable<TcpClientImpl>;
 
 public:
     ~TcpClientImpl();
@@ -47,7 +44,7 @@ public:
 
     int GetSocketFd() const override { return socket_; }
 
-protected:
+public:
     TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
 
     void HandleReceive(socket_t fd);

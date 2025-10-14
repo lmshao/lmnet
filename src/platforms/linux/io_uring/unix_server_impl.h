@@ -23,9 +23,7 @@
 
 namespace lmshao::lmnet {
 
-class UnixServerImpl final : public BaseServer,
-                             public std::enable_shared_from_this<UnixServerImpl>,
-                             public Creatable<UnixServerImpl> {
+class UnixServerImpl final : public BaseServer, public std::enable_shared_from_this<UnixServerImpl> {
 public:
     explicit UnixServerImpl(const std::string &socketPath);
     ~UnixServerImpl() override;

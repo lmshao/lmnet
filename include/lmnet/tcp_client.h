@@ -19,8 +19,13 @@
 namespace lmshao::lmnet {
 
 class ITcpClient;
-class TcpClient final : public Creatable<TcpClient> {
+class TcpClient final {
 public:
+    template <typename... Args>
+    static std::shared_ptr<TcpClient> Create(Args &&...args)
+    {
+        return std::make_shared<TcpClient>(std::forward<Args>(args)...);
+    }
     /**
      * @brief Constructor
      * @param remoteIp Remote IP address

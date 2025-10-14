@@ -20,8 +20,13 @@
 namespace lmshao::lmnet {
 
 class IUnixClient;
-class UnixClient : public Creatable<UnixClient> {
+class UnixClient {
 public:
+    template <typename... Args>
+    static std::shared_ptr<UnixClient> Create(Args &&...args)
+    {
+        return std::make_shared<UnixClient>(std::forward<Args>(args)...);
+    }
     /**
      * @brief Constructor
      * @param socketPath Unix domain socket path

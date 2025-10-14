@@ -26,13 +26,10 @@ using lmshao::lmcore::TaskQueue;
 
 class EventHandler;
 class TcpConnectionHandler;
-class TcpServerImpl final : public BaseServer,
-                            public std::enable_shared_from_this<TcpServerImpl>,
-                            public Creatable<TcpServerImpl> {
+class TcpServerImpl final : public BaseServer, public std::enable_shared_from_this<TcpServerImpl> {
     friend class EventProcessor;
     friend class TcpServerHandler;
     friend class TcpConnectionHandler;
-    friend class Creatable<TcpServerImpl>;
 
 public:
     ~TcpServerImpl();
@@ -47,7 +44,7 @@ public:
 
     socket_t GetSocketFd() const override { return socket_; }
 
-protected:
+public:
     TcpServerImpl(std::string listenIp, uint16_t listenPort) : localPort_(listenPort), localIp_(listenIp) {}
     explicit TcpServerImpl(uint16_t listenPort) : localPort_(listenPort) {}
 

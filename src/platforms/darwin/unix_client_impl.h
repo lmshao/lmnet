@@ -27,11 +27,8 @@ using lmshao::lmcore::TaskQueue;
 class UnixClientHandler;
 class EventHandler;
 
-class UnixClientImpl final : public IUnixClient,
-                             public std::enable_shared_from_this<UnixClientImpl>,
-                             public Creatable<UnixClientImpl> {
+class UnixClientImpl final : public IUnixClient, public std::enable_shared_from_this<UnixClientImpl> {
     friend class UnixClientHandler;
-    friend class Creatable<UnixClientImpl>;
 
 public:
     ~UnixClientImpl() override;
@@ -50,7 +47,7 @@ public:
 
     socket_t GetSocketFd() const override { return socket_; }
 
-protected:
+public:
     explicit UnixClientImpl(const std::string &socketPath);
 
     void HandleReceive(socket_t fd);

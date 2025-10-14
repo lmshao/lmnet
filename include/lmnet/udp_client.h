@@ -19,8 +19,13 @@
 namespace lmshao::lmnet {
 
 class IUdpClient;
-class UdpClient final : public Creatable<UdpClient> {
+class UdpClient final {
 public:
+    template <typename... Args>
+    static std::shared_ptr<UdpClient> Create(Args &&...args)
+    {
+        return std::make_shared<UdpClient>(std::forward<Args>(args)...);
+    }
     /**
      * @brief Constructor
      * @param remoteIp Remote IP address

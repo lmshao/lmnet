@@ -20,8 +20,13 @@ namespace lmshao::lmnet {
 
 class BaseServer;
 
-class UnixServer : public Creatable<UnixServer> {
+class UnixServer {
 public:
+    template <typename... Args>
+    static std::shared_ptr<UnixServer> Create(Args &&...args)
+    {
+        return std::make_shared<UnixServer>(std::forward<Args>(args)...);
+    }
     /**
      * @brief Constructor
      * @param socketPath Unix domain socket path

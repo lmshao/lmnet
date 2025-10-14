@@ -23,10 +23,7 @@
 namespace lmshao::lmnet {
 using lmshao::lmcore::TaskQueue;
 
-class UdpServerImpl final : public BaseServer,
-                            public std::enable_shared_from_this<UdpServerImpl>,
-                            public Creatable<UdpServerImpl> {
-    friend class Creatable<UdpServerImpl>;
+class UdpServerImpl final : public BaseServer, public std::enable_shared_from_this<UdpServerImpl> {
 
 public:
     UdpServerImpl(std::string listenIp, uint16_t listenPort);

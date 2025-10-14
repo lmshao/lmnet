@@ -28,13 +28,10 @@ using lmshao::lmcore::TaskQueue;
 class EventHandler;
 class UnixConnectionHandler;
 
-class UnixServerImpl final : public BaseServer,
-                             public std::enable_shared_from_this<UnixServerImpl>,
-                             public Creatable<UnixServerImpl> {
+class UnixServerImpl final : public BaseServer, public std::enable_shared_from_this<UnixServerImpl> {
     friend class EventProcessor;
     friend class UnixServerHandler;
     friend class UnixConnectionHandler;
-    friend class Creatable<UnixServerImpl>;
 
 public:
     ~UnixServerImpl();

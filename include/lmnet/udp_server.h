@@ -19,8 +19,13 @@
 namespace lmshao::lmnet {
 
 class BaseServer;
-class UdpServer final : public Creatable<UdpServer> {
+class UdpServer final {
 public:
+    template <typename... Args>
+    static std::shared_ptr<UdpServer> Create(Args &&...args)
+    {
+        return std::make_shared<UdpServer>(std::forward<Args>(args)...);
+    }
     /**
      * @brief Constructor with IP and port
      * @param listenIp IP address to listen on
