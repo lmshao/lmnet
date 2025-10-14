@@ -2,8 +2,9 @@
 
 #include <liburing.h>
 #include <sys/socket.h>
-#include <sys/syscall.h> // SYS_gettid
-#include <unistd.h>      // syscall
+#include <sys/syscall.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 #include "internal_logger.h"
 
@@ -169,6 +170,30 @@ void IoUringManager::HandleCompletion(Request *req, int result)
                                  *reinterpret_cast<const sockaddr_in *>(&req->client_addr));
             }
             break;
+        case RequestType::SENDMSG:
+            if (req->sendmsg_cb) {
+                req->sendmsg_cb(req->fd, result);
+            }
+            break;
+        case RequestType::RECVMSG:
+            if (req->recvmsg_cb) {
+                // Extract received file descriptors from control data
+                req->received_fds.clear();
+                if (result > 0 && req->msg.msg_controllen > 0) {
+                    for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&req->msg); cmsg != nullptr;
+                         cmsg = CMSG_NXTHDR(&req->msg, cmsg)) {
+                        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+                            size_t fdCount = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+                            if (fdCount > 0) {
+                                int *fds = reinterpret_cast<int *>(CMSG_DATA(cmsg));
+                                req->received_fds.insert(req->received_fds.end(), fds, fds + fdCount);
+                            }
+                        }
+                    }
+                }
+                req->recvmsg_cb(req->fd, req->buffer, result, req->received_fds);
+            }
+            break;
         case RequestType::EXIT:
             break;
     }
@@ -300,6 +325,92 @@ bool IoUringManager::SubmitCloseRequest(int client_fd, CloseCallback callback)
     return SubmitOperation(
         RequestType::CLOSE, client_fd, [cb = std::move(callback)](Request *req) { req->close_cb = cb; },
         [](io_uring_sqe *sqe, Request *req) { io_uring_prep_close(sqe, req->fd); });
+}
+
+// Unix Socket file descriptor transfer operations
+bool IoUringManager::SubmitSendMsgRequest(int fd, std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds,
+                                          SendMsgCallback callback)
+{
+    // Verify this is a Unix domain socket for FD passing
+    if (!fds.empty()) {
+        struct sockaddr_un addr;
+        socklen_t len = sizeof(addr);
+        if (getsockname(fd, (struct sockaddr *)&addr, &len) == 0) {
+            if (addr.sun_family != AF_UNIX) {
+                LMNET_LOGE("File descriptor passing is only supported on Unix domain sockets, not on AF_%d",
+                           addr.sun_family);
+                return false;
+            }
+        } else {
+            LMNET_LOGW("Unable to verify socket family for FD passing");
+        }
+    }
+
+    return SubmitOperation(
+        RequestType::SENDMSG, fd,
+        [cb = std::move(callback), buffer, fds](Request *req) {
+            req->sendmsg_cb = cb;
+            req->buffer = buffer;
+            req->fds_to_send = fds;
+
+            // Setup iovec
+            req->iov.iov_base = buffer ? buffer->Data() : nullptr;
+            req->iov.iov_len = buffer ? buffer->Size() : 0;
+
+            // If no data, send a single placeholder byte
+            if (!buffer || buffer->Size() == 0) {
+                static char placeholder = 0;
+                req->iov.iov_base = &placeholder;
+                req->iov.iov_len = 1;
+            }
+
+            // Setup msghdr
+            req->msg = {};
+            req->msg.msg_iov = &req->iov;
+            req->msg.msg_iovlen = 1;
+
+            // Setup control data for file descriptors
+            if (!fds.empty()) {
+                req->control_buffer.resize(CMSG_SPACE(sizeof(int) * fds.size()));
+                req->msg.msg_control = req->control_buffer.data();
+                req->msg.msg_controllen = req->control_buffer.size();
+
+                struct cmsghdr *cmsg = CMSG_FIRSTHDR(&req->msg);
+                cmsg->cmsg_level = SOL_SOCKET;
+                cmsg->cmsg_type = SCM_RIGHTS;
+                cmsg->cmsg_len = CMSG_LEN(sizeof(int) * fds.size());
+                std::memcpy(CMSG_DATA(cmsg), fds.data(), sizeof(int) * fds.size());
+            }
+        },
+        [](io_uring_sqe *sqe, Request *req) { io_uring_prep_sendmsg(sqe, req->fd, &req->msg, MSG_NOSIGNAL); });
+}
+
+bool IoUringManager::SubmitRecvMsgRequest(int fd, std::shared_ptr<DataBuffer> buffer, RecvMsgCallback callback)
+{
+    constexpr int MAX_FDS_PER_MESSAGE = 32;
+
+    return SubmitOperation(
+        RequestType::RECVMSG, fd,
+        [cb = std::move(callback), buffer](Request *req) {
+            req->recvmsg_cb = cb;
+            req->buffer = buffer;
+            req->received_fds.clear();
+
+            // Setup iovec
+            req->iov.iov_base = buffer->Data();
+            req->iov.iov_len = buffer->Capacity();
+
+            // Setup msghdr
+            req->msg = {};
+            req->msg.msg_iov = &req->iov;
+            req->msg.msg_iovlen = 1;
+
+            // Setup control buffer for receiving file descriptors
+            req->control_buffer.resize(CMSG_SPACE(sizeof(int) * MAX_FDS_PER_MESSAGE));
+            req->msg.msg_control = req->control_buffer.data();
+            req->msg.msg_controllen = req->control_buffer.size();
+        },
+        [](io_uring_sqe *sqe, Request *req) { io_uring_prep_recvmsg(sqe, req->fd, &req->msg, 0); });
 }
 
 } // namespace lmshao::lmnet

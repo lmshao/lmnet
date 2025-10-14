@@ -22,6 +22,7 @@
 
 #include "event_reactor.h"
 #include "internal_logger.h"
+#include "unix_socket_utils.h"
 
 namespace lmshao::lmnet {
 using lmshao::lmcore::TaskHandler;
@@ -341,23 +342,13 @@ bool UnixClientImpl::SendWithFds(std::shared_ptr<DataBuffer> data, const std::ve
     PendingSend pending;
     pending.data = data;
 
-    // Duplicate fds to avoid closing original descriptors prematurely
-    pending.fds.reserve(fds.size());
-    for (int fd : fds) {
-        if (fd < 0) {
-            LMNET_LOGE("Invalid file descriptor: %d", fd);
-            continue;
+    // Duplicate file descriptors to avoid closing original descriptors
+    if (!fds.empty()) {
+        auto duplicatedFds = UnixSocketUtils::DuplicateFds(fds);
+        if (duplicatedFds.empty()) {
+            return false; // Failed to duplicate fds
         }
-        int dupFd = ::dup(fd);
-        if (dupFd == -1) {
-            LMNET_LOGE("Failed to duplicate file descriptor: %s", strerror(errno));
-            // Clean up already duplicated descriptors
-            for (int i = 0; i < static_cast<int>(pending.fds.size()); ++i) {
-                ::close(pending.fds[i]);
-            }
-            return false;
-        }
-        pending.fds.push_back(dupFd);
+        pending.fds = std::move(duplicatedFds);
     }
 
     clientHandler_->QueueSend(std::move(pending));
@@ -427,18 +418,9 @@ void UnixClientImpl::HandleReceive(socket_t fd)
                     [listenerWeak, fd, dataBuffer, fds = std::move(receivedFds)]() mutable {
                         auto listener = listenerWeak.lock();
                         if (listener) {
-                            if (dataBuffer) {
-                                listener->OnReceive(fd, dataBuffer);
-                            }
-                            if (!fds.empty()) {
-                                listener->OnReceiveFds(fd, std::move(fds));
-                            }
+                            UnixSocketUtils::ProcessClientMessage(listener, fd, dataBuffer, std::move(fds));
                         } else {
-                            for (int descriptor : fds) {
-                                if (descriptor >= 0) {
-                                    ::close(descriptor);
-                                }
-                            }
+                            UnixSocketUtils::CleanupFds(fds);
                         }
                     });
                 if (taskQueue_) {

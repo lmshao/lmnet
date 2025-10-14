@@ -1,5 +1,6 @@
 #include "unix_client_impl.h"
 
+#include <fcntl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -9,6 +10,8 @@
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
+#include "lmnet/unix_message.h"
+#include "unix_socket_utils.h"
 
 namespace lmshao::lmnet {
 
@@ -117,30 +120,44 @@ void UnixClientImpl::StartReceive()
     auto buffer = DataBuffer::PoolAlloc();
     auto self = shared_from_this();
 
-    IoUringManager::GetInstance().SubmitReadRequest(
-        socket_, buffer,
-        [self](int fd, std::shared_ptr<DataBuffer> buf, int bytes_read) { self->HandleReceive(buf, bytes_read); });
+    // Use SubmitRecvMsgRequest to receive both data and file descriptors
+    IoUringManager::GetInstance().SubmitRecvMsgRequest(
+        socket_, buffer, [self](int fd, std::shared_ptr<DataBuffer> buf, int bytes_read, std::vector<int> fds) {
+            self->HandleReceiveWithFds(buf, bytes_read, std::move(fds));
+        });
 }
 
-void UnixClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read)
+void UnixClientImpl::HandleReceiveWithFds(std::shared_ptr<DataBuffer> buffer, int bytes_read, std::vector<int> fds)
 {
     if (bytes_read > 0) {
         buffer->SetSize(bytes_read);
         if (auto listener = listener_.lock()) {
-            listener->OnReceive(socket_, buffer);
+            UnixSocketUtils::ProcessClientMessage(listener, socket_, buffer, std::move(fds));
+        } else {
+            UnixSocketUtils::CleanupFds(fds);
         }
         StartReceive(); // Continue receiving
     } else if (bytes_read == 0) {
+        // Clean up any received file descriptors if connection closed
+        UnixSocketUtils::CleanupFds(fds);
         LMNET_LOGI("Connection closed by peer.");
         HandleClose();
     } else {
-        if (isRunning_) {
+        // Clean up any received file descriptors on error
+        UnixSocketUtils::CleanupFds(fds);
+
+        // Handle different error types
+        if (bytes_read == -EAGAIN || bytes_read == -EWOULDBLOCK) {
+            // Non-blocking I/O would block - this is normal, retry
+            StartReceive();
+        } else if (isRunning_) {
+            // Other errors - log and close
             LMNET_LOGE("Read failed: %s", strerror(-bytes_read));
             if (auto listener = listener_.lock()) {
                 listener->OnError(socket_, strerror(-bytes_read));
             }
+            HandleClose();
         }
-        HandleClose();
     }
 }
 
@@ -161,19 +178,51 @@ bool UnixClientImpl::Send(std::shared_ptr<DataBuffer> data)
     if (!isRunning_ || !isConnected_)
         return false;
 
-    IoUringManager::GetInstance().SubmitWriteRequest(socket_, data, [](int, int res) {
-        if (res < 0) {
-            LMNET_LOGE("Write failed: %s", strerror(-res));
-        }
-    });
-    return true;
+    // Use unified SendUnixMessage for consistency
+    return SendUnixMessage(data, {});
 }
 
 bool UnixClientImpl::SendFds(const std::vector<int> &fds)
 {
-    (void)fds;
-    LMNET_LOGE("SendFds is not supported on io_uring backend");
-    return false;
+    if (!isRunning_ || !isConnected_)
+        return false;
+
+    if (fds.empty()) {
+        LMNET_LOGW("No file descriptors to send");
+        return true;
+    }
+
+    return SendUnixMessage(nullptr, fds);
+}
+
+bool UnixClientImpl::SendWithFds(std::shared_ptr<DataBuffer> data, const std::vector<int> &fds)
+{
+    if (!isRunning_ || !isConnected_)
+        return false;
+
+    if ((!data || data->Size() == 0) && fds.empty()) {
+        LMNET_LOGW("No data and no file descriptors to send");
+        return true;
+    }
+
+    return SendUnixMessage(data, fds);
+}
+
+bool UnixClientImpl::SendUnixMessage(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds)
+{
+    std::vector<int> duplicatedFds;
+    if (!fds.empty()) {
+        duplicatedFds = UnixSocketUtils::DuplicateFds(fds);
+        if (duplicatedFds.empty()) {
+            return false; // Failed to duplicate fds
+        }
+    }
+
+    // Create a copy for cleanup callback before moving duplicatedFds
+    std::vector<int> fdsForCleanup = duplicatedFds;
+    return IoUringManager::GetInstance().SubmitSendMsgRequest(
+        socket_, buffer, std::move(duplicatedFds),
+        UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message"));
 }
 
 void UnixClientImpl::Close()
