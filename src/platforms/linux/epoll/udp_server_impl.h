@@ -25,13 +25,11 @@ namespace lmshao::lmnet {
 using lmshao::lmcore::TaskQueue;
 class EventHandler;
 
-class UdpServerImpl final : public BaseServer,
-                            public std::enable_shared_from_this<UdpServerImpl>,
-                            public Creatable<UdpServerImpl> {
+class UdpServerImpl final : public BaseServer, public std::enable_shared_from_this<UdpServerImpl> {
     friend class UdpServerHandler;
-    friend class Creatable<UdpServerImpl>;
 
 public:
+    UdpServerImpl(std::string ip, uint16_t port);
     ~UdpServerImpl();
 
     // impl IUdpServer
@@ -44,10 +42,6 @@ public:
     bool Send(std::string ip, uint16_t port, const std::string &str);
     bool Send(std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data);
     socket_t GetSocketFd() const override { return socket_; }
-
-protected:
-    // Constructor should be protected in IMPL pattern
-    UdpServerImpl(std::string ip, uint16_t port);
 
 private:
     void HandleReceive(socket_t fd);

@@ -142,7 +142,6 @@ private:
 
     void HandleCompletion(Request *req, int result);
 
-private:
     IoUringManager() = default;
     friend class Singleton<IoUringManager>;
 

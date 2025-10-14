@@ -20,7 +20,7 @@
 namespace lmshao::lmnet {
 
 class IUnixClient;
-class UnixClient : public Creatable<UnixClient> {
+class UnixClient {
 public:
     /**
      * @brief Constructor
@@ -32,6 +32,17 @@ public:
      * @brief Destructor
      */
     ~UnixClient();
+
+    /**
+     * @brief Create a shared instance
+     * @param args Constructor arguments
+     * @return Shared pointer to the created instance
+     */
+    template <typename... Args>
+    static std::shared_ptr<UnixClient> Create(Args &&...args)
+    {
+        return std::make_shared<UnixClient>(std::forward<Args>(args)...);
+    }
 
     /**
      * @brief Initialize the Unix client

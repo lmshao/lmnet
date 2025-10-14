@@ -21,10 +21,6 @@ namespace lmshao::lmnet {
 
 class Session {
 public:
-    std::string host;             ///< Host address
-    uint16_t port;                ///< Port number
-    socket_t fd = INVALID_SOCKET; ///< Socket file descriptor
-
     /**
      * @brief Send data buffer
      * @param buffer Data buffer to send
@@ -90,6 +86,11 @@ public:
 protected:
     Session() = default;
     virtual ~Session() = default;
+
+public:
+    std::string host;             ///< Host address
+    uint16_t port;                ///< Port number
+    socket_t fd = INVALID_SOCKET; ///< Socket file descriptor
 };
 
 } // namespace lmshao::lmnet

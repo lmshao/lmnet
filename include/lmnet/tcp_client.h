@@ -19,7 +19,7 @@
 namespace lmshao::lmnet {
 
 class ITcpClient;
-class TcpClient final : public Creatable<TcpClient> {
+class TcpClient final {
 public:
     /**
      * @brief Constructor
@@ -34,6 +34,17 @@ public:
      * @brief Destructor
      */
     ~TcpClient();
+
+    /**
+     * @brief Create a shared instance
+     * @param args Constructor arguments
+     * @return Shared pointer to the created instance
+     */
+    template <typename... Args>
+    static std::shared_ptr<TcpClient> Create(Args &&...args)
+    {
+        return std::make_shared<TcpClient>(std::forward<Args>(args)...);
+    }
 
     /**
      * @brief Initialize the TCP client

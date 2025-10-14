@@ -23,10 +23,7 @@
 namespace lmshao::lmnet {
 using lmshao::lmcore::TaskQueue;
 
-class UdpClientImpl final : public IUdpClient,
-                            public std::enable_shared_from_this<UdpClientImpl>,
-                            public Creatable<UdpClientImpl> {
-    friend class Creatable<UdpClientImpl>;
+class UdpClientImpl final : public IUdpClient, public std::enable_shared_from_this<UdpClientImpl> {
 
 public:
     UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
@@ -48,6 +45,7 @@ private:
     void HandleSend(DWORD bytesOrError);
     void HandleClose(bool isError, const std::string &reason);
 
+private:
     std::string remoteIp_;
     uint16_t remotePort_;
     std::string localIp_;

@@ -19,7 +19,7 @@
 namespace lmshao::lmnet {
 
 class BaseServer;
-class TcpServer final : public Creatable<TcpServer> {
+class TcpServer final {
 public:
     /**
      * @brief Constructor with IP and port
@@ -38,6 +38,17 @@ public:
      * @brief Destructor
      */
     ~TcpServer();
+
+    /**
+     * @brief Create a shared instance
+     * @param args Constructor arguments
+     * @return Shared pointer to the created instance
+     */
+    template <typename... Args>
+    static std::shared_ptr<TcpServer> Create(Args &&...args)
+    {
+        return std::make_shared<TcpServer>(std::forward<Args>(args)...);
+    }
 
     /**
      * @brief Initialize the TCP server

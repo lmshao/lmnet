@@ -24,13 +24,11 @@ using lmshao::lmcore::TaskQueue;
 
 class EventHandler;
 
-class UdpClientImpl final : public IUdpClient,
-                            public std::enable_shared_from_this<UdpClientImpl>,
-                            public Creatable<UdpClientImpl> {
+class UdpClientImpl final : public IUdpClient, public std::enable_shared_from_this<UdpClientImpl> {
     friend class UdpClientHandler;
-    friend class Creatable<UdpClientImpl>;
 
 public:
+    UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
     ~UdpClientImpl();
 
     bool Init() override;
@@ -42,9 +40,6 @@ public:
     bool Send(std::shared_ptr<DataBuffer> data) override;
     void Close() override;
     socket_t GetSocketFd() const override { return socket_; }
-
-protected:
-    UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp = "", uint16_t localPort = 0);
 
 private:
     void HandleReceive(socket_t fd);

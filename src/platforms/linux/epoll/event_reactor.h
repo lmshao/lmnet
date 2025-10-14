@@ -59,6 +59,7 @@ private:
     void Run();
     void DispatchEvent(std::shared_ptr<EventHandler> handler, socket_t fd, int events);
 
+private:
     int epollFd_ = -1;
     int wakeupFd_ = -1;
     bool running_ = false;

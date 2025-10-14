@@ -26,7 +26,7 @@ namespace lmshao::lmnet {
 
 UdpClient::UdpClient(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
 {
-    impl_ = UdpClientImpl::Create(std::move(remoteIp), remotePort, std::move(localIp), localPort);
+    impl_ = std::make_shared<UdpClientImpl>(std::move(remoteIp), remotePort, std::move(localIp), localPort);
     if (!impl_) {
         LMNET_LOGE("Failed to create UDP client implementation");
     }

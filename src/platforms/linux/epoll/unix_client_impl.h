@@ -25,13 +25,11 @@ namespace lmshao::lmnet {
 using lmshao::lmcore::TaskQueue;
 class UnixClientHandler;
 class EventHandler;
-class UnixClientImpl final : public IUnixClient,
-                             public std::enable_shared_from_this<UnixClientImpl>,
-                             public Creatable<UnixClientImpl> {
+class UnixClientImpl final : public IUnixClient, public std::enable_shared_from_this<UnixClientImpl> {
     friend class UnixClientHandler;
-    friend class Creatable<UnixClientImpl>;
 
 public:
+    UnixClientImpl(const std::string &socketPath);
     ~UnixClientImpl();
 
     bool Init() override;
@@ -48,9 +46,7 @@ public:
 
     socket_t GetSocketFd() const override { return socket_; }
 
-protected:
-    UnixClientImpl(const std::string &socketPath);
-
+private:
     void HandleReceive(socket_t fd);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
 
