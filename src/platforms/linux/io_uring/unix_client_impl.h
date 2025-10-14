@@ -20,12 +20,9 @@
 
 namespace lmshao::lmnet {
 
-class UnixClientImpl final : public IUnixClient,
-                             public std::enable_shared_from_this<UnixClientImpl>,
-                             public Creatable<UnixClientImpl> {
-    friend class Creatable<UnixClientImpl>;
-
+class UnixClientImpl final : public IUnixClient, public std::enable_shared_from_this<UnixClientImpl> {
 public:
+    explicit UnixClientImpl(const std::string &socketPath);
     ~UnixClientImpl() override;
 
     bool Init() override;
@@ -41,9 +38,6 @@ public:
     void Close() override;
 
     socket_t GetSocketFd() const override { return socket_; }
-
-protected:
-    explicit UnixClientImpl(const std::string &socketPath);
 
 private:
     void HandleConnect(int result);

@@ -20,7 +20,7 @@ namespace lmshao::lmnet {
 
 class BaseServer;
 
-class UnixServer : public Creatable<UnixServer> {
+class UnixServer {
 public:
     /**
      * @brief Constructor
@@ -32,6 +32,17 @@ public:
      * @brief Destructor
      */
     ~UnixServer();
+
+    /**
+     * @brief Create a shared instance
+     * @param args Constructor arguments
+     * @return Shared pointer to the created instance
+     */
+    template <typename... Args>
+    static std::shared_ptr<UnixServer> Create(Args &&...args)
+    {
+        return std::make_shared<UnixServer>(std::forward<Args>(args)...);
+    }
 
     /**
      * @brief Initialize the Unix server

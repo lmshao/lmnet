@@ -19,7 +19,7 @@
 namespace lmshao::lmnet {
 
 class BaseServer;
-class UdpServer final : public Creatable<UdpServer> {
+class UdpServer final {
 public:
     /**
      * @brief Constructor with IP and port
@@ -38,6 +38,17 @@ public:
      * @brief Destructor
      */
     ~UdpServer();
+
+    /**
+     * @brief Create a shared instance
+     * @param args Constructor arguments
+     * @return Shared pointer to the created instance
+     */
+    template <typename... Args>
+    static std::shared_ptr<UdpServer> Create(Args &&...args)
+    {
+        return std::make_shared<UdpServer>(std::forward<Args>(args)...);
+    }
 
     /**
      * @brief Initialize the UDP server

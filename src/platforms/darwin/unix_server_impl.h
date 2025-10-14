@@ -30,15 +30,13 @@ class EventHandler;
 class UnixServerHandler;
 class UnixConnectionHandler;
 
-class UnixServerImpl final : public BaseServer,
-                             public std::enable_shared_from_this<UnixServerImpl>,
-                             public Creatable<UnixServerImpl> {
+class UnixServerImpl final : public BaseServer, public std::enable_shared_from_this<UnixServerImpl> {
     friend class EventProcessor;
     friend class UnixServerHandler;
     friend class UnixConnectionHandler;
-    friend class Creatable<UnixServerImpl>;
 
 public:
+    explicit UnixServerImpl(const std::string &socketPath);
     ~UnixServerImpl();
 
     bool Init() override;
@@ -53,9 +51,7 @@ public:
 
     socket_t GetSocketFd() const override { return socket_; }
 
-protected:
-    explicit UnixServerImpl(const std::string &socketPath);
-
+private:
     void HandleAccept(socket_t fd);
     void HandleReceive(socket_t fd);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);

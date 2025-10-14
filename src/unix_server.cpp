@@ -25,7 +25,7 @@ namespace lmshao::lmnet {
 
 UnixServer::UnixServer(const std::string &socketPath)
 {
-    impl_ = UnixServerImpl::Create(socketPath);
+    impl_ = std::make_shared<UnixServerImpl>(socketPath);
     if (!impl_) {
         LMNET_LOGE("Failed to create Unix server implementation");
     }

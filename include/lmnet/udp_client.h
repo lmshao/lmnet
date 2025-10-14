@@ -19,7 +19,7 @@
 namespace lmshao::lmnet {
 
 class IUdpClient;
-class UdpClient final : public Creatable<UdpClient> {
+class UdpClient final {
 public:
     /**
      * @brief Constructor
@@ -34,6 +34,17 @@ public:
      * @brief Destructor
      */
     ~UdpClient();
+
+    /**
+     * @brief Create a shared instance
+     * @param args Constructor arguments
+     * @return Shared pointer to the created instance
+     */
+    template <typename... Args>
+    static std::shared_ptr<UdpClient> Create(Args &&...args)
+    {
+        return std::make_shared<UdpClient>(std::forward<Args>(args)...);
+    }
 
     /**
      * @brief Initialize the UDP client

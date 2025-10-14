@@ -22,12 +22,10 @@
 
 namespace lmshao::lmnet {
 
-class UdpServerImpl final : public BaseServer,
-                            public std::enable_shared_from_this<UdpServerImpl>,
-                            public Creatable<UdpServerImpl> {
-    friend class Creatable<UdpServerImpl>;
+class UdpServerImpl final : public BaseServer, public std::enable_shared_from_this<UdpServerImpl> {
 
 public:
+    UdpServerImpl(std::string ip, uint16_t port);
     ~UdpServerImpl();
 
     // impl IUdpServer
@@ -37,9 +35,6 @@ public:
     void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
 
     socket_t GetSocketFd() const override { return socket_; }
-
-protected:
-    UdpServerImpl(std::string ip, uint16_t port);
 
 private:
     void StartReceive();

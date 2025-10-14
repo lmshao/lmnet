@@ -23,10 +23,7 @@
 namespace lmshao::lmnet {
 using lmshao::lmcore::TaskQueue;
 
-class UdpServerImpl final : public BaseServer,
-                            public std::enable_shared_from_this<UdpServerImpl>,
-                            public Creatable<UdpServerImpl> {
-    friend class Creatable<UdpServerImpl>;
+class UdpServerImpl final : public BaseServer, public std::enable_shared_from_this<UdpServerImpl> {
 
 public:
     UdpServerImpl(std::string listenIp, uint16_t listenPort);
@@ -49,6 +46,7 @@ private:
     void HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError, const sockaddr_in &fromAddr);
     void HandleSend(DWORD bytesOrError);
 
+private:
     std::string ip_;
     uint16_t port_;
 

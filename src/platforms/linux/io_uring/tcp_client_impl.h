@@ -25,9 +25,7 @@ namespace lmshao::lmnet {
 
 using lmshao::lmcore::TaskQueue;
 
-class TcpClientImpl : public ITcpClient,
-                      public std::enable_shared_from_this<TcpClientImpl>,
-                      public Creatable<TcpClientImpl> {
+class TcpClientImpl : public ITcpClient, public std::enable_shared_from_this<TcpClientImpl> {
 public:
     TcpClientImpl(std::string remote_ip, uint16_t remote_port, std::string local_ip = "", uint16_t local_port = 0);
     ~TcpClientImpl() override;

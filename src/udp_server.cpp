@@ -31,7 +31,7 @@ namespace lmshao::lmnet {
 
 UdpServer::UdpServer(std::string listenIp, uint16_t listenPort)
 {
-    impl_ = UdpServerImpl::Create(std::move(listenIp), listenPort);
+    impl_ = std::make_shared<UdpServerImpl>(std::move(listenIp), listenPort);
     if (!impl_) {
         LMNET_LOGE("Failed to create UDP server implementation");
     }
