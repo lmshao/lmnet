@@ -102,6 +102,19 @@ bool UdpClientImpl::Init()
         return false;
     }
 
+    // Initialize PacketOrderer for ordered delivery
+    packet_orderer_ = std::make_unique<PacketOrderer>(
+        [this](std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr) {
+            // Ordered delivery to TaskQueue
+            if (taskQueue_ && isRunning_.load()) {
+                auto task =
+                    std::make_shared<TaskHandler<void>>([this, buffer, addr]() { this->DeliverOrdered(buffer, addr); });
+                taskQueue_->EnqueueTask(task);
+            }
+        },
+        64,                              // Max 64 out-of-order packets
+        std::chrono::milliseconds(100)); // 100ms timeout
+
     // Setup remote address
     remoteAddr_.sin_family = AF_INET;
     remoteAddr_.sin_port = htons(remotePort_);
@@ -114,7 +127,7 @@ bool UdpClientImpl::Init()
     isRunning_.store(true);
     StartReceiving();
 
-    LMNET_LOGD("UDP client initialized: %s:%u", remoteIp_.c_str(), remotePort_);
+    LMNET_LOGD("UDP client initialized: %s:%u (ordered delivery enabled)", remoteIp_.c_str(), remotePort_);
     return true;
 }
 
@@ -158,17 +171,34 @@ void UdpClientImpl::SubmitReceive()
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
+    // Assign sequence number at submission time to preserve order
+    uint64_t seq = receive_seq_counter_.fetch_add(1, std::memory_order_relaxed);
+
     bool success = manager.SubmitRecvFromRequest(
         socket_, buffer,
-        [self, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesOrError,
-                       const sockaddr_in &fromAddr) {
-            if (self->taskQueue_) {
-                auto task = std::make_shared<TaskHandler<void>>(
-                    [self, buf, bytesOrError, fromAddr]() { self->HandleReceive(buf, bytesOrError, fromAddr); });
-                self->taskQueue_->EnqueueTask(task);
-            } else {
-                self->HandleReceive(buf, bytesOrError, fromAddr);
+        [self, buffer, seq](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesOrError,
+                            const sockaddr_in &fromAddr) {
+            // This callback may be invoked from multiple IOCP worker threads in non-deterministic order
+            // Submit to PacketOrderer for reordering
+            if (self->isRunning_.load() && self->packet_orderer_) {
+                if (bytesOrError > 0 && bytesOrError <= 65536) {
+                    // Valid data packet - submit for ordering
+                    buf->SetSize(bytesOrError);
+                    self->packet_orderer_->SubmitPacket(seq, buf, fromAddr);
+                } else if (bytesOrError > 65536) {
+                    // Error code
+                    LMNET_LOGE("UDP receive error: %lu", bytesOrError);
+                    if (self->taskQueue_) {
+                        auto task = std::make_shared<TaskHandler<void>>([self, bytesOrError]() {
+                            self->HandleClose(true, "Receive error: " + std::to_string(bytesOrError));
+                        });
+                        self->taskQueue_->EnqueueTask(task);
+                    }
+                }
             }
+
+            // Continue receiving
+            self->SubmitReceive();
         });
 
     if (!success) {
@@ -183,31 +213,16 @@ void UdpClientImpl::SubmitReceive()
     }
 }
 
-void UdpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError, const sockaddr_in &fromAddr)
+void UdpClientImpl::DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_in &fromAddr)
 {
-    if (!isRunning_.load()) {
+    if (!isRunning_.load() || !buffer) {
         return;
     }
 
-    if (bytesOrError == 0) {
-        // Zero-length datagram - just continue receiving
-        SubmitReceive();
-        return;
-    }
-
-    if (bytesOrError > 65536) { // Assume it's an error code
-        LMNET_LOGE("UDP receive error: %lu", bytesOrError);
-        HandleClose(true, "Receive error: " + std::to_string(bytesOrError));
-        return;
-    }
-
-    // Valid data received
+    // Notify listener (packets are now in order)
     if (auto listener = listener_.lock()) {
         listener->OnReceive(socket_, buffer);
     }
-
-    // Continue receiving
-    SubmitReceive();
 }
 
 bool UdpClientImpl::Send(const std::string &str)
