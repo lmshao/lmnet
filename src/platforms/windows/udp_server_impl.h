@@ -19,6 +19,7 @@
 
 #include "base_server.h"
 #include "lmnet/iserver_listener.h"
+#include "packet_orderer.h"
 
 namespace lmshao::lmnet {
 using lmshao::lmcore::TaskQueue;
@@ -43,8 +44,8 @@ public:
 private:
     void StartReceiving();
     void SubmitReceive();
-    void HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError, const sockaddr_in &fromAddr);
     void HandleSend(DWORD bytesOrError);
+    void DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_in &fromAddr);
 
 private:
     std::string ip_;
@@ -57,8 +58,12 @@ private:
     std::weak_ptr<IServerListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
 
-    // Number of concurrent receive operations
-    static constexpr int CONCURRENT_RECEIVES = 8;
+    // Packet ordering for IOCP
+    std::unique_ptr<PacketOrderer> packet_orderer_;
+    std::atomic<uint64_t> receive_seq_counter_{0};
+
+    // Number of concurrent receive operations (restored for performance)
+    static constexpr int CONCURRENT_RECEIVES = 4;
 };
 
 } // namespace lmshao::lmnet
