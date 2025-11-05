@@ -11,7 +11,7 @@
 #include "internal_logger.h"
 
 #if defined(__linux__) || defined(__APPLE__)
-#include "platforms/linux/common/port_utils.h"
+#include "platforms/posix/port_utils.h"
 #endif
 
 #ifdef __linux__

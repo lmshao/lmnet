@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(lmnet VERSION 1.5.0 LANGUAGES CXX)
+project(lmnet VERSION 1.5.1 LANGUAGES CXX)
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -161,7 +161,7 @@ include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${PROJECT_SOURCE_DIR}/src/${PLATFORM_DIR})
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
-    include_directories(${PROJECT_SOURCE_DIR}/src/platforms/linux/common)
+    include_directories(${PROJECT_SOURCE_DIR}/src/platforms/posix)
 endif()
 
 
@@ -214,10 +214,10 @@ message(STATUS "Platform source directory: src/${PLATFORM_DIR}")
 # Collect source files
 file(GLOB COMMON_SOURCES "src/*.cpp")
 
-# Collect platform-specific common sources (only for Linux/macOS)
+# Collect POSIX-common sources (shared by Linux and macOS)
 set(COMMON_PLATFORM_SOURCES "")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
-    file(GLOB COMMON_PLATFORM_SOURCES "src/platforms/linux/common/*.cpp")
+    file(GLOB COMMON_PLATFORM_SOURCES "src/platforms/posix/*.cpp")
 endif()
 
 file(GLOB_RECURSE PLATFORM_SOURCES "src/${PLATFORM_DIR}/*.cpp")
