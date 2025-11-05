@@ -10,6 +10,7 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -39,48 +40,93 @@ TcpServerImpl::~TcpServerImpl()
 
 bool TcpServerImpl::Init()
 {
-    socket_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("Failed to create socket: %s", strerror(errno));
+    // Resolve local address for dual-stack
+    struct addrinfo hints {};
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE; // allow wildcard when localIp_ empty
+
+    char port_str[16] = {0};
+    snprintf(port_str, sizeof(port_str), "%u", static_cast<unsigned>(localPort_));
+
+    struct addrinfo *res = nullptr;
+    // Treat common wildcard representations as dual-stack wildcard
+    bool want_dual = localIp_.empty() || localIp_ == "0.0.0.0" || localIp_ == "::" || localIp_ == "*";
+    int gai = getaddrinfo(want_dual ? nullptr : localIp_.c_str(), port_str, &hints, &res);
+    if (gai != 0) {
+        LMNET_LOGE("getaddrinfo failed: %s", gai_strerror(gai));
         return false;
     }
 
-    int opt = 1;
-    if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        LMNET_LOGE("Failed to set SO_REUSEADDR: %s", strerror(errno));
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
+    bool any_success = false;
+    for (struct addrinfo *ai = res; ai != nullptr; ai = ai->ai_next) {
+        if (ai->ai_family != AF_INET && ai->ai_family != AF_INET6) {
+            continue;
+        }
+
+        int s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (s == INVALID_SOCKET) {
+            LMNET_LOGW("Failed to create socket (family=%d): %s", ai->ai_family, strerror(errno));
+            continue;
+        }
+
+        int opt = 1;
+        if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+            LMNET_LOGW("Failed to set SO_REUSEADDR: %s", strerror(errno));
+        }
+
+        if (ai->ai_family == AF_INET6) {
+            // Ensure separate IPv6-only socket (no v4-mapped)
+            int v6only = 1;
+            if (setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only)) < 0) {
+                LMNET_LOGW("Failed to set IPV6_V6ONLY: %s", strerror(errno));
+            }
+        }
+
+        if (bind(s, ai->ai_addr, ai->ai_addrlen) < 0) {
+            LMNET_LOGW("Failed to bind socket: %s", strerror(errno));
+            close(s);
+            continue;
+        }
+
+        if (listen(s, SOMAXCONN) < 0) {
+            LMNET_LOGW("Failed to listen on socket: %s", strerror(errno));
+            close(s);
+            continue;
+        }
+
+        if (ai->ai_family == AF_INET) {
+            ipv4_socket_ = s;
+        } else if (ai->ai_family == AF_INET6) {
+            ipv6_socket_ = s;
+        }
+        any_success = true;
     }
 
-    sockaddr_in server_addr{};
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(localPort_);
-    server_addr.sin_addr.s_addr = inet_addr(localIp_.c_str());
+    freeaddrinfo(res);
 
-    if (bind(socket_, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        LMNET_LOGE("Failed to bind socket: %s", strerror(errno));
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
-    }
-
-    if (listen(socket_, SOMAXCONN) < 0) {
-        LMNET_LOGE("Failed to listen on socket: %s", strerror(errno));
-        close(socket_);
-        socket_ = INVALID_SOCKET;
+    if (!any_success) {
+        LMNET_LOGE("No listening sockets created for %s:%u", localIp_.c_str(), localPort_);
         return false;
     }
 
     if (!IoUringManager::GetInstance().Init()) {
         LMNET_LOGE("Failed to initialize IoUringManager");
-        close(socket_);
-        socket_ = INVALID_SOCKET;
+        if (ipv4_socket_ != INVALID_SOCKET) {
+            close(ipv4_socket_);
+            ipv4_socket_ = INVALID_SOCKET;
+        }
+        if (ipv6_socket_ != INVALID_SOCKET) {
+            close(ipv6_socket_);
+            ipv6_socket_ = INVALID_SOCKET;
+        }
         return false;
     }
 
     isRunning_ = true;
-    LMNET_LOGI("TCP server initialized on %s:%d", localIp_.c_str(), localPort_);
+    LMNET_LOGI("TCP server initialized on %s:%u (v4_fd=%d, v6_fd=%d)", localIp_.c_str(), localPort_, ipv4_socket_,
+               ipv6_socket_);
     return true;
 }
 
@@ -90,7 +136,12 @@ bool TcpServerImpl::Start()
         LMNET_LOGW("Server is not initialized or has been stopped.");
         return false;
     }
-    SubmitAccept();
+    if (ipv4_socket_ != INVALID_SOCKET) {
+        SubmitAcceptOnSocket(ipv4_socket_);
+    }
+    if (ipv6_socket_ != INVALID_SOCKET) {
+        SubmitAcceptOnSocket(ipv6_socket_);
+    }
     LMNET_LOGI("TCP server started.");
     return true;
 }
@@ -103,10 +154,14 @@ bool TcpServerImpl::Stop()
 
     LMNET_LOGI("Stopping TCP server...");
 
-    // Close listening socket first to prevent new connections
-    if (socket_ != INVALID_SOCKET) {
-        IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr);
-        socket_ = INVALID_SOCKET;
+    // Close listening sockets first to prevent new connections
+    if (ipv4_socket_ != INVALID_SOCKET) {
+        IoUringManager::GetInstance().SubmitCloseRequest(ipv4_socket_, nullptr);
+        ipv4_socket_ = INVALID_SOCKET;
+    }
+    if (ipv6_socket_ != INVALID_SOCKET) {
+        IoUringManager::GetInstance().SubmitCloseRequest(ipv6_socket_, nullptr);
+        ipv6_socket_ = INVALID_SOCKET;
     }
 
     // Disconnect all active sessions
@@ -121,44 +176,57 @@ bool TcpServerImpl::Stop()
     return true;
 }
 
-void TcpServerImpl::SubmitAccept()
+void TcpServerImpl::SubmitAcceptOnSocket(socket_t listen_fd)
 {
     if (!isRunning_)
         return;
 
     auto self = shared_from_this();
     IoUringManager::GetInstance().SubmitAcceptRequest(
-        socket_, [self](int fd, int client_fd, const sockaddr *addr, socklen_t *addrlen) {
-            if (client_fd >= 0) {
-                const sockaddr_in *client_addr = reinterpret_cast<const sockaddr_in *>(addr);
-                self->HandleAccept(client_fd, *client_addr);
-            } else {
-                LMNET_LOGE("Accept failed with error: %s", strerror(-client_fd));
+        listen_fd, [self, listen_fd](int fd, int client_fd, const sockaddr *addr, socklen_t *addrlen) {
+            if (client_fd >= 0 && addr && addrlen) {
+                sockaddr_storage addr_copy{};
+                socklen_t len = *addrlen;
+                memcpy(&addr_copy, addr, std::min(len, (socklen_t)sizeof(addr_copy)));
+                self->HandleAccept(client_fd, addr_copy, len);
+            } else if (client_fd < 0) {
+                LMNET_LOGE("Accept failed on fd %d: %s", fd, strerror(-client_fd));
             }
 
-            // Resubmit for next connection
+            // Resubmit for next connection on the same listening fd
             if (self->isRunning_) {
-                self->SubmitAccept();
+                self->SubmitAcceptOnSocket(listen_fd);
             }
         });
 }
 
-void TcpServerImpl::HandleAccept(int res, const sockaddr_in &client_addr)
+void TcpServerImpl::HandleAccept(int res, const sockaddr_storage &client_addr, socklen_t addrlen)
 {
     if (res >= 0) {
         int client_fd = res;
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-        uint16_t client_port = ntohs(client_addr.sin_port);
+        char ip_str[INET6_ADDRSTRLEN] = {0};
+        uint16_t client_port = 0;
 
-        auto session = std::make_shared<IoUringSessionImpl>(client_fd, std::string(client_ip), client_port);
+        if (client_addr.ss_family == AF_INET) {
+            const sockaddr_in *in = reinterpret_cast<const sockaddr_in *>(&client_addr);
+            inet_ntop(AF_INET, &in->sin_addr, ip_str, sizeof(ip_str));
+            client_port = ntohs(in->sin_port);
+        } else if (client_addr.ss_family == AF_INET6) {
+            const sockaddr_in6 *in6 = reinterpret_cast<const sockaddr_in6 *>(&client_addr);
+            inet_ntop(AF_INET6, &in6->sin6_addr, ip_str, sizeof(ip_str));
+            client_port = ntohs(in6->sin6_port);
+        } else {
+            strncpy(ip_str, "unknown", sizeof(ip_str) - 1);
+        }
+
+        auto session = std::make_shared<IoUringSessionImpl>(client_fd, std::string(ip_str), client_port);
 
         {
             std::lock_guard<std::mutex> lock(sessionMutex_);
             sessions_[client_fd] = session;
         }
 
-        LMNET_LOGI("Accepted new connection from %s:%d on fd %d", client_ip, client_port, client_fd);
+        LMNET_LOGI("Accepted new connection from %s:%u on fd %d", ip_str, client_port, client_fd);
 
         auto task = std::make_shared<TaskHandler<void>>([this, listener = listener_.lock(), session] {
             if (listener) {
@@ -168,15 +236,9 @@ void TcpServerImpl::HandleAccept(int res, const sockaddr_in &client_addr)
         taskQueue_->EnqueueTask(task);
 
         SubmitRead(session);
-        SubmitAccept(); // Continue accepting new connections
     } else {
         if (isRunning_) {
             LMNET_LOGE("Accept failed: %s", strerror(-res));
-            if (errno == EMFILE || errno == ENFILE) {
-                LMNET_LOGW("Too many open files, retrying accept later.");
-                sleep(1);
-                SubmitAccept();
-            }
         }
     }
 }

@@ -10,6 +10,7 @@
 #define LMSHAO_LMNET_LINUX_UDP_SERVER_IMPL_H
 
 #include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <atomic>
 #include <cstdint>
@@ -34,18 +35,19 @@ public:
     bool Stop() override;
     void SetListener(std::shared_ptr<IServerListener> listener) override { listener_ = listener; }
 
-    socket_t GetSocketFd() const override { return socket_; }
+    socket_t GetSocketFd() const override { return ipv4_socket_ != INVALID_SOCKET ? ipv4_socket_ : ipv6_socket_; }
 
 private:
-    void StartReceive();
-    void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read, const sockaddr_in &from_addr);
+    void StartReceiveOnSocket(socket_t fd);
+    void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read, const sockaddr_storage &from_addr,
+                       socklen_t addrlen);
 
 private:
     std::string ip_;
     uint16_t port_;
 
-    socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_;
+    socket_t ipv4_socket_ = INVALID_SOCKET;
+    socket_t ipv6_socket_ = INVALID_SOCKET;
 
     std::weak_ptr<IServerListener> listener_;
     std::atomic_bool isRunning_{false};

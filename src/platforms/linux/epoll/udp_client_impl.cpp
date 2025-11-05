@@ -10,6 +10,7 @@
 
 #include <arpa/inet.h>
 #include <assert.h>
+#include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -82,91 +83,176 @@ UdpClientImpl::~UdpClientImpl()
 
 bool UdpClientImpl::Init()
 {
-    socket_ = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("socket error: %s", strerror(errno));
+    // Resolve remote address (numeric only to keep API stable)
+    struct addrinfo hints {};
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags = AI_NUMERICHOST;
+
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%u", static_cast<unsigned>(remotePort_));
+    struct addrinfo *res = nullptr;
+    int rv = getaddrinfo(remoteIp_.c_str(), port_str, &hints, &res);
+    if (rv != 0 || res == nullptr) {
+        LMNET_LOGE("getaddrinfo remote failed: %s", gai_strerror(rv));
+        return false;
+    }
+    // Enforce single-stack: pick the first resolved address
+    struct addrinfo *picked = res;
+    int family = picked->ai_family;
+
+    // Create one socket matching remote family
+    socket_t s = socket(family, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+    if (s == INVALID_SOCKET) {
+        LMNET_LOGE("create socket failed for family %d: %s", family, strerror(errno));
+        freeaddrinfo(res);
         return false;
     }
 
-    memset(&serverAddr_, 0, sizeof(serverAddr_));
-    serverAddr_.sin_family = AF_INET;
-    serverAddr_.sin_port = htons(remotePort_);
-    inet_aton(remoteIp_.c_str(), &serverAddr_.sin_addr);
-
+    // Optional local bind using the same family
     if (!localIp_.empty() || localPort_ != 0) {
-        struct sockaddr_in localAddr;
-        memset(&localAddr, 0, sizeof(localAddr));
-        localAddr.sin_family = AF_INET;
-        localAddr.sin_port = htons(localPort_);
-        if (localIp_.empty()) {
-            localIp_ = "0.0.0.0";
-        }
-        inet_aton(localIp_.c_str(), &localAddr.sin_addr);
-
-        int ret = bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr));
-        if (ret != 0) {
-            LMNET_LOGE("bind error: %s", strerror(errno));
-            return false;
+        if (family == AF_INET) {
+            struct sockaddr_in local4 {};
+            memset(&local4, 0, sizeof(local4));
+            local4.sin_family = AF_INET;
+            local4.sin_port = htons(localPort_);
+            const char *bind_ip4 = localIp_.empty() ? "0.0.0.0" : localIp_.c_str();
+            if (inet_pton(AF_INET, bind_ip4, &local4.sin_addr) == 1) {
+                if (bind(s, (struct sockaddr *)&local4, sizeof(local4)) != 0) {
+                    LMNET_LOGE("bind IPv4 error: %s", strerror(errno));
+                }
+            }
+        } else if (family == AF_INET6) {
+            struct sockaddr_in6 local6 {};
+            memset(&local6, 0, sizeof(local6));
+            local6.sin6_family = AF_INET6;
+            local6.sin6_port = htons(localPort_);
+            const char *bind_ip6 = localIp_.empty() ? "::" : localIp_.c_str();
+            if (inet_pton(AF_INET6, bind_ip6, &local6.sin6_addr) == 1) {
+                if (bind(s, (struct sockaddr *)&local6, sizeof(local6)) != 0) {
+                    LMNET_LOGE("bind IPv6 error: %s", strerror(errno));
+                }
+            }
         }
     }
 
+    // Cache remote address
+    memcpy(&remote_addr_, picked->ai_addr, picked->ai_addrlen);
+    remote_addr_len_ = picked->ai_addrlen;
+    freeaddrinfo(res);
+
+    // Start task queue
     taskQueue_->Start();
 
-    clientHandler_ = std::make_shared<UdpClientHandler>(socket_, shared_from_this());
-    if (!EventReactor::GetInstance().RegisterHandler(clientHandler_)) {
+    // Register only one handler according to the chosen family
+    auto self = shared_from_this();
+    bool ok = true;
+    if (family == AF_INET) {
+        ipv4_socket_ = s;
+        ipv4_handler_ = std::make_shared<UdpClientHandler>(ipv4_socket_, self);
+        ok = EventReactor::GetInstance().RegisterHandler(ipv4_handler_);
+    } else {
+        ipv6_socket_ = s;
+        ipv6_handler_ = std::make_shared<UdpClientHandler>(ipv6_socket_, self);
+        ok = EventReactor::GetInstance().RegisterHandler(ipv6_handler_);
+    }
+    if (!ok) {
         LMNET_LOGE("Failed to register UDP client handler");
+        if (family == AF_INET) {
+            EventReactor::GetInstance().RemoveHandler(ipv4_socket_);
+            close(ipv4_socket_);
+            ipv4_socket_ = INVALID_SOCKET;
+            ipv4_handler_.reset();
+        } else {
+            EventReactor::GetInstance().RemoveHandler(ipv6_socket_);
+            close(ipv6_socket_);
+            ipv6_socket_ = INVALID_SOCKET;
+            ipv6_handler_.reset();
+        }
         return false;
     }
 
-    LMNET_LOGD("UdpClientImpl initialized with new EventHandler interface");
+    // Log single-stack initialization details
+    if (family == AF_INET) {
+        auto *sin = reinterpret_cast<sockaddr_in *>(&remote_addr_);
+        char ipbuf[INET_ADDRSTRLEN]{};
+        inet_ntop(AF_INET, &sin->sin_addr, ipbuf, sizeof(ipbuf));
+        LMNET_LOGD("UdpClientImpl initialized single-stack IPv4 remote %s:%u", ipbuf,
+                   static_cast<unsigned>(ntohs(sin->sin_port)));
+    } else {
+        auto *sin6 = reinterpret_cast<sockaddr_in6 *>(&remote_addr_);
+        char ipbuf[INET6_ADDRSTRLEN]{};
+        inet_ntop(AF_INET6, &sin6->sin6_addr, ipbuf, sizeof(ipbuf));
+        LMNET_LOGD("UdpClientImpl initialized single-stack IPv6 remote [%s]:%u", ipbuf,
+                   static_cast<unsigned>(ntohs(sin6->sin6_port)));
+    }
     return true;
 }
 
 bool UdpClientImpl::EnableBroadcast()
 {
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("Socket not initialized, call Init() first");
+    // Broadcast is IPv4-only; enable if IPv4 socket exists
+    if (ipv4_socket_ == INVALID_SOCKET) {
+        LMNET_LOGW("Broadcast not available: IPv4 socket not initialized");
         return false;
     }
-
     int broadcast = 1;
-    if (setsockopt(socket_, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) < 0) {
+    if (setsockopt(ipv4_socket_, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) < 0) {
         LMNET_LOGE("Failed to enable broadcast: %s", strerror(errno));
         return false;
     }
-
-    LMNET_LOGD("Broadcast enabled successfully");
+    LMNET_LOGD("Broadcast enabled successfully on IPv4 socket");
     return true;
 }
 
 void UdpClientImpl::Close()
 {
-    if (socket_ != INVALID_SOCKET && clientHandler_) {
-        EventReactor::GetInstance().RemoveHandler(socket_);
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-        clientHandler_.reset();
+    if (ipv4_socket_ != INVALID_SOCKET && ipv4_handler_) {
+        EventReactor::GetInstance().RemoveHandler(ipv4_socket_);
+        close(ipv4_socket_);
+        ipv4_socket_ = INVALID_SOCKET;
+        ipv4_handler_.reset();
+    }
+    if (ipv6_socket_ != INVALID_SOCKET && ipv6_handler_) {
+        EventReactor::GetInstance().RemoveHandler(ipv6_socket_);
+        close(ipv6_socket_);
+        ipv6_socket_ = INVALID_SOCKET;
+        ipv6_handler_.reset();
     }
 }
 
 bool UdpClientImpl::Send(const void *data, size_t len)
 {
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("socket not initialized");
-        return false;
-    }
-
-    if (!data || len == 0) {
+    if ((!data) || len == 0) {
         LMNET_LOGE("invalid send parameters: data=%p, len=%zu", data, len);
         return false;
     }
+    if (remote_addr_len_ == 0) {
+        LMNET_LOGE("remote address not resolved; call Init() first");
+        return false;
+    }
 
-    ssize_t nbytes = sendto(socket_, data, len, 0, (struct sockaddr *)&serverAddr_, (socklen_t)(sizeof(serverAddr_)));
+    int send_fd = INVALID_SOCKET;
+    if (remote_addr_.ss_family == AF_INET) {
+        send_fd = ipv4_socket_;
+    } else if (remote_addr_.ss_family == AF_INET6) {
+        send_fd = ipv6_socket_;
+    }
+    if (send_fd == INVALID_SOCKET) {
+        LMNET_LOGE("no valid socket for remote family %d", remote_addr_.ss_family);
+        return false;
+    }
+
+    ssize_t nbytes = sendto(send_fd, data, len, 0, (struct sockaddr *)&remote_addr_, remote_addr_len_);
     if (nbytes == -1) {
         LMNET_LOGE("sendto error: %s", strerror(errno));
         return false;
     }
-
+    if (static_cast<size_t>(nbytes) != len) {
+        LMNET_LOGW("partial send: %zd/%zu", nbytes, len);
+        return false;
+    }
     return true;
 }
 
@@ -237,15 +323,20 @@ void UdpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
     LMNET_LOGD("Closing UDP client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
                isError ? "true" : "false");
 
-    if (socket_ != fd) {
-        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
+    if (fd == ipv4_socket_) {
+        EventReactor::GetInstance().RemoveHandler(fd);
+        close(fd);
+        ipv4_socket_ = INVALID_SOCKET;
+        ipv4_handler_.reset();
+    } else if (fd == ipv6_socket_) {
+        EventReactor::GetInstance().RemoveHandler(fd);
+        close(fd);
+        ipv6_socket_ = INVALID_SOCKET;
+        ipv6_handler_.reset();
+    } else {
+        LMNET_LOGD("Unknown fd[%d] for UDP client", fd);
         return;
     }
-
-    EventReactor::GetInstance().RemoveHandler(fd);
-    close(fd);
-    socket_ = INVALID_SOCKET;
-    clientHandler_.reset();
 
     if (!listener_.expired()) {
         auto listenerWeak = listener_;

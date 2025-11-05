@@ -174,8 +174,7 @@ void IoUringManager::HandleCompletion(Request *req, int result)
             break;
         case RequestType::RECVFROM:
             if (req->recvfrom_cb) {
-                req->recvfrom_cb(req->fd, req->buffer, result,
-                                 *reinterpret_cast<const sockaddr_in *>(&req->client_addr));
+                req->recvfrom_cb(req->fd, req->buffer, result, req->client_addr, req->client_addr_len);
             }
             break;
         case RequestType::SENDMSG:
@@ -242,8 +241,10 @@ bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::functi
                     tempReq.write_cb(fd, ERROR_NO_RESOURCE);
                 break;
             case RequestType::RECVFROM:
-                if (tempReq.recvfrom_cb)
-                    tempReq.recvfrom_cb(fd, tempReq.buffer, ERROR_NO_RESOURCE, {});
+                if (tempReq.recvfrom_cb) {
+                    sockaddr_storage empty{};
+                    tempReq.recvfrom_cb(fd, tempReq.buffer, ERROR_NO_RESOURCE, empty, 0);
+                }
                 break;
             case RequestType::SENDMSG:
                 if (tempReq.sendmsg_cb)
@@ -293,8 +294,10 @@ bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::functi
                     req->write_cb(fd, ERROR_NO_RESOURCE);
                 break;
             case RequestType::RECVFROM:
-                if (req->recvfrom_cb)
-                    req->recvfrom_cb(fd, req->buffer, ERROR_NO_RESOURCE, {});
+                if (req->recvfrom_cb) {
+                    sockaddr_storage empty{};
+                    req->recvfrom_cb(fd, req->buffer, ERROR_NO_RESOURCE, empty, 0);
+                }
                 break;
             case RequestType::SENDMSG:
                 if (req->sendmsg_cb)
@@ -321,12 +324,22 @@ bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::functi
     return SubmitDirect();
 }
 
-bool IoUringManager::SubmitConnectRequest(int fd, const sockaddr_in &addr, ConnectCallback callback)
+bool IoUringManager::SubmitConnectRequest(int fd, const sockaddr *addr, socklen_t addrlen, ConnectCallback callback)
 {
     return SubmitOperation(
-        RequestType::CONNECT, fd, [cb = std::move(callback)](Request *req) { req->connect_cb = cb; },
-        [addr](io_uring_sqe *sqe, Request *req) {
-            io_uring_prep_connect(sqe, req->fd, (struct sockaddr *)&addr, sizeof(addr));
+        RequestType::CONNECT, fd,
+        [cb = std::move(callback), addr, addrlen](Request *req) {
+            req->connect_cb = cb;
+            if (addr && addrlen > 0) {
+                memcpy(&req->client_addr, addr, addrlen);
+                req->client_addr_len = addrlen;
+            } else {
+                req->client_addr = {};
+                req->client_addr_len = sizeof(req->client_addr);
+            }
+        },
+        [](io_uring_sqe *sqe, Request *req) {
+            io_uring_prep_connect(sqe, req->fd, (struct sockaddr *)&req->client_addr, req->client_addr_len);
         });
 }
 
@@ -369,7 +382,8 @@ bool IoUringManager::SubmitRecvFromRequest(int fd, std::shared_ptr<DataBuffer> b
     if (!buffer) {
         LMNET_LOGE("Buffer is nullptr in SubmitRecvFromRequest");
         if (callback) {
-            callback(fd, buffer, -EINVAL, {});
+            sockaddr_storage empty{};
+            callback(fd, buffer, -EINVAL, empty, 0);
         }
         return false;
     }
@@ -393,8 +407,8 @@ bool IoUringManager::SubmitRecvFromRequest(int fd, std::shared_ptr<DataBuffer> b
         [](io_uring_sqe *sqe, Request *req) { io_uring_prep_recvmsg(sqe, req->fd, &req->msg, 0); });
 }
 
-bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr,
-                                         WriteCallback callback)
+bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<DataBuffer> buffer, const sockaddr *addr,
+                                         socklen_t addrlen, WriteCallback callback)
 {
     if (!buffer) {
         LMNET_LOGE("Buffer is nullptr in SubmitSendToRequest");
@@ -406,7 +420,7 @@ bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<DataBuffer> buf
 
     return SubmitOperation(
         RequestType::WRITE, fd,
-        [cb = std::move(callback), buffer, addr](Request *req) {
+        [cb = std::move(callback), buffer, addr, addrlen](Request *req) {
             req->write_cb = cb;
             req->buffer = buffer;
 
@@ -414,9 +428,14 @@ bool IoUringManager::SubmitSendToRequest(int fd, std::shared_ptr<DataBuffer> buf
             req->iov.iov_base = buffer->Data();
             req->iov.iov_len = buffer->Size();
             req->msg = {};
-            memcpy(&req->client_addr, &addr, sizeof(addr));
+            if (addr && addrlen > 0) {
+                memcpy(&req->client_addr, addr, addrlen);
+                req->msg.msg_namelen = addrlen;
+            } else {
+                req->client_addr = {};
+                req->msg.msg_namelen = sizeof(req->client_addr);
+            }
             req->msg.msg_name = &req->client_addr;
-            req->msg.msg_namelen = sizeof(req->client_addr);
             req->msg.msg_iov = &req->iov;
             req->msg.msg_iovlen = 1;
             req->msg.msg_control = nullptr;

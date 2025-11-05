@@ -1,6 +1,7 @@
 #include "tcp_client_impl.h"
 
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <unistd.h>
 
 #include <cstring>
@@ -41,29 +42,77 @@ void TcpClientImpl::ReInit()
         close(socket_);
     }
 
-    socket_ = socket(AF_INET, SOCK_STREAM, 0);
+    // Resolve remote address (single-stack)
+    struct addrinfo hints {};
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_NUMERICHOST; // only numeric IPs
+
+    char port_str[16] = {0};
+    snprintf(port_str, sizeof(port_str), "%u", static_cast<unsigned>(remotePort_));
+
+    struct addrinfo *res = nullptr;
+    int gai = getaddrinfo(remoteIp_.c_str(), port_str, &hints, &res);
+    if (gai != 0) {
+        LMNET_LOGE("getaddrinfo(remote) failed: %s", gai_strerror(gai));
+        return;
+    }
+
+    const struct addrinfo *picked = nullptr;
+    for (struct addrinfo *ai = res; ai != nullptr; ai = ai->ai_next) {
+        if (ai->ai_family == AF_INET || ai->ai_family == AF_INET6) {
+            picked = ai;
+            break; // pick first candidate only
+        }
+    }
+    if (!picked) {
+        freeaddrinfo(res);
+        LMNET_LOGE("No suitable address for remote %s:%u", remoteIp_.c_str(), remotePort_);
+        return;
+    }
+
+    socket_ = socket(picked->ai_family, picked->ai_socktype, picked->ai_protocol);
     if (socket_ == INVALID_SOCKET) {
         LMNET_LOGE("Failed to create socket: %s", strerror(errno));
+        freeaddrinfo(res);
         return;
     }
 
     if (!localIp_.empty() || localPort_ != 0) {
-        memset(&localAddr_, 0, sizeof(localAddr_));
-        localAddr_.sin_family = AF_INET;
-        localAddr_.sin_port = htons(localPort_);
-        localAddr_.sin_addr.s_addr = localIp_.empty() ? htonl(INADDR_ANY) : inet_addr(localIp_.c_str());
+        struct addrinfo lhints {};
+        memset(&lhints, 0, sizeof(lhints));
+        lhints.ai_family = picked->ai_family;
+        lhints.ai_socktype = SOCK_STREAM;
+        lhints.ai_flags = AI_PASSIVE;
 
-        if (bind(socket_, (struct sockaddr *)&localAddr_, sizeof(localAddr_)) < 0) {
-            LMNET_LOGE("Failed to bind socket: %s", strerror(errno));
+        char lport_str[16] = {0};
+        snprintf(lport_str, sizeof(lport_str), "%u", static_cast<unsigned>(localPort_));
+        struct addrinfo *lres = nullptr;
+        int lgai = getaddrinfo(localIp_.empty() ? nullptr : localIp_.c_str(), lport_str, &lhints, &lres);
+        if (lgai != 0) {
+            LMNET_LOGE("getaddrinfo(local) failed: %s", gai_strerror(lgai));
             close(socket_);
             socket_ = INVALID_SOCKET;
+            freeaddrinfo(res);
+            return;
         }
+        if (bind(socket_, lres->ai_addr, lres->ai_addrlen) < 0) {
+            LMNET_LOGE("Failed to bind local addr: %s", strerror(errno));
+            close(socket_);
+            socket_ = INVALID_SOCKET;
+            freeaddrinfo(lres);
+            freeaddrinfo(res);
+            return;
+        }
+        memcpy(&localAddr_, lres->ai_addr, lres->ai_addrlen);
+        localAddrLen_ = lres->ai_addrlen;
+        freeaddrinfo(lres);
     }
 
-    memset(&serverAddr_, 0, sizeof(serverAddr_));
-    serverAddr_.sin_family = AF_INET;
-    serverAddr_.sin_port = htons(remotePort_);
-    serverAddr_.sin_addr.s_addr = inet_addr(remoteIp_.c_str());
+    memcpy(&serverAddr_, picked->ai_addr, picked->ai_addrlen);
+    serverAddrLen_ = picked->ai_addrlen;
+    freeaddrinfo(res);
 }
 
 bool TcpClientImpl::Connect()
@@ -79,7 +128,8 @@ bool TcpClientImpl::Connect()
 void TcpClientImpl::SubmitConnect()
 {
     auto self = shared_from_this();
-    IoUringManager::GetInstance().SubmitConnectRequest(socket_, serverAddr_,
+    IoUringManager::GetInstance().SubmitConnectRequest(socket_, reinterpret_cast<const sockaddr *>(&serverAddr_),
+                                                       serverAddrLen_,
                                                        [self](int fd, int res) { self->HandleConnect(res); });
 }
 

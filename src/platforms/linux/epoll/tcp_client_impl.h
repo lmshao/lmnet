@@ -58,7 +58,7 @@ private:
     uint16_t localPort_;
 
     int socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_;
+    struct sockaddr_storage server_addr_ {};
 
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;

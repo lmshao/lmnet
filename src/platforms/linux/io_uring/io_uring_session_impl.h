@@ -30,19 +30,15 @@ public:
         this->fd = fd;
     }
 
-    IoUringSessionImpl(socket_t server_socket, std::string remote_host, uint16_t remote_port, bool is_udp)
-        : is_udp_(is_udp)
+    IoUringSessionImpl(socket_t server_socket, std::string remote_host, uint16_t remote_port,
+                       const sockaddr_storage &remote_addr, socklen_t remote_len, bool is_udp)
+        : is_udp_(is_udp), remote_addr_len_(remote_len)
     {
         this->host = std::move(remote_host);
         this->port = remote_port;
         this->fd = server_socket;
-
-        if (is_udp_) {
-            memset(&client_addr_, 0, sizeof(client_addr_));
-            client_addr_.sin_family = AF_INET;
-            client_addr_.sin_port = htons(remote_port);
-            client_addr_.sin_addr.s_addr = inet_addr(host.c_str());
-        }
+        memset(&remote_addr_, 0, sizeof(remote_addr_));
+        memcpy(&remote_addr_, &remote_addr, std::min(remote_len, (socklen_t)sizeof(remote_addr_)));
     }
 
     ~IoUringSessionImpl() override = default;
@@ -57,11 +53,12 @@ public:
     bool Send(std::shared_ptr<DataBuffer> buffer) const override
     {
         if (is_udp_) {
-            return IoUringManager::GetInstance().SubmitSendToRequest(fd, buffer, client_addr_, [](int, int res) {
-                if (res < 0) {
-                    LMNET_LOGE("UDP Send failed: %s", strerror(-res));
-                }
-            });
+            return IoUringManager::GetInstance().SubmitSendToRequest(
+                fd, buffer, reinterpret_cast<const sockaddr *>(&remote_addr_), remote_addr_len_, [](int, int res) {
+                    if (res < 0) {
+                        LMNET_LOGE("UDP Send failed: %s", strerror(-res));
+                    }
+                });
         }
         // Use unified SendUnixMessage for consistency (Unix Socket)
         return SendUnixMessage(buffer, {});
@@ -128,7 +125,8 @@ private:
 
 private:
     bool is_udp_ = false;
-    sockaddr_in client_addr_{};
+    sockaddr_storage remote_addr_{};
+    socklen_t remote_addr_len_ = 0;
 };
 
 } // namespace lmshao::lmnet

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(lmnet VERSION 1.5.1 LANGUAGES CXX)
+project(lmnet VERSION 1.6.0 LANGUAGES CXX)
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 17)

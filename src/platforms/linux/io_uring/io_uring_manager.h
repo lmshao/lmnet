@@ -46,9 +46,9 @@ using AcceptCallback = std::function<void(int, int, const sockaddr *, socklen_t 
 using ReadCallback = std::function<void(int, std::shared_ptr<DataBuffer>, int)>;     // fd, buffer, bytes/err
 using WriteCallback = std::function<void(int, int)>;                                 // fd, bytes/err
 using CloseCallback = std::function<void(int, int)>;                                 // fd, result
-using RecvFromCallback = std::function<void(int, std::shared_ptr<DataBuffer>, int,
-                                            const sockaddr_in &)>; // fd, buffer, bytes/err, addr
-using SendMsgCallback = std::function<void(int, int)>;             // fd, bytes/err
+using RecvFromCallback = std::function<void(int, std::shared_ptr<DataBuffer>, int, const sockaddr_storage &,
+                                            socklen_t)>; // fd, buffer, bytes/err, addr, len
+using SendMsgCallback = std::function<void(int, int)>;   // fd, bytes/err
 using RecvMsgCallback =
     std::function<void(int, std::shared_ptr<DataBuffer>, int, std::vector<int>)>; // fd, buffer, bytes/err, fds
 
@@ -117,11 +117,11 @@ public:
     };
     const IoUringStats &GetStats() const { return stats_; }
 
-    bool SubmitConnectRequest(int fd, const sockaddr_in &addr, ConnectCallback callback);
+    bool SubmitConnectRequest(int fd, const sockaddr *addr, socklen_t addrlen, ConnectCallback callback);
     bool SubmitAcceptRequest(int fd, AcceptCallback callback);
     bool SubmitReadRequest(int client_fd, std::shared_ptr<DataBuffer> buffer, ReadCallback callback);
     bool SubmitRecvFromRequest(int fd, std::shared_ptr<DataBuffer> buffer, RecvFromCallback callback);
-    bool SubmitSendToRequest(int fd, std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr,
+    bool SubmitSendToRequest(int fd, std::shared_ptr<DataBuffer> buffer, const sockaddr *addr, socklen_t addrlen,
                              WriteCallback callback);
     bool SubmitWriteRequest(int client_fd, std::shared_ptr<DataBuffer> buffer, WriteCallback callback);
     bool SubmitCloseRequest(int client_fd, CloseCallback callback);
