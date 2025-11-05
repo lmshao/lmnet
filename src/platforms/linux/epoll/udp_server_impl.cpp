@@ -10,6 +10,7 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -80,92 +81,181 @@ UdpServerImpl::UdpServerImpl(std::string ip, uint16_t port)
 UdpServerImpl::~UdpServerImpl()
 {
     Stop();
-    if (socket_ != INVALID_SOCKET) {
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-    }
 }
 
 bool UdpServerImpl::Init()
 {
-    socket_ = ::socket(AF_INET, SOCK_DGRAM, 0);
-    if (socket_ < 0) {
-        LMNET_LOGE("Failed to create socket: %s", strerror(errno));
+    // Decide if we want dual binding (both IPv4 and IPv6)
+    auto is_wildcard = [&](const std::string &s) { return s.empty() || s == "*" || s == "0.0.0.0" || s == "::"; };
+
+    bool want_dual = is_wildcard(ip_);
+
+    struct addrinfo hints {};
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_protocol = 0;
+    hints.ai_flags = want_dual ? AI_PASSIVE : AI_NUMERICHOST; // keep numeric-only behavior for specific IP
+
+    char port_str[16];
+    std::snprintf(port_str, sizeof(port_str), "%u", static_cast<unsigned>(port_));
+
+    struct addrinfo *result = nullptr;
+    int rv = getaddrinfo(want_dual ? nullptr : ip_.c_str(), port_str, &hints, &result);
+    if (rv != 0) {
+        LMNET_LOGE("getaddrinfo failed: %s", gai_strerror(rv));
         return false;
     }
 
-    // Set socket to non-blocking
-    int flags = fcntl(socket_, F_GETFL, 0);
-    if (flags == -1) {
-        LMNET_LOGE("fcntl F_GETFL failed: %s", strerror(errno));
-        close(socket_);
-        socket_ = INVALID_SOCKET;
+    auto set_nonblock = [](int fd) -> bool {
+        int flags = fcntl(fd, F_GETFL, 0);
+        if (flags == -1) {
+            return false;
+        }
+        return fcntl(fd, F_SETFL, flags | O_NONBLOCK) != -1;
+    };
+
+    bool bound_v4 = false;
+    bool bound_v6 = false;
+
+    for (struct addrinfo *ai = result; ai != nullptr; ai = ai->ai_next) {
+        if (ai->ai_family == AF_INET && !bound_v4) {
+            int s = ::socket(AF_INET, SOCK_DGRAM, 0);
+            if (s < 0) {
+                LMNET_LOGE("Failed to create IPv4 socket: %s", strerror(errno));
+                continue;
+            }
+
+            int reuse = 1;
+            if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
+                LMNET_LOGE("setsockopt SO_REUSEADDR (IPv4) failed: %s", strerror(errno));
+                close(s);
+                continue;
+            }
+
+            if (!set_nonblock(s)) {
+                LMNET_LOGE("fcntl set nonblock (IPv4) failed: %s", strerror(errno));
+                close(s);
+                continue;
+            }
+
+            if (bind(s, ai->ai_addr, ai->ai_addrlen) < 0) {
+                LMNET_LOGE("bind (IPv4) failed: %s", strerror(errno));
+                close(s);
+                continue;
+            }
+
+            ipv4_socket_ = s;
+            server_addr4_ = *reinterpret_cast<sockaddr_in *>(ai->ai_addr);
+            bound_v4 = true;
+        } else if (ai->ai_family == AF_INET6 && !bound_v6) {
+            int s = ::socket(AF_INET6, SOCK_DGRAM, 0);
+            if (s < 0) {
+                LMNET_LOGE("Failed to create IPv6 socket: %s", strerror(errno));
+                continue;
+            }
+
+            int reuse = 1;
+            if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
+                LMNET_LOGE("setsockopt SO_REUSEADDR (IPv6) failed: %s", strerror(errno));
+                close(s);
+                continue;
+            }
+
+            // Ensure no v4-mapped takeover when dual-binding
+            if (want_dual) {
+                int v6only = 1;
+                if (setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only)) < 0) {
+                    LMNET_LOGE("setsockopt IPV6_V6ONLY failed: %s", strerror(errno));
+                    // Continue; not fatal in some envs
+                }
+            }
+
+            if (!set_nonblock(s)) {
+                LMNET_LOGE("fcntl set nonblock (IPv6) failed: %s", strerror(errno));
+                close(s);
+                continue;
+            }
+
+            if (bind(s, ai->ai_addr, ai->ai_addrlen) < 0) {
+                LMNET_LOGE("bind (IPv6) failed: %s", strerror(errno));
+                close(s);
+                continue;
+            }
+
+            ipv6_socket_ = s;
+            server_addr6_ = *reinterpret_cast<sockaddr_in6 *>(ai->ai_addr);
+            bound_v6 = true;
+        }
+    }
+
+    freeaddrinfo(result);
+
+    if (!bound_v4 && !bound_v6) {
+        LMNET_LOGE("UDP server init failed: no sockets bound for %s:%u", ip_.c_str(), static_cast<unsigned>(port_));
         return false;
     }
 
-    if (fcntl(socket_, F_SETFL, flags | O_NONBLOCK) == -1) {
-        LMNET_LOGE("fcntl F_SETFL failed: %s", strerror(errno));
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
+    if (bound_v4 && bound_v6) {
+        LMNET_LOGD("UDP server initialized dual-stack on port %u", static_cast<unsigned>(port_));
+    } else if (bound_v4) {
+        char ipbuf[INET_ADDRSTRLEN]{};
+        inet_ntop(AF_INET, &server_addr4_.sin_addr, ipbuf, sizeof(ipbuf));
+        LMNET_LOGD("UDP server initialized IPv4 on %s:%u", ipbuf, static_cast<unsigned>(port_));
+    } else if (bound_v6) {
+        char ipbuf[INET6_ADDRSTRLEN]{};
+        inet_ntop(AF_INET6, &server_addr6_.sin6_addr, ipbuf, sizeof(ipbuf));
+        LMNET_LOGD("UDP server initialized IPv6 on [%s]:%u", ipbuf, static_cast<unsigned>(port_));
     }
 
-    // Set SO_REUSEADDR
-    int reuse = 1;
-    if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-        LMNET_LOGE("setsockopt SO_REUSEADDR failed: %s", strerror(errno));
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
-    }
-
-    std::memset(&serverAddr_, 0, sizeof(serverAddr_));
-    serverAddr_.sin_family = AF_INET;
-    serverAddr_.sin_port = htons(port_);
-
-    if (inet_pton(AF_INET, ip_.c_str(), &serverAddr_.sin_addr) <= 0) {
-        LMNET_LOGE("inet_pton failed: %s", strerror(errno));
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
-    }
-
-    if (bind(socket_, reinterpret_cast<struct sockaddr *>(&serverAddr_), sizeof(serverAddr_)) < 0) {
-        LMNET_LOGE("bind failed: %s", strerror(errno));
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
-    }
-
-    LMNET_LOGD("UDP server initialized on %s:%d", ip_.c_str(), port_);
     return true;
 }
 
 bool UdpServerImpl::Start()
 {
-    if (socket_ == INVALID_SOCKET) {
+    if (ipv4_socket_ == INVALID_SOCKET && ipv6_socket_ == INVALID_SOCKET) {
         LMNET_LOGE("Socket is not initialized");
         return false;
     }
 
-    // Create event handler
     auto self = shared_from_this();
-    serverHandler_ = std::make_shared<UdpServerHandler>(socket_, self);
 
-    // Add to event loop
-    if (!EventReactor::GetInstance().RegisterHandler(serverHandler_)) {
-        LMNET_LOGE("Failed to add server handler to event reactor");
+    bool ok = true;
+    if (ipv4_socket_ != INVALID_SOCKET) {
+        ipv4_handler_ = std::make_shared<UdpServerHandler>(ipv4_socket_, self);
+        ok = ok && EventReactor::GetInstance().RegisterHandler(ipv4_handler_);
+    }
+    if (ipv6_socket_ != INVALID_SOCKET) {
+        ipv6_handler_ = std::make_shared<UdpServerHandler>(ipv6_socket_, self);
+        ok = ok && EventReactor::GetInstance().RegisterHandler(ipv6_handler_);
+    }
+    if (!ok) {
+        LMNET_LOGE("Failed to add server handlers to event reactor");
+        if (ipv4_handler_) {
+            EventReactor::GetInstance().RemoveHandler(ipv4_socket_);
+            ipv4_handler_.reset();
+        }
+        if (ipv6_handler_) {
+            EventReactor::GetInstance().RemoveHandler(ipv6_socket_);
+            ipv6_handler_.reset();
+        }
         return false;
     }
 
-    // Start task queue
     if (taskQueue_->Start() != 0) {
         LMNET_LOGE("Failed to start task queue");
-        EventReactor::GetInstance().RemoveHandler(socket_);
+        if (ipv4_handler_) {
+            EventReactor::GetInstance().RemoveHandler(ipv4_socket_);
+            ipv4_handler_.reset();
+        }
+        if (ipv6_handler_) {
+            EventReactor::GetInstance().RemoveHandler(ipv6_socket_);
+            ipv6_handler_.reset();
+        }
         return false;
     }
 
-    LMNET_LOGD("UDP server started successfully on %s:%d", ip_.c_str(), port_);
+    LMNET_LOGD("UDP server started successfully on port %u", static_cast<unsigned>(port_));
     return true;
 }
 
@@ -179,15 +269,23 @@ bool UdpServerImpl::Stop()
     }
 
     // Remove from event loop
-    if (serverHandler_) {
-        EventReactor::GetInstance().RemoveHandler(socket_);
-        serverHandler_.reset();
+    if (ipv4_handler_) {
+        EventReactor::GetInstance().RemoveHandler(ipv4_socket_);
+        ipv4_handler_.reset();
+    }
+    if (ipv6_handler_) {
+        EventReactor::GetInstance().RemoveHandler(ipv6_socket_);
+        ipv6_handler_.reset();
     }
 
     // Close socket
-    if (socket_ != INVALID_SOCKET) {
-        close(socket_);
-        socket_ = INVALID_SOCKET;
+    if (ipv4_socket_ != INVALID_SOCKET) {
+        close(ipv4_socket_);
+        ipv4_socket_ = INVALID_SOCKET;
+    }
+    if (ipv6_socket_ != INVALID_SOCKET) {
+        close(ipv6_socket_);
+        ipv6_socket_ = INVALID_SOCKET;
     }
 
     LMNET_LOGD("UDP server stopped");
@@ -196,7 +294,7 @@ bool UdpServerImpl::Stop()
 
 void UdpServerImpl::HandleReceive(socket_t fd)
 {
-    struct sockaddr_in clientAddr;
+    struct sockaddr_storage clientAddr;
     socklen_t clientAddrLen = sizeof(clientAddr);
 
     readBuffer_->Clear();
@@ -207,13 +305,24 @@ void UdpServerImpl::HandleReceive(socket_t fd)
 
     if (bytesRead > 0) {
         readBuffer_->SetSize(bytesRead);
+        std::string remoteIp;
+        uint16_t clientPort = 0;
 
-        char clientIP[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
-        uint16_t clientPort = ntohs(clientAddr.sin_port);
+        if (clientAddr.ss_family == AF_INET) {
+            auto *sin = reinterpret_cast<struct sockaddr_in *>(&clientAddr);
+            char ipbuf[INET_ADDRSTRLEN]{};
+            inet_ntop(AF_INET, &sin->sin_addr, ipbuf, sizeof(ipbuf));
+            remoteIp = ipbuf;
+            clientPort = ntohs(sin->sin_port);
+        } else if (clientAddr.ss_family == AF_INET6) {
+            auto *sin6 = reinterpret_cast<struct sockaddr_in6 *>(&clientAddr);
+            char ipbuf[INET6_ADDRSTRLEN]{};
+            inet_ntop(AF_INET6, &sin6->sin6_addr, ipbuf, sizeof(ipbuf));
+            remoteIp = ipbuf;
+            clientPort = ntohs(sin6->sin6_port);
+        }
 
-        // Create session info
-        auto session = std::make_shared<UdpSessionImpl>(fd, clientIP, clientPort, shared_from_this());
+        auto session = std::make_shared<UdpSessionImpl>(fd, remoteIp, clientPort, shared_from_this());
 
         if (auto listener = listener_.lock()) {
             auto dataBuffer = std::make_shared<DataBuffer>(*readBuffer_);
@@ -230,35 +339,53 @@ void UdpServerImpl::HandleReceive(socket_t fd)
 
 bool UdpServerImpl::Send(std::string ip, uint16_t port, const void *data, size_t len)
 {
-    if (socket_ == INVALID_SOCKET) {
+    if (ipv4_socket_ == INVALID_SOCKET && ipv6_socket_ == INVALID_SOCKET) {
         LMNET_LOGE("Socket is not initialized");
         return false;
     }
 
-    struct sockaddr_in clientAddr;
-    std::memset(&clientAddr, 0, sizeof(clientAddr));
-    clientAddr.sin_family = AF_INET;
-    clientAddr.sin_port = htons(port);
+    struct addrinfo hints {};
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags = AI_NUMERICHOST; // keep numeric-only behavior
 
-    if (inet_pton(AF_INET, ip.c_str(), &clientAddr.sin_addr) <= 0) {
-        LMNET_LOGE("inet_pton failed for IP: %s", ip.c_str());
+    char port_str[16];
+    std::snprintf(port_str, sizeof(port_str), "%u", static_cast<unsigned>(port));
+
+    struct addrinfo *res = nullptr;
+    int rv = getaddrinfo(ip.c_str(), port_str, &hints, &res);
+    if (rv != 0 || res == nullptr) {
+        LMNET_LOGE("getaddrinfo failed for %s:%u: %s", ip.c_str(), static_cast<unsigned>(port), gai_strerror(rv));
         return false;
     }
 
-    ssize_t bytesSent =
-        sendto(socket_, data, len, 0, reinterpret_cast<struct sockaddr *>(&clientAddr), sizeof(clientAddr));
+    bool ok = false;
+    for (struct addrinfo *ai = res; ai != nullptr; ai = ai->ai_next) {
+        int send_fd = INVALID_SOCKET;
+        if (ai->ai_family == AF_INET && ipv4_socket_ != INVALID_SOCKET) {
+            send_fd = ipv4_socket_;
+        } else if (ai->ai_family == AF_INET6 && ipv6_socket_ != INVALID_SOCKET) {
+            send_fd = ipv6_socket_;
+        } else {
+            continue;
+        }
 
-    if (bytesSent < 0) {
-        LMNET_LOGE("sendto failed: %s", strerror(errno));
-        return false;
+        ssize_t bytesSent = sendto(send_fd, data, len, 0, ai->ai_addr, ai->ai_addrlen);
+        if (bytesSent < 0) {
+            LMNET_LOGE("sendto failed: %s", strerror(errno));
+            continue;
+        }
+        if (static_cast<size_t>(bytesSent) != len) {
+            LMNET_LOGW("Partial send: sent %zd bytes out of %zu", bytesSent, len);
+            continue;
+        }
+        ok = true;
+        break;
     }
 
-    if (static_cast<size_t>(bytesSent) != len) {
-        LMNET_LOGW("Partial send: sent %zd bytes out of %zu", bytesSent, len);
-        return false;
-    }
-
-    return true;
+    freeaddrinfo(res);
+    return ok;
 }
 
 bool UdpServerImpl::Send(std::string ip, uint16_t port, const std::string &str)

@@ -40,17 +40,25 @@ public:
 
     void Disconnect(socket_t fd);
 
-    socket_t GetSocketFd() const override { return socket_; }
+    socket_t GetSocketFd() const override
+    {
+        if (ipv4_socket_ != INVALID_SOCKET) {
+            return ipv4_socket_;
+        }
+        return ipv6_socket_;
+    }
 
 private:
-    void SubmitAccept();
-    void HandleAccept(int res, const sockaddr_in &client_addr);
+    void SubmitAcceptOnSocket(socket_t listen_fd);
+    void HandleAccept(int res, const sockaddr_storage &client_addr, socklen_t addrlen);
     void SubmitRead(std::shared_ptr<Session> session);
     void HandleReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer, int bytes_read);
     void HandleConnectionClose(int client_fd, const std::string &reason);
 
 private:
-    socket_t socket_ = INVALID_SOCKET;
+    // Dual-stack listening sockets
+    socket_t ipv4_socket_ = INVALID_SOCKET;
+    socket_t ipv6_socket_ = INVALID_SOCKET;
     std::string localIp_;
     uint16_t localPort_;
     std::weak_ptr<IServerListener> listener_;

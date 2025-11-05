@@ -10,6 +10,7 @@
 #define LMSHAO_LMNET_LINUX_UDP_CLIENT_IMPL_H
 
 #include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <atomic>
 #include <cstdint>
@@ -40,7 +41,8 @@ public:
 
 private:
     void StartReceive();
-    void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read, const sockaddr_in &from_addr);
+    void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read, const sockaddr_storage &from_addr,
+                       socklen_t addrlen);
     void HandleClose(bool is_error, const std::string &reason);
 
 private:
@@ -51,8 +53,10 @@ private:
     uint16_t localPort_;
 
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_;
-    struct sockaddr_in localAddr_;
+    struct sockaddr_storage serverAddr_ {};
+    socklen_t serverAddrLen_ = 0;
+    struct sockaddr_storage localAddr_ {};
+    socklen_t localAddrLen_ = 0;
 
     std::weak_ptr<IClientListener> listener_;
     std::atomic_bool isRunning_{false};

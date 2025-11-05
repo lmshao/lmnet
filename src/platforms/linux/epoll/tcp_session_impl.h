@@ -13,7 +13,6 @@
 #include <sstream>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "lmnet/common.h"
 #include "lmnet/session.h"

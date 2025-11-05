@@ -11,6 +11,7 @@
 
 #include <lmcore/task_queue.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <atomic>
 #include <cstdint>
@@ -56,8 +57,10 @@ private:
     uint16_t localPort_;
 
     socket_t socket_ = INVALID_SOCKET;
-    sockaddr_in serverAddr_{};
-    sockaddr_in localAddr_{};
+    sockaddr_storage serverAddr_{};
+    socklen_t serverAddrLen_ = 0;
+    sockaddr_storage localAddr_{};
+    socklen_t localAddrLen_ = 0;
 
     std::atomic_bool isRunning_{false};
     std::atomic_bool isConnected_{false};

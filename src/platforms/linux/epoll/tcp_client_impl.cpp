@@ -9,11 +9,13 @@
 #include "tcp_client_impl.h"
 
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstring>
 #include <queue>
 
 #include "event_reactor.h"
@@ -149,35 +151,67 @@ TcpClientImpl::~TcpClientImpl()
 
 bool TcpClientImpl::Init()
 {
-    socket_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("Socket error: %s", strerror(errno));
+    // Resolve remote and create non-blocking socket here (single-stack)
+    if (remoteIp_.empty()) {
+        remoteIp_ = "127.0.0.1";
+    }
+
+    char port_str[16] = {0};
+    snprintf(port_str, sizeof(port_str), "%u", static_cast<unsigned>(remotePort_));
+
+    struct addrinfo hints {};
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_NUMERICHOST;
+
+    struct addrinfo *result = nullptr;
+    int rv = getaddrinfo(remoteIp_.c_str(), port_str, &hints, &result);
+    if (rv != 0 || result == nullptr) {
+        LMNET_LOGE("getaddrinfo failed: %s", gai_strerror(rv));
         return false;
     }
 
+    struct addrinfo *picked = result; // single-stack: use the first candidate
+    int s = ::socket(picked->ai_family, picked->ai_socktype | SOCK_NONBLOCK, picked->ai_protocol);
+    if (s < 0) {
+        LMNET_LOGE("socket create failed: %s", strerror(errno));
+        freeaddrinfo(result);
+        return false;
+    }
+
+    // Optional local bind using the same family
     if (!localIp_.empty() || localPort_ != 0) {
-        struct sockaddr_in localAddr;
-        memset(&localAddr, 0, sizeof(localAddr));
-        localAddr.sin_family = AF_INET;
-        localAddr.sin_port = htons(localPort_);
-        if (localIp_.empty()) {
-            localIp_ = "0.0.0.0";
-        }
-        inet_aton(localIp_.c_str(), &localAddr.sin_addr);
+        struct addrinfo lhints {};
+        memset(&lhints, 0, sizeof(lhints));
+        lhints.ai_family = picked->ai_family;
+        lhints.ai_socktype = SOCK_STREAM;
+        lhints.ai_flags = AI_PASSIVE | AI_NUMERICHOST;
 
-        int optval = 1;
-        if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-            LMNET_LOGE("setsockopt SO_REUSEADDR error: %s", strerror(errno));
-            return false;
-        }
+        char lport[16] = {0};
+        snprintf(lport, sizeof(lport), "%u", static_cast<unsigned>(localPort_));
 
-        int ret = bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr));
-        if (ret != 0) {
-            LMNET_LOGE("bind error: %s", strerror(errno));
-            return false;
+        const char *lip = localIp_.empty() ? nullptr : localIp_.c_str();
+        struct addrinfo *lres = nullptr;
+        int lrv = getaddrinfo(lip, lport, &lhints, &lres);
+        if (lrv == 0 && lres) {
+            int reuse = 1;
+            setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+            if (bind(s, lres->ai_addr, lres->ai_addrlen) != 0) {
+                LMNET_LOGE("bind local failed: %s", strerror(errno));
+            }
+            freeaddrinfo(lres);
         }
     }
 
+    // Cache server addr and keep socket for Connect
+    memset(&server_addr_, 0, sizeof(server_addr_));
+    memcpy(&server_addr_, picked->ai_addr, picked->ai_addrlen);
+    socket_ = s;
+    freeaddrinfo(result);
+
+    LMNET_LOGD("TCP client initialized single-stack for %s:%u (fd=%d)", remoteIp_.c_str(),
+               static_cast<unsigned>(remotePort_), socket_);
     return true;
 }
 
@@ -193,21 +227,15 @@ void TcpClientImpl::ReInit()
 bool TcpClientImpl::Connect()
 {
     if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("socket not initialized");
+        LMNET_LOGE("socket not initialized; call Init() first");
         return false;
     }
 
-    serverAddr_.sin_family = AF_INET;
-    serverAddr_.sin_port = htons(remotePort_);
-    if (remoteIp_.empty()) {
-        remoteIp_ = "127.0.0.1";
-    }
-
-    inet_aton(remoteIp_.c_str(), &serverAddr_.sin_addr);
-
-    int ret = connect(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_));
+    // Non-blocking connect on prepared socket/server_addr_
+    int ret = connect(socket_, reinterpret_cast<sockaddr *>(&server_addr_), sizeof(server_addr_));
     if (ret < 0 && errno != EINPROGRESS) {
-        LMNET_LOGE("connect(%s:%d) failed: %s", remoteIp_.c_str(), remotePort_, strerror(errno));
+        LMNET_LOGE("connect attempt failed: %s", strerror(errno));
+        Close();
         ReInit();
         return false;
     }
@@ -221,22 +249,18 @@ bool TcpClientImpl::Connect()
     timeout.tv_usec = 0;
 
     ret = select(socket_ + 1, NULL, &writefds, NULL, &timeout);
-    if (ret > 0) {
-        int error = 0;
-        socklen_t len = sizeof(error);
-        if (getsockopt(socket_, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
-            LMNET_LOGE("getsockopt error, %s", strerror(errno));
-            ReInit();
-            return false;
-        }
+    if (ret <= 0) {
+        LMNET_LOGE("connect select error, %s", strerror(errno));
+        Close();
+        ReInit();
+        return false;
+    }
 
-        if (error != 0) {
-            LMNET_LOGE("connect error, %s", strerror(errno));
-            ReInit();
-            return false;
-        }
-    } else {
-        LMNET_LOGE("connect error, %s", strerror(errno));
+    int error = 0;
+    socklen_t len = sizeof(error);
+    if (getsockopt(socket_, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error != 0) {
+        LMNET_LOGE("connect error, %s", strerror(error != 0 ? error : errno));
+        Close();
         ReInit();
         return false;
     }
@@ -249,7 +273,18 @@ bool TcpClientImpl::Connect()
         return false;
     }
 
-    LMNET_LOGD("Connect (%s:%d) success with new EventHandler interface.", remoteIp_.c_str(), remotePort_);
+    char hostbuf[INET6_ADDRSTRLEN]{};
+    uint16_t port = 0;
+    if (server_addr_.ss_family == AF_INET) {
+        auto *sin = reinterpret_cast<sockaddr_in *>(&server_addr_);
+        inet_ntop(AF_INET, &sin->sin_addr, hostbuf, sizeof(hostbuf));
+        port = ntohs(sin->sin_port);
+    } else if (server_addr_.ss_family == AF_INET6) {
+        auto *sin6 = reinterpret_cast<sockaddr_in6 *>(&server_addr_);
+        inet_ntop(AF_INET6, &sin6->sin6_addr, hostbuf, sizeof(hostbuf));
+        port = ntohs(sin6->sin6_port);
+    }
+    LMNET_LOGD("Connect (%s:%u) success with new EventHandler interface.", hostbuf, static_cast<unsigned>(port));
     return true;
 }
 

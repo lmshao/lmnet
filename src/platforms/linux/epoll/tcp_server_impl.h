@@ -11,10 +11,12 @@
 
 #include <lmcore/task_queue.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "base_server.h"
 #include "lmnet/common.h"
@@ -43,7 +45,14 @@ public:
     bool Send(socket_t fd, std::shared_ptr<DataBuffer> buffer);
     bool Send(socket_t fd, const std::string &str);
 
-    socket_t GetSocketFd() const override { return socket_; }
+    socket_t GetSocketFd() const override
+    {
+        // Return a valid listening socket fd if available (prefer IPv4)
+        if (ipv4_socket_ != INVALID_SOCKET) {
+            return ipv4_socket_;
+        }
+        return ipv6_socket_;
+    }
 
 private:
     void HandleAccept(socket_t fd);
@@ -53,16 +62,21 @@ private:
 
 private:
     uint16_t localPort_;
-    int socket_ = INVALID_SOCKET;
     std::string localIp_ = "0.0.0.0";
-    struct sockaddr_in serverAddr_;
+    // Dual-stack listening sockets
+    socket_t ipv4_socket_ = INVALID_SOCKET;
+    socket_t ipv6_socket_ = INVALID_SOCKET;
+    struct sockaddr_in server_addr4_ {};
+    struct sockaddr_in6 server_addr6_ {};
 
     std::weak_ptr<IServerListener> listener_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::unique_ptr<DataBuffer> readBuffer_;
 
-    std::shared_ptr<EventHandler> serverHandler_;
+    // Separate handlers for IPv4 and IPv6 listening sockets
+    std::shared_ptr<EventHandler> ipv4_handler_;
+    std::shared_ptr<EventHandler> ipv6_handler_;
     std::unordered_map<int, std::shared_ptr<TcpConnectionHandler>> connectionHandlers_;
 };
 

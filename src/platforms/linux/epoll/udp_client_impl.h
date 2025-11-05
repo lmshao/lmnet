@@ -11,6 +11,7 @@
 
 #include <lmcore/task_queue.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <cstdint>
 #include <memory>
@@ -40,7 +41,14 @@ public:
     bool Send(const void *data, size_t len) override;
     bool Send(std::shared_ptr<DataBuffer> data) override;
     void Close() override;
-    socket_t GetSocketFd() const override { return socket_; }
+    socket_t GetSocketFd() const override
+    {
+        // Return a valid socket fd if available (prefer IPv4)
+        if (ipv4_socket_ != INVALID_SOCKET) {
+            return ipv4_socket_;
+        }
+        return ipv6_socket_;
+    }
 
 private:
     void HandleReceive(socket_t fd);
@@ -53,14 +61,21 @@ private:
     std::string localIp_;
     uint16_t localPort_;
 
-    socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_;
+    // Dual-stack sockets
+    socket_t ipv4_socket_ = INVALID_SOCKET;
+    socket_t ipv6_socket_ = INVALID_SOCKET;
+
+    // Cached remote address
+    struct sockaddr_storage remote_addr_ {};
+    socklen_t remote_addr_len_ = 0;
 
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::shared_ptr<DataBuffer> readBuffer_;
 
-    std::shared_ptr<EventHandler> clientHandler_;
+    // Separate handlers for IPv4 and IPv6
+    std::shared_ptr<EventHandler> ipv4_handler_;
+    std::shared_ptr<EventHandler> ipv6_handler_;
 };
 
 } // namespace lmshao::lmnet
