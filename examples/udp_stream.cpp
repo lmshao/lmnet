@@ -1,6 +1,4 @@
 /**
- * @file udp_stream.cxx
- * @brief UDP Stream Example
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
@@ -8,8 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-// #include <getopt.h>
-// Custom argument parser for cross-platform compatibility
+#include <lmnet/udp_client.h>
+#include <lmnet/udp_server.h>
 
 #include <cctype>
 #include <chrono>
@@ -18,9 +16,6 @@
 #include <iostream>
 #include <string>
 #include <thread>
-
-#include "lmnet/udp_client.h"
-#include "lmnet/udp_server.h"
 
 using namespace lmshao::lmnet;
 
