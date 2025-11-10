@@ -1,6 +1,4 @@
 /**
- * @file tcp_echo_server.cxx
- * @brief TCP Echo Server Example
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
@@ -8,11 +6,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <iostream>
-#include <thread>
+#include <lmnet/lmnet_logger.h>
+#include <lmnet/network_utils.h>
+#include <lmnet/tcp_server.h>
 
-#include "lmnet/lmnet_logger.h"
-#include "lmnet/tcp_server.h"
+#include <iostream>
+#include <set>
+#include <string>
+#include <thread>
+#include <vector>
 
 using namespace lmshao::lmnet;
 
@@ -55,24 +57,89 @@ public:
     }
 };
 
+static bool IsIPv6Address(const std::string &ip)
+{
+    return ip.find(':') != std::string::npos;
+}
+
+static bool IsAnyAddress(const std::string &ip)
+{
+    return ip == "::" || ip == "0.0.0.0";
+}
+
+static std::vector<std::string> GetAllLocalIPs()
+{
+    std::vector<std::string> ips;
+    std::set<std::string> unique;
+    auto interfaces = NetworkUtils::GetAllInterfaces();
+    for (const auto &iface : interfaces) {
+        if (!iface.isUp) {
+            continue;
+        }
+        if (!iface.ipv4.empty()) {
+            if (unique.insert(iface.ipv4).second) {
+                ips.emplace_back(iface.ipv4);
+            }
+        }
+        if (!iface.ipv6.empty()) {
+            if (unique.insert(iface.ipv6).second) {
+                ips.emplace_back(iface.ipv6);
+            }
+        }
+    }
+    return ips;
+}
+
 int main(int argc, char **argv)
 {
     printf("Built at %s on %s.\n", __TIME__, __DATE__);
 
+    std::string ip = "0.0.0.0";
     uint16_t port = 7777;
+    bool ip_specified = false;
     if (argc == 2) {
-        port = atoi(argv[1]);
+        // Only port provided
+        port = static_cast<uint16_t>(strtoul(argv[1], nullptr, 10));
+    } else if (argc >= 3) {
+        // ip + port provided
+        ip = argv[1];
+        port = static_cast<uint16_t>(strtoul(argv[2], nullptr, 10));
+        ip_specified = true;
     } else {
-        printf("Usage:\n%s <port> [default:7777]\n", argv[0]);
+        printf("Usage:\n  %s [ip] <port>\n  ip: default 0.0.0.0, use '::' for IPv6\n  port: default 7777\n", argv[0]);
     }
 
     InitLmnetLogger(lmshao::lmcore::LogLevel::kInfo);
-    auto tcp_server = TcpServer::Create("0.0.0.0", port);
+    auto tcp_server = TcpServer::Create(ip, port);
     auto listener = std::make_shared<MyListener>();
     tcp_server->SetListener(listener);
     tcp_server->Init();
     tcp_server->Start();
-    printf("Listen on port 0.0.0.0:%d\n", port);
+    if (ip_specified && !IsAnyAddress(ip)) {
+        if (IsIPv6Address(ip)) {
+            printf("Listen on [%s]:%d\n", ip.c_str(), port);
+        } else {
+            printf("Listen on %s:%d\n", ip.c_str(), port);
+        }
+    } else {
+        // When binding to any-address (0.0.0.0 or ::) or no IP specified, enumerate all interfaces
+        if (ip_specified && IsAnyAddress(ip)) {
+            if (IsIPv6Address(ip)) {
+                printf("Listen on [%s]:%d\n", ip.c_str(), port);
+            } else {
+                printf("Listen on %s:%d\n", ip.c_str(), port);
+            }
+        }
+        printf("Listen on all interfaces, port %d\n", port);
+        auto all_ips = GetAllLocalIPs();
+        for (const auto &addr : all_ips) {
+            if (IsIPv6Address(addr)) {
+                printf(" - [%s]:%d\n", addr.c_str(), port);
+            } else {
+                printf(" - %s:%d\n", addr.c_str(), port);
+            }
+        }
+    }
 
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(10));

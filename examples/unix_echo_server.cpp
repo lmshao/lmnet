@@ -1,6 +1,4 @@
 /**
- * @file unix_echo_server.cxx
- * @brief Unix Domain Socket Echo Server Example
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
@@ -8,16 +6,15 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <lmnet/iserver_listener.h>
+#include <lmnet/session.h>
+#include <lmnet/unix_server.h>
 #include <unistd.h>
 
 #include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
-
-#include "lmnet/iserver_listener.h"
-#include "lmnet/session.h"
-#include "lmnet/unix_server.h"
 
 using namespace lmshao::lmnet;
 

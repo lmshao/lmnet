@@ -1,16 +1,12 @@
-# Examples
 cmake_minimum_required(VERSION 3.10)
 
-add_subdirectory(tcp)
-add_subdirectory(udp)
-add_subdirectory(benchmark)
-
-# Unix domain socket examples are only supported on Unix-like systems
-if(NOT WIN32)
-    add_subdirectory(unix)
+file(GLOB EXAMPLES "*.cpp")
+if(WIN32)
+    list(FILTER EXAMPLES EXCLUDE REGEX "^unix_.*\\.cpp$")
 endif()
-
-# Network utilities demo
-add_executable(network_utils_demo network_utils_demo.cpp)
-target_link_libraries(network_utils_demo lmnet)
-message(STATUS "lmnet Example target: network_utils_demo")
+foreach(src IN LISTS EXAMPLES)
+    string(REGEX REPLACE "^.*/([^/.]+).cpp" "\\1" target ${src})
+    message(STATUS "Example target: " ${target})
+    add_executable(${target} ${src})
+    target_link_libraries(${target} lmnet)
+endforeach(src)

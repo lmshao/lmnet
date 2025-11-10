@@ -1,6 +1,4 @@
 /**
- * @file tcp_client.cxx
- * @brief TCP Client Example
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
@@ -8,9 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "lmnet/tcp_client.h"
-
 #include <assert.h>
+#include <lmnet/udp_client.h>
 
 #include <iostream>
 #include <thread>
@@ -51,7 +48,6 @@ public:
 int main(int argc, char **argv)
 {
     printf("Built at %s on %s.\n", __TIME__, __DATE__);
-
     std::string remoteIp = "127.0.0.1";
     uint16_t remotePort;
 
@@ -65,20 +61,19 @@ int main(int argc, char **argv)
         remotePort = atoi(argv[1]);
     }
 
-    auto tcpClient = TcpClient::Create(remoteIp, remotePort, "", 0);
+    auto udpClient = UdpClient::Create(remoteIp, remotePort, "", 0);
     auto listener = std::make_shared<MyListener>();
-    tcpClient->SetListener(listener);
+    udpClient->SetListener(listener);
     bool res = false;
-    res = tcpClient->Init();
+    res = udpClient->Init();
     assert(res);
-    res = tcpClient->Connect();
-    assert(res);
+
     printf("----\n");
     char sendbuf[1024];
     printf("Input:\n----------\n");
 
     while (!gExit && fgets(sendbuf, sizeof(sendbuf), stdin)) {
-        if (tcpClient->Send(sendbuf, strlen(sendbuf))) {
+        if (udpClient->Send(sendbuf, strlen(sendbuf))) {
             std::cout << "Send scuccess, length: " << strlen(sendbuf) << std::endl;
         } else {
             std::cout << "Send error" << std::endl;
@@ -88,6 +83,6 @@ int main(int argc, char **argv)
         printf("Input:\n----------\n");
     }
 
-    tcpClient->Close();
+    udpClient->Close();
     return 0;
 }

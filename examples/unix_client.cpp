@@ -1,6 +1,4 @@
 /**
- * @file unix_client.cxx
- * @brief Unix Domain Socket Client Example
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
@@ -8,15 +6,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "lmnet/unix_client.h"
+#include <lmnet/iclient_listener.h>
+#include <lmnet/unix_client.h>
 
-#include <chrono>
 #include <iostream>
 #include <memory>
 #include <string>
-#include <thread>
-
-#include "lmnet/iclient_listener.h"
 
 using namespace lmshao::lmnet;
 
