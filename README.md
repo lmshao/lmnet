@@ -199,6 +199,31 @@ More examples can be found in the [`examples/`](examples/) directory.
 - See header files in [`include/lmnet/`](include/lmnet/) for detailed API documentation.
 - Key classes: `TcpServer`, `TcpClient`, `UdpServer`, `UdpClient`, `EventReactor`, `Session`, etc.
 
+## IPv6 Support
+
+- Enumerates interfaces and addresses on all platforms, including IPv6.
+- Link-local IPv6 addresses automatically include a required scope id on Windows (zone id), using `sockaddr_in6.sin6_scope_id` or falling back to the adapter's `Ipv6IfIndex` when needed.
+- Text representation uses `inet_ntop`; for link-local addresses, expect a suffix like `%12` (e.g., `fe80::1%12`).
+- Usage example: when connecting to a link-local IPv6 on Windows, include the zone id: `fe80::abcd:ef01:2345%12`.
+
+Example: enumerate interfaces
+
+```cpp
+#include <lmnet/network_utils.h>
+#include <iostream>
+
+int main() {
+    auto interfaces = lmshao::lmnet::NetworkUtils::GetAllInterfaces();
+    for (const auto &iface : interfaces) {
+        std::cout << "name=" << iface.name
+                  << " ipv4=" << iface.ipv4
+                  << " ipv6=" << iface.ipv6 << std::endl;
+    }
+    return 0;
+}
+```
+
+
 ## Testing
 
 Run unit tests after building:

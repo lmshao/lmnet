@@ -195,9 +195,29 @@ int main(int argc, char **argv) {
 - 详细 API 文档见 [`include/lmnet/`](include/lmnet/) 头文件。
 - 主要类：`TcpServer`、`TcpClient`、`UdpServer`、`UdpClient`、`EventReactor`、`Session` 等。
 
-## 测试
+## IPv6 支持
 
-构建后运行单元测试：
+- 在所有平台枚举网络接口与地址，包含 IPv6。
+- Windows 下自动为链路本地 IPv6 地址追加必要的作用域 ID（zone id），优先使用 `sockaddr_in6.sin6_scope_id`，如为 0 则回退到适配器的 `Ipv6IfIndex`。
+- 文本形式转换使用 `inet_ntop`；链路本地地址会带有类似 `%12` 的后缀（例如 `fe80::1%12`）。
+- 使用示例：在 Windows 连接链路本地 IPv6 时需包含 zone id，例如 `fe80::abcd:ef01:2345%12`。
+
+示例：枚举网络接口
+
+```cpp
+#include <lmnet/network_utils.h>
+#include <iostream>
+
+int main() {
+    auto interfaces = lmshao::lmnet::NetworkUtils::GetAllInterfaces();
+    for (const auto &iface : interfaces) {
+        std::cout << "name=" << iface.name
+                  << " ipv4=" << iface.ipv4
+                  << " ipv6=" << iface.ipv6 << std::endl;
+    }
+    return 0;
+}
+```
 
 ### Linux
 
