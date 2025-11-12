@@ -10,6 +10,7 @@
 #include <lmnet/tcp_client.h>
 
 #include <iostream>
+#include <string>
 #include <thread>
 
 using namespace lmshao::lmnet;
@@ -45,31 +46,87 @@ public:
     }
 };
 
+// Parse endpoint in formats:
+// 1) "[IPv6]:port" (e.g., "[2408:823c:bb2:16ac::1]:8888")
+// 2) "IPv4:port" (e.g., "192.168.1.10:8888")
+// 3) "<ip> <port>"
+// 4) "<port>" (defaults to 127.0.0.1)
+static bool ParseEndpoint(int argc, char **argv, std::string &ip, uint16_t &port)
+{
+    ip = "127.0.0.1";
+    port = 0;
+
+    auto usage = [&]() {
+        printf("Usage:\n");
+        printf("  %s <ip> <port>\n", argv[0]);
+        printf("  %s <port>\n", argv[0]);
+        printf("  %s [IPv6]:port\n", argv[0]);
+        printf("  %s IPv4:port\n", argv[0]);
+        printf("Notes:\n");
+        printf("  - Link-local IPv6 requires scope id: [fe80::xxxx%%<index>]:port\n");
+        printf("    Example: %s [fe80::1ecc:8972:8892:91ff%%12]:7777 (%%12 is interface index)\n", argv[0]);
+    };
+
+    if (argc == 2) {
+        std::string arg(argv[1]);
+        // Bracketed IPv6
+        if (!arg.empty() && arg.front() == '[') {
+            auto rb = arg.find(']');
+            auto colon = arg.find(':', rb != std::string::npos ? rb : 0);
+            if (rb == std::string::npos || colon == std::string::npos) {
+                usage();
+                return false;
+            }
+            ip = arg.substr(1, rb - 1);
+            port = static_cast<uint16_t>(std::atoi(arg.substr(colon + 1).c_str()));
+            return true;
+        }
+        // IPv4:port or plain port
+        auto colon = arg.find(':');
+        if (colon != std::string::npos) {
+            ip = arg.substr(0, colon);
+            port = static_cast<uint16_t>(std::atoi(arg.substr(colon + 1).c_str()));
+            return true;
+        } else {
+            port = static_cast<uint16_t>(std::atoi(arg.c_str()));
+            return true;
+        }
+    } else if (argc == 3) {
+        ip = argv[1];
+        port = static_cast<uint16_t>(std::atoi(argv[2]));
+        return true;
+    } else {
+        usage();
+        return false;
+    }
+}
+
 int main(int argc, char **argv)
 {
     printf("Built at %s on %s.\n", __TIME__, __DATE__);
 
-    std::string remoteIp = "127.0.0.1";
+    std::string remoteIp;
     uint16_t remotePort;
-
-    if (argc > 3 || argc == 1) {
-        printf("param err:\nUsage:\n%s <ip> <port> | %s <port>\n", argv[0], argv[0]);
+    if (!ParseEndpoint(argc, argv, remoteIp, remotePort)) {
         return -1;
-    } else if (argc == 3) {
-        remoteIp = argv[1];
-        remotePort = atoi(argv[2]);
-    } else if (argc == 2) {
-        remotePort = atoi(argv[1]);
     }
 
     auto tcpClient = TcpClient::Create(remoteIp, remotePort, "", 0);
     auto listener = std::make_shared<MyListener>();
     tcpClient->SetListener(listener);
-    bool res = false;
-    res = tcpClient->Init();
-    assert(res);
-    res = tcpClient->Connect();
-    assert(res);
+
+    if (!tcpClient->Init()) {
+        std::cerr << "Init failed" << std::endl;
+        return -1;
+    }
+
+    // Connect may block for a short timeout; return false on failure
+    if (!tcpClient->Connect()) {
+        std::cerr << "Connect failed" << std::endl;
+        tcpClient->Close();
+        return -1;
+    }
+
     printf("----\n");
     char sendbuf[1024];
     printf("Input:\n----------\n");

@@ -44,7 +44,7 @@ private:
     void SubmitReceive();
     void HandleSend(DWORD bytesOrError);
     void HandleClose(bool isError, const std::string &reason);
-    void DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_in &fromAddr);
+    void DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_storage &fromAddr, int fromLen);
 
 private:
     std::string remoteIp_;
@@ -53,8 +53,11 @@ private:
     uint16_t localPort_;
 
     SOCKET socket_{INVALID_SOCKET};
-    sockaddr_in remoteAddr_{};
-    sockaddr_in localAddr_{};
+    sockaddr_storage remoteAddr_{};
+    int remoteAddrLen_{0};
+    sockaddr_storage localAddr_{};
+    int localAddrLen_{0};
+    bool use_ipv6_{false};
 
     std::atomic<bool> isRunning_{false};
     std::weak_ptr<IClientListener> listener_;

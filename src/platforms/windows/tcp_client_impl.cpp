@@ -12,6 +12,7 @@
 #include <ws2tcpip.h>
 
 #include <chrono>
+#include <cstdlib>
 
 #include "internal_logger.h"
 #include "iocp_manager.h"
@@ -74,35 +75,74 @@ void TcpClientImpl::ReInit()
         closesocket(socket_);
     }
 
+    // Decide address family based on remote IP (':' implies IPv6)
+    use_ipv6_ = (remoteIp_.find(':') != std::string::npos);
+
     // Create new socket
-    socket_ = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+    int family = use_ipv6_ ? AF_INET6 : AF_INET;
+    socket_ = WSASocketW(family, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (socket_ == INVALID_SOCKET) {
         LMNET_LOGE("WSASocket failed: %d", WSAGetLastError());
         return;
     }
 
-    // Setup local binding if specified
+    // Setup local binding (ConnectEx requires a bound socket)
     if (!localIp_.empty() || localPort_ != 0) {
-        localAddr_.sin_family = AF_INET;
-        localAddr_.sin_port = htons(localPort_);
-        if (localIp_.empty()) {
-            localIp_ = "0.0.0.0";
-        }
-        inet_pton(AF_INET, localIp_.c_str(), &localAddr_.sin_addr);
-
-        if (bind(socket_, (sockaddr *)&localAddr_, sizeof(localAddr_)) != 0) {
-            LMNET_LOGE("bind failed: %d", WSAGetLastError());
-            return;
+        if (!use_ipv6_) {
+            sockaddr_in local4{};
+            local4.sin_family = AF_INET;
+            local4.sin_port = htons(localPort_);
+            if (localIp_.empty()) {
+                localIp_ = "0.0.0.0";
+            }
+            inet_pton(AF_INET, localIp_.c_str(), &local4.sin_addr);
+            if (bind(socket_, (sockaddr *)&local4, sizeof(local4)) != 0) {
+                LMNET_LOGE("bind failed: %d", WSAGetLastError());
+                return;
+            }
+            memcpy(&localAddr_, &local4, sizeof(local4));
+            localAddrLen_ = sizeof(local4);
+        } else {
+            sockaddr_in6 local6{};
+            local6.sin6_family = AF_INET6;
+            local6.sin6_port = htons(localPort_);
+            if (localIp_.empty()) {
+                localIp_ = "::";
+            }
+            if (inet_pton(AF_INET6, localIp_.c_str(), &local6.sin6_addr) != 1) {
+                LMNET_LOGE("inet_pton local IPv6 failed");
+                return;
+            }
+            if (bind(socket_, (sockaddr *)&local6, sizeof(local6)) != 0) {
+                LMNET_LOGE("bind(IPv6) failed: %d", WSAGetLastError());
+                return;
+            }
+            memcpy(&localAddr_, &local6, sizeof(local6));
+            localAddrLen_ = sizeof(local6);
         }
     } else {
-        // ConnectEx requires the socket to be bound first
-        localAddr_.sin_family = AF_INET;
-        localAddr_.sin_addr.s_addr = htonl(INADDR_ANY);
-        localAddr_.sin_port = 0; // Let system choose port
-
-        if (bind(socket_, (sockaddr *)&localAddr_, sizeof(localAddr_)) != 0) {
-            LMNET_LOGE("Auto-bind for ConnectEx failed: %d", WSAGetLastError());
-            return;
+        if (!use_ipv6_) {
+            sockaddr_in any4{};
+            any4.sin_family = AF_INET;
+            any4.sin_addr.s_addr = htonl(INADDR_ANY);
+            any4.sin_port = 0; // Let system choose port
+            if (bind(socket_, (sockaddr *)&any4, sizeof(any4)) != 0) {
+                LMNET_LOGE("Auto-bind for ConnectEx failed: %d", WSAGetLastError());
+                return;
+            }
+            memcpy(&localAddr_, &any4, sizeof(any4));
+            localAddrLen_ = sizeof(any4);
+        } else {
+            sockaddr_in6 any6{};
+            any6.sin6_family = AF_INET6;
+            any6.sin6_addr = IN6ADDR_ANY_INIT;
+            any6.sin6_port = 0; // Let system choose port
+            if (bind(socket_, (sockaddr *)&any6, sizeof(any6)) != 0) {
+                LMNET_LOGE("Auto-bind IPv6 for ConnectEx failed: %d", WSAGetLastError());
+                return;
+            }
+            memcpy(&localAddr_, &any6, sizeof(any6));
+            localAddrLen_ = sizeof(any6);
         }
     }
 
@@ -115,12 +155,48 @@ void TcpClientImpl::ReInit()
         return;
     }
 
-    // Setup server address
-    serverAddr_.sin_family = AF_INET;
-    serverAddr_.sin_port = htons(remotePort_);
-    if (inet_pton(AF_INET, remoteIp_.c_str(), &serverAddr_.sin_addr) != 1) {
-        LMNET_LOGE("inet_pton remote failed");
-        return;
+    // Setup server address (IPv4/IPv6)
+    if (!use_ipv6_) {
+        sockaddr_in srv4{};
+        srv4.sin_family = AF_INET;
+        srv4.sin_port = htons(remotePort_);
+        if (inet_pton(AF_INET, remoteIp_.c_str(), &srv4.sin_addr) != 1) {
+            LMNET_LOGE("inet_pton remote IPv4 failed");
+            return;
+        }
+        memcpy(&serverAddr_, &srv4, sizeof(srv4));
+        serverAddrLen_ = sizeof(srv4);
+    } else {
+        sockaddr_in6 srv6{};
+        srv6.sin6_family = AF_INET6;
+        srv6.sin6_port = htons(remotePort_);
+        // Support link-local scope id: allow input like "fe80::xxxx%12"
+        // Extract scope id (if any) and strip it from the address for inet_pton
+        unsigned long scope_id = 0;
+        std::string ip_no_scope = remoteIp_;
+        auto percent_pos = ip_no_scope.find('%');
+        if (percent_pos != std::string::npos) {
+            std::string scope = ip_no_scope.substr(percent_pos + 1);
+            ip_no_scope = ip_no_scope.substr(0, percent_pos);
+            // Try numeric interface index; if not numeric, leave scope_id as 0
+            if (!scope.empty()) {
+                char *endptr = nullptr;
+                unsigned long idx = std::strtoul(scope.c_str(), &endptr, 10);
+                if (endptr && *endptr == '\0') {
+                    scope_id = idx;
+                } else {
+                    LMNET_LOGW("IPv6 scope '%s' is non-numeric; interface name scopes are not supported on Windows",
+                               scope.c_str());
+                }
+            }
+        }
+        if (inet_pton(AF_INET6, ip_no_scope.c_str(), &srv6.sin6_addr) != 1) {
+            LMNET_LOGE("inet_pton remote IPv6 failed");
+            return;
+        }
+        srv6.sin6_scope_id = scope_id; // Required for link-local addresses
+        memcpy(&serverAddr_, &srv6, sizeof(srv6));
+        serverAddrLen_ = sizeof(srv6);
     }
 
     isConnected_.store(false);
@@ -156,11 +232,26 @@ bool TcpClientImpl::Connect()
 
     SubmitConnect();
 
+    // Determine connect timeout (default 5000ms, override via env LMNET_CONNECT_TIMEOUT_MS)
+    int timeoutMs = 5000;
+    if (const char *env = std::getenv("LMNET_CONNECT_TIMEOUT_MS")) {
+        long val = std::strtol(env, nullptr, 10);
+        if (val > 0 && val < 600000) {
+            timeoutMs = static_cast<int>(val);
+        }
+    }
+
     std::unique_lock<std::mutex> lock(connectMutex_);
-    bool completed = connectCond_.wait_for(lock, std::chrono::seconds(5), [this]() { return !connectPending_; });
+    bool completed =
+        connectCond_.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this]() { return !connectPending_; });
     if (!completed) {
-        LMNET_LOGE("Connect to %s:%u timed out", remoteIp_.c_str(), remotePort_);
+        // Treat timeout as a connect failure and notify listener
+        LMNET_LOGE("Connect to %s:%u timed out after %d ms", remoteIp_.c_str(), remotePort_, timeoutMs);
         connectPending_ = false;
+        connectSuccess_ = false;
+        lastConnectError_ = WAIT_TIMEOUT;
+        lock.unlock();
+        HandleClose(true, "Connect timeout");
         return false;
     }
 
@@ -182,12 +273,13 @@ void TcpClientImpl::SubmitConnect()
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
-    bool success = manager.SubmitConnectRequest(socket_, serverAddr_, [self](SOCKET socket, DWORD error) {
-        if (self->taskQueue_) {
-            auto task = std::make_shared<TaskHandler<void>>([self, error]() { self->HandleConnect(error); });
-            self->taskQueue_->EnqueueTask(task);
-        }
-    });
+    bool success = manager.SubmitConnectRequest(
+        socket_, reinterpret_cast<const sockaddr *>(&serverAddr_), serverAddrLen_, [self](SOCKET socket, DWORD error) {
+            if (self->taskQueue_) {
+                auto task = std::make_shared<TaskHandler<void>>([self, error]() { self->HandleConnect(error); });
+                self->taskQueue_->EnqueueTask(task);
+            }
+        });
 
     if (!success) {
         LMNET_LOGE("Failed to submit connect request");

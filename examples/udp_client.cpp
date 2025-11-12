@@ -10,6 +10,7 @@
 #include <lmnet/udp_client.h>
 
 #include <iostream>
+#include <string>
 #include <thread>
 
 using namespace lmshao::lmnet;
@@ -48,17 +49,57 @@ public:
 int main(int argc, char **argv)
 {
     printf("Built at %s on %s.\n", __TIME__, __DATE__);
-    std::string remoteIp = "127.0.0.1";
-    uint16_t remotePort;
+    // Unified endpoint parser (same as TCP example)
+    auto parseEndpoint = [&](std::string &ip, uint16_t &port) -> bool {
+        ip = "127.0.0.1";
+        port = 0;
+        auto usage = [&]() {
+            printf("Usage:\n");
+            printf("  %s <ip> <port>\n", argv[0]);
+            printf("  %s <port>\n", argv[0]);
+            printf("  %s [IPv6]:port\n", argv[0]);
+            printf("  %s IPv4:port\n", argv[0]);
+            printf("Notes:\n");
+            printf("  - Link-local IPv6 requires scope id: [fe80::xxxx%%<index>]:port\n");
+            printf("    Example: %s [fe80::1ecc:8972:8892:91ff%%12]:7777 (%%12 is interface index)\n", argv[0]);
+        };
 
-    if (argc > 3 || argc == 1) {
-        printf("param err:\nUsage:\n%s <ip> <port> | %s <port>\n", argv[0], argv[0]);
+        if (argc == 2) {
+            std::string arg(argv[1]);
+            if (!arg.empty() && arg.front() == '[') {
+                auto rb = arg.find(']');
+                auto colon = arg.find(':', rb != std::string::npos ? rb : 0);
+                if (rb == std::string::npos || colon == std::string::npos) {
+                    usage();
+                    return false;
+                }
+                ip = arg.substr(1, rb - 1);
+                port = static_cast<uint16_t>(std::atoi(arg.substr(colon + 1).c_str()));
+                return true;
+            }
+            auto colon = arg.find(':');
+            if (colon != std::string::npos) {
+                ip = arg.substr(0, colon);
+                port = static_cast<uint16_t>(std::atoi(arg.substr(colon + 1).c_str()));
+                return true;
+            } else {
+                port = static_cast<uint16_t>(std::atoi(arg.c_str()));
+                return true;
+            }
+        } else if (argc == 3) {
+            ip = argv[1];
+            port = static_cast<uint16_t>(std::atoi(argv[2]));
+            return true;
+        } else {
+            usage();
+            return false;
+        }
+    };
+
+    std::string remoteIp;
+    uint16_t remotePort;
+    if (!parseEndpoint(remoteIp, remotePort)) {
         return -1;
-    } else if (argc == 3) {
-        remoteIp = argv[1];
-        remotePort = atoi(argv[2]);
-    } else if (argc == 2) {
-        remotePort = atoi(argv[1]);
     }
 
     auto udpClient = UdpClient::Create(remoteIp, remotePort, "", 0);

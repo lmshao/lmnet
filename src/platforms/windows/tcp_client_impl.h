@@ -56,8 +56,11 @@ private:
     uint16_t localPort_;
 
     SOCKET socket_{INVALID_SOCKET};
-    sockaddr_in serverAddr_{};
-    sockaddr_in localAddr_{};
+    sockaddr_storage serverAddr_{};
+    int serverAddrLen_{0};
+    sockaddr_storage localAddr_{};
+    int localAddrLen_{0};
+    bool use_ipv6_{false};
 
     std::atomic<bool> isRunning_{false};
     std::atomic<bool> isConnected_{false};

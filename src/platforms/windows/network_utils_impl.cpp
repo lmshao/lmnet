@@ -6,10 +6,18 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <iphlpapi.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+// Include order matters on Windows:
+// 1) winsock2.h before windows.h to avoid conflicts with winsock.h
+// 2) windows.h before iphlpapi.h so Windows types (e.g., DWORD) are defined
+// clang-format off
 #include <winsock2.h>
 #include <ws2tcpip.h>
-
+#include <windows.h>
+#include <iphlpapi.h>
+// clang-format on
 #include "internal_logger.h"
 #include "lmnet/network_utils.h"
 
@@ -90,7 +98,26 @@ std::vector<NetworkInterface> NetworkUtils::GetAllInterfaces()
                 char buf[INET6_ADDRSTRLEN] = {0};
                 auto *sin6 = reinterpret_cast<struct sockaddr_in6 *>(sa);
                 if (inet_ntop(AF_INET6, &sin6->sin6_addr, buf, sizeof(buf)) != nullptr) {
-                    iface.ipv6 = buf;
+                    std::string ip = buf;
+                    // Append scope id for link-local IPv6 addresses to make them usable, e.g., fe80::...%12
+                    // Prefer sockaddr scope id; if zero, fallback to adapter's Ipv6IfIndex
+                    ULONG scope = sin6->sin6_scope_id;
+                    // On Windows, link-local addresses typically require a non-zero scope id
+                    // Detect link-local by prefix fe80::/10; IN6_IS_ADDR_LINKLOCAL is available on Windows headers
+#ifdef IN6_IS_ADDR_LINKLOCAL
+                    bool is_link_local = IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr) != 0;
+#else
+                    bool is_link_local = (ip.rfind("fe80", 0) == 0);
+#endif
+                    if (is_link_local) {
+                        if (scope == 0) {
+                            scope = pCurr->Ipv6IfIndex; // adapter index for IPv6
+                        }
+                        if (scope != 0) {
+                            ip += "%" + std::to_string(scope);
+                        }
+                    }
+                    iface.ipv6 = ip;
                     interfaces.push_back(iface);
                 }
             }

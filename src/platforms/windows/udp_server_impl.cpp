@@ -60,32 +60,67 @@ bool UdpServerImpl::Init()
         return false;
     }
 
+    // Decide address family by input IP
+    use_ipv6_ = (ip_.find(':') != std::string::npos);
+    int family = use_ipv6_ ? AF_INET6 : AF_INET;
+
+    // Default wildcard by family
+    if (ip_.empty()) {
+        ip_ = use_ipv6_ ? std::string("::") : std::string("0.0.0.0");
+    }
+
     // Create UDP socket
-    socket_ = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+    socket_ = WSASocketW(family, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (socket_ == INVALID_SOCKET) {
         LMNET_LOGE("WSASocket failed: %d", WSAGetLastError());
         return false;
     }
 
-    // Setup listen address
-    listenAddr_.sin_family = AF_INET;
-    listenAddr_.sin_port = htons(port_);
-    if (ip_.empty()) {
-        ip_ = "0.0.0.0";
-    }
-    if (inet_pton(AF_INET, ip_.c_str(), &listenAddr_.sin_addr) != 1) {
-        LMNET_LOGE("inet_pton failed");
-        closesocket(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
-    }
+    if (use_ipv6_) {
+        // Enable dual-stack (allow IPv4-mapped connections) when appropriate
+        DWORD v6only = 0; // 0 = dual-stack
+        if (setsockopt(socket_, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char *>(&v6only), sizeof(v6only)) ==
+            SOCKET_ERROR) {
+            LMNET_LOGW("setsockopt IPV6_V6ONLY failed: %d", WSAGetLastError());
+        }
 
-    // Bind
-    if (bind(socket_, (sockaddr *)&listenAddr_, sizeof(listenAddr_)) != 0) {
-        LMNET_LOGE("bind failed: %d", WSAGetLastError());
-        closesocket(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
+        // Setup IPv6 listen address
+        ZeroMemory(&listenAddr6_, sizeof(listenAddr6_));
+        listenAddr6_.sin6_family = AF_INET6;
+        listenAddr6_.sin6_port = htons(port_);
+        if (inet_pton(AF_INET6, ip_.c_str(), &listenAddr6_.sin6_addr) != 1) {
+            LMNET_LOGE("inet_pton(AF_INET6) failed for %s", ip_.c_str());
+            closesocket(socket_);
+            socket_ = INVALID_SOCKET;
+            return false;
+        }
+
+        // Bind IPv6
+        if (bind(socket_, reinterpret_cast<sockaddr *>(&listenAddr6_), sizeof(listenAddr6_)) != 0) {
+            LMNET_LOGE("bind(AF_INET6) failed: %d", WSAGetLastError());
+            closesocket(socket_);
+            socket_ = INVALID_SOCKET;
+            return false;
+        }
+    } else {
+        // Setup IPv4 listen address
+        ZeroMemory(&listenAddr_, sizeof(listenAddr_));
+        listenAddr_.sin_family = AF_INET;
+        listenAddr_.sin_port = htons(port_);
+        if (inet_pton(AF_INET, ip_.c_str(), &listenAddr_.sin_addr) != 1) {
+            LMNET_LOGE("inet_pton(AF_INET) failed for %s", ip_.c_str());
+            closesocket(socket_);
+            socket_ = INVALID_SOCKET;
+            return false;
+        }
+
+        // Bind IPv4
+        if (bind(socket_, reinterpret_cast<sockaddr *>(&listenAddr_), sizeof(listenAddr_)) != 0) {
+            LMNET_LOGE("bind(AF_INET) failed: %d", WSAGetLastError());
+            closesocket(socket_);
+            socket_ = INVALID_SOCKET;
+            return false;
+        }
     }
 
     // Associate socket with IOCP
@@ -97,13 +132,13 @@ bool UdpServerImpl::Init()
         return false;
     }
 
-    // Initialize PacketOrderer for ordered delivery
+    // Initialize PacketOrderer for ordered delivery (IPv4/IPv6)
     packet_orderer_ = std::make_unique<PacketOrderer>(
-        [this](std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr) {
+        [this](std::shared_ptr<DataBuffer> buffer, const sockaddr_storage &addr, int addrLen) {
             // Ordered delivery to TaskQueue
             if (taskQueue_ && isRunning_.load()) {
-                auto task =
-                    std::make_shared<TaskHandler<void>>([this, buffer, addr]() { this->DeliverOrdered(buffer, addr); });
+                auto task = std::make_shared<TaskHandler<void>>(
+                    [this, buffer, addr, addrLen]() { this->DeliverOrdered(buffer, addr, addrLen); });
                 taskQueue_->EnqueueTask(task);
             }
         },
@@ -182,26 +217,26 @@ void UdpServerImpl::SubmitReceive()
     // Assign sequence number at submission time to preserve order
     uint64_t seq = receive_seq_counter_.fetch_add(1, std::memory_order_relaxed);
 
-    bool success = manager.SubmitRecvFromRequest(socket_, buffer,
-                                                 [self, buffer, seq](SOCKET socket, std::shared_ptr<DataBuffer> buf,
-                                                                     DWORD bytesOrError, const sockaddr_in &fromAddr) {
-                                                     // This callback may be invoked from multiple IOCP worker threads
-                                                     // in non-deterministic order Submit to PacketOrderer for
-                                                     // reordering
-                                                     if (self->isRunning_.load() && self->packet_orderer_) {
-                                                         if (bytesOrError > 0 && bytesOrError <= 65536) {
-                                                             // Valid data packet - submit for ordering
-                                                             buf->SetSize(bytesOrError);
-                                                             self->packet_orderer_->SubmitPacket(seq, buf, fromAddr);
-                                                         } else if (bytesOrError > 65536) {
-                                                             // Error code
-                                                             LMNET_LOGE("UDP receive error: %lu", bytesOrError);
-                                                         }
-                                                     }
+    bool success = manager.SubmitRecvFromRequest(
+        socket_, buffer,
+        [self, buffer, seq](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesOrError,
+                            const sockaddr_storage &fromAddr, int fromLen) {
+            // This callback may be invoked from multiple IOCP worker threads
+            // in non-deterministic order Submit to PacketOrderer for reordering
+            if (self->isRunning_.load() && self->packet_orderer_) {
+                if (bytesOrError > 0 && bytesOrError <= 65536) {
+                    // Valid data packet - submit for ordering
+                    buf->SetSize(bytesOrError);
+                    self->packet_orderer_->SubmitPacket(seq, buf, fromAddr, fromLen);
+                } else if (bytesOrError > 65536) {
+                    // Error code
+                    LMNET_LOGE("UDP receive error: %lu", bytesOrError);
+                }
+            }
 
-                                                     // Continue receiving
-                                                     self->SubmitReceive();
-                                                 });
+            // Continue receiving
+            self->SubmitReceive();
+        });
 
     if (!success) {
         LMNET_LOGE("Failed to submit UDP receive request");
@@ -218,21 +253,31 @@ void UdpServerImpl::SubmitReceive()
     }
 }
 
-void UdpServerImpl::DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_in &fromAddr)
+void UdpServerImpl::DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_storage &fromAddr, int fromLen)
 {
     if (!isRunning_.load() || !buffer) {
         return;
     }
 
-    // Extract client info
-    char addrStr[INET_ADDRSTRLEN];
+    // Extract client info for IPv4/IPv6
     std::string host;
     uint16_t port = 0;
 
-    if (inet_ntop(AF_INET, &fromAddr.sin_addr, addrStr, INET_ADDRSTRLEN) != nullptr) {
-        host = addrStr;
+    if (fromAddr.ss_family == AF_INET) {
+        const sockaddr_in *in4 = reinterpret_cast<const sockaddr_in *>(&fromAddr);
+        char addrStr[INET_ADDRSTRLEN]{};
+        if (inet_ntop(AF_INET, const_cast<in_addr *>(&in4->sin_addr), addrStr, INET_ADDRSTRLEN) != nullptr) {
+            host = addrStr;
+        }
+        port = ntohs(in4->sin_port);
+    } else if (fromAddr.ss_family == AF_INET6) {
+        const sockaddr_in6 *in6 = reinterpret_cast<const sockaddr_in6 *>(&fromAddr);
+        char addrStr[INET6_ADDRSTRLEN]{};
+        if (inet_ntop(AF_INET6, const_cast<in6_addr *>(&in6->sin6_addr), addrStr, INET6_ADDRSTRLEN) != nullptr) {
+            host = addrStr;
+        }
+        port = ntohs(in6->sin6_port);
     }
-    port = ntohs(fromAddr.sin_port);
 
     auto session = std::make_shared<UdpSessionImpl>((socket_t)socket_, host, port, shared_from_this());
 
@@ -264,26 +309,45 @@ bool UdpServerImpl::Send(std::string host, uint16_t port, std::shared_ptr<DataBu
         return false;
     }
 
-    // Setup destination address
-    sockaddr_in destAddr{};
-    destAddr.sin_family = AF_INET;
-    destAddr.sin_port = htons(port);
-    if (inet_pton(AF_INET, host.c_str(), &destAddr.sin_addr) != 1) {
-        LMNET_LOGE("inet_pton failed for address: %s", host.c_str());
-        return false;
+    // Setup destination address (IPv4/IPv6)
+    bool dst_ipv6 = (host.find(':') != std::string::npos);
+    sockaddr_storage dst{};
+    int dstLen = 0;
+    if (dst_ipv6) {
+        sockaddr_in6 a6{};
+        a6.sin6_family = AF_INET6;
+        a6.sin6_port = htons(port);
+        if (inet_pton(AF_INET6, host.c_str(), &a6.sin6_addr) != 1) {
+            LMNET_LOGE("inet_pton(AF_INET6) failed for address: %s", host.c_str());
+            return false;
+        }
+        memcpy(&dst, &a6, sizeof(a6));
+        dstLen = sizeof(a6);
+    } else {
+        sockaddr_in a4{};
+        a4.sin_family = AF_INET;
+        a4.sin_port = htons(port);
+        if (inet_pton(AF_INET, host.c_str(), &a4.sin_addr) != 1) {
+            LMNET_LOGE("inet_pton(AF_INET) failed for address: %s", host.c_str());
+            return false;
+        }
+        memcpy(&dst, &a4, sizeof(a4));
+        dstLen = sizeof(a4);
     }
 
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
-    bool success = manager.SubmitSendToRequest(socket_, buffer, destAddr, [self](SOCKET socket, DWORD bytesOrError) {
-        if (self->taskQueue_) {
-            auto task = std::make_shared<TaskHandler<void>>([self, bytesOrError]() { self->HandleSend(bytesOrError); });
-            self->taskQueue_->EnqueueTask(task);
-        } else {
-            self->HandleSend(bytesOrError);
-        }
-    });
+    bool success = manager.SubmitSendToRequest(
+        socket_, buffer, reinterpret_cast<const sockaddr *>(&dst), dstLen, [self](SOCKET socket, DWORD bytesOrError) {
+            if (self->taskQueue_) {
+                auto task =
+                    std::make_shared<TaskHandler<void>>([self, bytesOrError]() { self->HandleSend(bytesOrError); });
+                self->taskQueue_->EnqueueTask(task);
+            } else {
+                self->HandleSend(bytesOrError);
+            }
+        });
 
     if (!success) {
         LMNET_LOGE("Failed to submit UDP send request to %s:%u", host.c_str(), port);

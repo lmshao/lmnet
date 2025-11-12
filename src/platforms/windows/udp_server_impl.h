@@ -10,6 +10,8 @@
 #ifndef LMSHAO_LMNET_UDP_SERVER_IMPL_H
 #define LMSHAO_LMNET_UDP_SERVER_IMPL_H
 
+#include <WS2tcpip.h>
+#include <WinSock2.h>
 #include <lmcore/task_queue.h>
 
 #include <atomic>
@@ -45,7 +47,7 @@ private:
     void StartReceiving();
     void SubmitReceive();
     void HandleSend(DWORD bytesOrError);
-    void DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_in &fromAddr);
+    void DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_storage &fromAddr, int fromLen);
 
 private:
     std::string ip_;
@@ -53,6 +55,8 @@ private:
 
     SOCKET socket_{INVALID_SOCKET};
     sockaddr_in listenAddr_{};
+    sockaddr_in6 listenAddr6_{};
+    bool use_ipv6_{false};
 
     std::atomic<bool> isRunning_{false};
     std::weak_ptr<IServerListener> listener_;

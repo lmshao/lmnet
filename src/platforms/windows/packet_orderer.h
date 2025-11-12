@@ -35,7 +35,7 @@ using lmshao::lmcore::DataBuffer;
  */
 class PacketOrderer {
 public:
-    using DeliveryCallback = std::function<void(std::shared_ptr<DataBuffer>, const sockaddr_in &)>;
+    using DeliveryCallback = std::function<void(std::shared_ptr<DataBuffer>, const sockaddr_storage &, int)>;
 
     /**
      * @brief Construct a packet orderer
@@ -59,12 +59,12 @@ public:
      *
      * This method is thread-safe and can be called from multiple IOCP worker threads.
      */
-    void SubmitPacket(uint64_t seq, std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr)
+    void SubmitPacket(uint64_t seq, std::shared_ptr<DataBuffer> buffer, const sockaddr_storage &addr, int addrLen)
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
         // Store the packet with metadata
-        pendingPackets_[seq] = PacketInfo{buffer, addr, std::chrono::steady_clock::now()};
+        pendingPackets_[seq] = PacketInfo{buffer, addr, addrLen, std::chrono::steady_clock::now()};
 
         // Try to deliver consecutive packets
         DeliverConsecutivePackets();
@@ -94,7 +94,8 @@ public:
 private:
     struct PacketInfo {
         std::shared_ptr<DataBuffer> buffer;
-        sockaddr_in addr;
+        sockaddr_storage addr;
+        int addrLen{sizeof(sockaddr_storage)};
         std::chrono::steady_clock::time_point arrivalTime;
     };
 
@@ -112,7 +113,7 @@ private:
 
             // Deliver this packet in order
             if (callback_) {
-                callback_(it->second.buffer, it->second.addr);
+                callback_(it->second.buffer, it->second.addr, it->second.addrLen);
             }
 
             pendingPackets_.erase(it);

@@ -62,33 +62,65 @@ bool TcpServerImpl::Init()
         return false;
     }
 
-    // Create listen socket
-    listenSocket_ = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+    // Decide address family by IP string (':' implies IPv6)
+    use_ipv6_ = (ip_.find(':') != std::string::npos);
+    if (ip_.empty()) {
+        // Default to IPv4 if not specified
+        ip_ = "0.0.0.0";
+        use_ipv6_ = false;
+    }
+
+    // Create listen socket with chosen family
+    int family = use_ipv6_ ? AF_INET6 : AF_INET;
+    listenSocket_ = WSASocketW(family, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (listenSocket_ == INVALID_SOCKET) {
         LMNET_LOGE("WSASocket listen failed: %d", WSAGetLastError());
         taskQueue_->Stop(); // Clean up on failure
         return false;
     }
 
-    // Setup listen address
-    listenAddr_.sin_family = AF_INET;
-    listenAddr_.sin_port = htons(port_);
-    if (ip_.empty()) {
-        ip_ = "0.0.0.0";
-    }
-    if (inet_pton(AF_INET, ip_.c_str(), &listenAddr_.sin_addr) != 1) {
-        LMNET_LOGE("inet_pton failed");
-        closesocket(listenSocket_);
-        listenSocket_ = INVALID_SOCKET;
-        return false;
+    // Enable dual stack for IPv6 socket to accept IPv4-mapped addresses
+    if (use_ipv6_) {
+        int v6only = 0;
+        if (setsockopt(listenSocket_, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&v6only, sizeof(v6only)) == SOCKET_ERROR) {
+            LMNET_LOGW("setsockopt IPV6_V6ONLY failed: %d", WSAGetLastError());
+        }
     }
 
-    // Bind
-    if (bind(listenSocket_, (sockaddr *)&listenAddr_, sizeof(listenAddr_)) != 0) {
-        LMNET_LOGE("bind failed: %d", WSAGetLastError());
-        closesocket(listenSocket_);
-        listenSocket_ = INVALID_SOCKET;
-        return false;
+    // Setup listen address
+    if (!use_ipv6_) {
+        listenAddr_.sin_family = AF_INET;
+        listenAddr_.sin_port = htons(port_);
+        if (inet_pton(AF_INET, ip_.c_str(), &listenAddr_.sin_addr) != 1) {
+            LMNET_LOGE("inet_pton(AF_INET) failed");
+            closesocket(listenSocket_);
+            listenSocket_ = INVALID_SOCKET;
+            return false;
+        }
+        // Bind
+        if (bind(listenSocket_, (sockaddr *)&listenAddr_, sizeof(listenAddr_)) != 0) {
+            LMNET_LOGE("bind failed: %d", WSAGetLastError());
+            closesocket(listenSocket_);
+            listenSocket_ = INVALID_SOCKET;
+            return false;
+        }
+    } else {
+        ZeroMemory(&listenAddr6_, sizeof(listenAddr6_));
+        listenAddr6_.sin6_family = AF_INET6;
+        listenAddr6_.sin6_port = htons(port_);
+        if (inet_pton(AF_INET6, ip_.c_str(), &listenAddr6_.sin6_addr) != 1) {
+            LMNET_LOGE("inet_pton(AF_INET6) failed");
+            closesocket(listenSocket_);
+            listenSocket_ = INVALID_SOCKET;
+            return false;
+        }
+        // Bind
+        if (bind(listenSocket_, (sockaddr *)&listenAddr6_, sizeof(listenAddr6_)) != 0) {
+            LMNET_LOGE("bind(IPv6) failed: %d", WSAGetLastError());
+            closesocket(listenSocket_);
+            listenSocket_ = INVALID_SOCKET;
+            return false;
+        }
     }
 
     // Listen
@@ -176,21 +208,20 @@ void TcpServerImpl::SubmitAccept()
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
-    bool success = manager.SubmitAcceptRequest(
-        listenSocket_, [self](SOCKET listenSocket, SOCKET clientSocket, const sockaddr_in &clientAddr) {
-            if (clientSocket != INVALID_SOCKET) {
-                if (self->taskQueue_) {
-                    auto task = std::make_shared<TaskHandler<void>>(
-                        [self, clientSocket, clientAddr]() { self->HandleAccept(clientSocket, clientAddr); });
-                    self->taskQueue_->EnqueueTask(task);
-                } else {
-                    self->HandleAccept(clientSocket, clientAddr);
-                }
+    bool success = manager.SubmitAcceptRequest(listenSocket_, [self](SOCKET listenSocket, SOCKET clientSocket) {
+        if (clientSocket != INVALID_SOCKET) {
+            if (self->taskQueue_) {
+                auto task =
+                    std::make_shared<TaskHandler<void>>([self, clientSocket]() { self->HandleAccept(clientSocket); });
+                self->taskQueue_->EnqueueTask(task);
+            } else {
+                self->HandleAccept(clientSocket);
             }
+        }
 
-            // Continue accepting new connections
-            self->SubmitAccept();
-        });
+        // Continue accepting new connections
+        self->SubmitAccept();
+    });
 
     if (!success) {
         LMNET_LOGE("Failed to submit accept request");
@@ -200,7 +231,7 @@ void TcpServerImpl::SubmitAccept()
     }
 }
 
-void TcpServerImpl::HandleAccept(SOCKET clientSocket, const sockaddr_in &clientAddr)
+void TcpServerImpl::HandleAccept(SOCKET clientSocket)
 {
     if (!isRunning_.load()) {
         closesocket(clientSocket);
@@ -223,15 +254,28 @@ void TcpServerImpl::HandleAccept(SOCKET clientSocket, const sockaddr_in &clientA
         return;
     }
 
-    // Extract client address info
-    char addrStr[INET_ADDRSTRLEN];
+    // Extract client address info using getpeername for IPv4/IPv6
     std::string host;
     uint16_t port = 0;
-
-    if (inet_ntop(AF_INET, &clientAddr.sin_addr, addrStr, INET_ADDRSTRLEN) != nullptr) {
-        host = addrStr;
+    sockaddr_storage peer{};
+    int peerLen = sizeof(peer);
+    if (getpeername(clientSocket, (sockaddr *)&peer, &peerLen) == 0) {
+        if (peer.ss_family == AF_INET) {
+            auto *in4 = reinterpret_cast<sockaddr_in *>(&peer);
+            char addrStr4[INET_ADDRSTRLEN]{};
+            if (inet_ntop(AF_INET, &in4->sin_addr, addrStr4, sizeof(addrStr4)) != nullptr) {
+                host.assign(addrStr4);
+            }
+            port = ntohs(in4->sin_port);
+        } else if (peer.ss_family == AF_INET6) {
+            auto *in6 = reinterpret_cast<sockaddr_in6 *>(&peer);
+            char addrStr6[INET6_ADDRSTRLEN]{};
+            if (inet_ntop(AF_INET6, &in6->sin6_addr, addrStr6, sizeof(addrStr6)) != nullptr) {
+                host.assign(addrStr6);
+            }
+            port = ntohs(in6->sin6_port);
+        }
     }
-    port = ntohs(clientAddr.sin_port);
 
     // Create session
     auto session = std::make_shared<TcpSessionImpl>((socket_t)clientSocket, host, port, shared_from_this());

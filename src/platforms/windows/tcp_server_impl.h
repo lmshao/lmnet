@@ -10,6 +10,8 @@
 #ifndef LMSHAO_LMNET_TCP_SERVER_IMPL_H
 #define LMSHAO_LMNET_TCP_SERVER_IMPL_H
 
+#include <WS2tcpip.h>
+#include <WinSock2.h>
 #include <lmcore/task_queue.h>
 
 #include <atomic>
@@ -46,7 +48,7 @@ public:
 private:
     void SubmitAccept();
     void SubmitRead(SOCKET clientSocket);
-    void HandleAccept(SOCKET clientSocket, const sockaddr_in &clientAddr);
+    void HandleAccept(SOCKET clientSocket);
     void HandleReceive(SOCKET clientSocket, std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError);
     void HandleSend(SOCKET clientSocket, DWORD bytesOrError);
     void HandleClientClose(SOCKET clientSocket, bool isError, const std::string &reason);
@@ -62,6 +64,8 @@ private:
 
     SOCKET listenSocket_{INVALID_SOCKET};
     sockaddr_in listenAddr_{};
+    sockaddr_in6 listenAddr6_{};
+    bool use_ipv6_{false};
 
     std::atomic<bool> isRunning_{false};
     std::weak_ptr<IServerListener> listener_;

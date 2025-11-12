@@ -212,33 +212,21 @@ void IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
     switch (req->type) {
         case IocpRequestType::CONNECT:
             if (req->connect_cb) {
+                // Ensure the socket is transitioned to a connected state.
+                // Windows requires SO_UPDATE_CONNECT_CONTEXT after ConnectEx succeeds.
+                if (error == 0) {
+                    int r = setsockopt(req->socket, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, nullptr, 0);
+                    if (r != 0) {
+                        LMNET_LOGW("SO_UPDATE_CONNECT_CONTEXT failed: %d", WSAGetLastError());
+                    }
+                }
                 req->connect_cb(req->socket, error);
             }
             break;
 
         case IocpRequestType::ACCEPT:
             if (req->accept_cb) {
-                if (error == 0) {
-                    // Extract client address from AcceptEx buffer
-                    sockaddr *localAddr = nullptr;
-                    sockaddr *remoteAddr = nullptr;
-                    int localLen = 0, remoteLen = 0;
-
-                    if (fnGetAcceptExSockaddrs_) {
-                        fnGetAcceptExSockaddrs_(req->acceptBuffer, 0, sizeof(sockaddr_in) + 16,
-                                                sizeof(sockaddr_in) + 16, &localAddr, &localLen, &remoteAddr,
-                                                &remoteLen);
-                    }
-
-                    sockaddr_in clientAddr{};
-                    if (remoteAddr) {
-                        clientAddr = *reinterpret_cast<sockaddr_in *>(remoteAddr);
-                    }
-
-                    req->accept_cb(req->socket, req->acceptSocket, clientAddr);
-                } else {
-                    req->accept_cb(req->socket, INVALID_SOCKET, {});
-                }
+                req->accept_cb(req->socket, error == 0 ? req->acceptSocket : INVALID_SOCKET);
             }
             break;
 
@@ -266,7 +254,8 @@ void IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
                 if (error == 0 && bytes > 0 && req->buffer) {
                     req->buffer->SetSize(bytes);
                 }
-                req->recvfrom_cb(req->socket, req->buffer, error == 0 ? bytes : error, req->remoteAddr);
+                req->recvfrom_cb(req->socket, req->buffer, error == 0 ? bytes : error, req->remoteAddr,
+                                 req->remoteAddrLen);
             }
             break;
 
@@ -355,7 +344,7 @@ bool IocpManager::LoadWinsockExtensions(SOCKET socket)
     return true;
 }
 
-bool IocpManager::SubmitConnectRequest(SOCKET socket, const sockaddr_in &addr, ConnectCallback callback)
+bool IocpManager::SubmitConnectRequest(SOCKET socket, const sockaddr *addr, int addrLen, ConnectCallback callback)
 {
     // Load ConnectEx if needed
     if (!LoadWinsockExtensions(socket)) {
@@ -364,13 +353,18 @@ bool IocpManager::SubmitConnectRequest(SOCKET socket, const sockaddr_in &addr, C
 
     return SubmitOperation(
         IocpRequestType::CONNECT, socket,
-        [callback, addr](IocpRequest *req) {
+        [callback, addr, addrLen](IocpRequest *req) {
             req->connect_cb = callback;
-            req->remoteAddr = addr;
+            ZeroMemory(&req->remoteAddr, sizeof(req->remoteAddr));
+            int copyLen = std::min<int>(addrLen, (int)sizeof(req->remoteAddr));
+            if (addr && copyLen > 0) {
+                memcpy(&req->remoteAddr, addr, copyLen);
+                req->remoteAddrLen = addrLen;
+            }
         },
-        [this, addr](IocpRequest *req) {
+        [this, addr, addrLen](IocpRequest *req) {
             BOOL result =
-                fnConnectEx_(req->socket, (sockaddr *)&addr, sizeof(addr), nullptr, 0, nullptr, &req->overlapped);
+                fnConnectEx_(req->socket, const_cast<sockaddr *>(addr), addrLen, nullptr, 0, nullptr, &req->overlapped);
             if (!result) {
                 DWORD error = WSAGetLastError();
                 return error == ERROR_IO_PENDING;
@@ -390,7 +384,12 @@ bool IocpManager::SubmitAcceptRequest(SOCKET listenSocket, AcceptCallback callba
         IocpRequestType::ACCEPT, listenSocket,
         [callback](IocpRequest *req) {
             req->accept_cb = callback;
-            req->acceptSocket = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+            // Create accept socket with same address family as listen socket
+            WSAPROTOCOL_INFOW protoInfo{};
+            int len = sizeof(protoInfo);
+            int r = getsockopt(req->socket, SOL_SOCKET, SO_PROTOCOL_INFOW, (char *)&protoInfo, &len);
+            int af = (r == 0) ? protoInfo.iAddressFamily : AF_INET;
+            req->acceptSocket = WSASocketW(af, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
         },
         [this](IocpRequest *req) {
             if (req->acceptSocket == INVALID_SOCKET) {
@@ -399,8 +398,10 @@ bool IocpManager::SubmitAcceptRequest(SOCKET listenSocket, AcceptCallback callba
             }
 
             DWORD bytes = 0;
-            BOOL result = fnAcceptEx_(req->socket, req->acceptSocket, req->acceptBuffer, 0, sizeof(sockaddr_in) + 16,
-                                      sizeof(sockaddr_in) + 16, &bytes, &req->overlapped);
+            // Use large enough lengths for both local and remote address buffers
+            int addrExt = sizeof(sockaddr_storage) + 16;
+            BOOL result = fnAcceptEx_(req->socket, req->acceptSocket, req->acceptBuffer, 0, addrExt, addrExt, &bytes,
+                                      &req->overlapped);
             if (!result) {
                 DWORD error = WSAGetLastError();
                 if (error != ERROR_IO_PENDING) {
@@ -465,7 +466,7 @@ bool IocpManager::SubmitRecvFromRequest(SOCKET socket, std::shared_ptr<DataBuffe
             req->buffer = buffer;
             req->wsaBuf.buf = reinterpret_cast<char *>(buffer->Data());
             req->wsaBuf.len = static_cast<ULONG>(buffer->Capacity());
-            req->remoteAddrLen = sizeof(sockaddr_in);
+            req->remoteAddrLen = sizeof(sockaddr_storage);
         },
         [](IocpRequest *req) {
             DWORD flags = 0;
@@ -480,22 +481,27 @@ bool IocpManager::SubmitRecvFromRequest(SOCKET socket, std::shared_ptr<DataBuffe
         });
 }
 
-bool IocpManager::SubmitSendToRequest(SOCKET socket, std::shared_ptr<DataBuffer> buffer, const sockaddr_in &addr,
-                                      SendToCallback callback)
+bool IocpManager::SubmitSendToRequest(SOCKET socket, std::shared_ptr<DataBuffer> buffer, const sockaddr *addr,
+                                      int addrLen, SendToCallback callback)
 {
     return SubmitOperation(
         IocpRequestType::SENDTO, socket,
-        [callback, buffer, addr](IocpRequest *req) {
+        [callback, buffer, addr, addrLen](IocpRequest *req) {
             req->sendto_cb = callback;
             req->buffer = buffer;
             req->wsaBuf.buf = reinterpret_cast<char *>(buffer->Data());
             req->wsaBuf.len = static_cast<ULONG>(buffer->Size());
-            req->remoteAddr = addr;
+            ZeroMemory(&req->remoteAddr, sizeof(req->remoteAddr));
+            int copyLen = std::min<int>(addrLen, (int)sizeof(req->remoteAddr));
+            if (addr && copyLen > 0) {
+                memcpy(&req->remoteAddr, addr, copyLen);
+                req->remoteAddrLen = addrLen;
+            }
         },
         [](IocpRequest *req) {
             DWORD bytes = 0;
             int result = WSASendTo(req->socket, &req->wsaBuf, 1, &bytes, 0, (sockaddr *)&req->remoteAddr,
-                                   sizeof(sockaddr_in), &req->overlapped, nullptr);
+                                   req->remoteAddrLen, &req->overlapped, nullptr);
             if (result == SOCKET_ERROR) {
                 DWORD error = WSAGetLastError();
                 return error == WSA_IO_PENDING;
