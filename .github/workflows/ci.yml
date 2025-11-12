@@ -1,0 +1,87 @@
+name: ci
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-test-format-tidy:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        build_type: [ Release ]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout lmnet
+        uses: actions/checkout@v4
+        with:
+          path: lmnet
+
+      - name: Checkout lmcore
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/lmcore
+          path: lmcore
+
+      - name: Setup dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang-format clang-tidy cppcheck
+
+      - name: Setup dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew install cmake ninja llvm cppcheck
+          echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
+
+      - name: Setup dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          choco install -y ninja
+          choco install -y llvm
+          choco install -y cppcheck
+
+      - name: Configure
+        run: |
+          cmake -S lmnet -B lmnet/build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build
+        run: |
+          cmake --build lmnet/build --config ${{ matrix.build_type }} --parallel
+
+      - name: Test
+        run: |
+          ctest --test-dir lmnet/build --output-on-failure -C ${{ matrix.build_type }}
+
+      - name: clang-tidy (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          find lmnet -type f \( -path "lmnet/src/*" -o -path "lmnet/tests/*" \) -name "*.cpp" -print0 | xargs -0 -n 1 clang-tidy -p lmnet/build
+
+      - name: clang-tidy (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          Get-ChildItem -Recurse -Path lmnet/src,lmnet/tests -Include *.cpp | ForEach-Object { clang-tidy -p lmnet/build $_.FullName }
+
+      - name: clang-format --dry-run
+        if: matrix.os != 'windows-latest'
+        run: |
+          find lmnet -type f \( -name "*.h" -o -name "*.hpp" -o -name "*.cpp" \) -print0 | xargs -0 -n 1 clang-format --dry-run -Werror
+
+      - name: clang-format --dry-run (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          Get-ChildItem -Recurse -Include *.h,*.hpp,*.cpp -Path lmnet | ForEach-Object { clang-format --dry-run -Werror $_.FullName }
+
+      - name: cppcheck
+        run: |
+          cppcheck --enable=all --inline-suppr --force --quiet --error-exitcode=1 --project=lmnet/build/compile_commands.json --suppress=missingIncludeSystem --file-filter=lmnet
