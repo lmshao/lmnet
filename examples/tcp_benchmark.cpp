@@ -1,7 +1,5 @@
 
 /**
- * TCP Performance Benchmark Tool
- *
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT

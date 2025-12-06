@@ -1,6 +1,4 @@
 /**
- * @file udp_echo_server.cxx
- * @brief UDP Echo Server Example
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT

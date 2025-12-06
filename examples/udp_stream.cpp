@@ -1,6 +1,4 @@
 /**
- * @file udp_stream.cxx
- * @brief UDP Stream Example
  * @author SHAO Liming <lmshao@163.com>
  * @copyright Copyright (c) 2025 SHAO Liming
  * @license MIT
