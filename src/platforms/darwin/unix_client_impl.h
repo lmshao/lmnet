@@ -55,7 +55,7 @@ private:
 private:
     std::string socketPath_;
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_un serverAddr_;
+    struct sockaddr_un serverAddr_{};
 
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;

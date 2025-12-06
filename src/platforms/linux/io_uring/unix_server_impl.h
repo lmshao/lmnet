@@ -45,7 +45,7 @@ private:
 private:
     std::string socketPath_;
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_un serverAddr_;
+    struct sockaddr_un serverAddr_{};
 
     std::atomic_bool isRunning_{false};
 

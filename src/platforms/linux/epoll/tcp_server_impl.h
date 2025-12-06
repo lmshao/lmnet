@@ -55,7 +55,7 @@ private:
     uint16_t localPort_;
     int socket_ = INVALID_SOCKET;
     std::string localIp_ = "0.0.0.0";
-    struct sockaddr_in serverAddr_;
+    struct sockaddr_in serverAddr_{};
 
     std::weak_ptr<IServerListener> listener_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
