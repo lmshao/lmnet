@@ -41,7 +41,13 @@ public:
     bool Send(std::string ip, uint16_t port, const void *data, size_t len);
     bool Send(std::string ip, uint16_t port, const std::string &str);
     bool Send(std::string ip, uint16_t port, std::shared_ptr<DataBuffer> data);
-    socket_t GetSocketFd() const override { return socket_; }
+    socket_t GetSocketFd() const override
+    {
+        if (ipv4_socket_ != INVALID_SOCKET) {
+            return ipv4_socket_;
+        }
+        return ipv6_socket_;
+    }
 
 private:
     void HandleReceive(socket_t fd);
@@ -50,14 +56,17 @@ private:
     std::string ip_;
     uint16_t port_;
 
-    socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_;
+    socket_t ipv4_socket_ = INVALID_SOCKET;
+    socket_t ipv6_socket_ = INVALID_SOCKET;
+    struct sockaddr_in server_addr4_;
+    struct sockaddr_in6 server_addr6_;
 
     std::weak_ptr<IServerListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::shared_ptr<DataBuffer> readBuffer_;
 
-    std::shared_ptr<EventHandler> serverHandler_;
+    std::shared_ptr<EventHandler> ipv4_handler_;
+    std::shared_ptr<EventHandler> ipv6_handler_;
 };
 
 } // namespace lmshao::lmnet

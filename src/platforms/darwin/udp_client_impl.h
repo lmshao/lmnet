@@ -10,6 +10,8 @@
 #define LMSHAO_LMNET_DARWIN_UDP_CLIENT_IMPL_H
 
 #include <lmcore/task_queue.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <cstdint>
 #include <memory>
@@ -53,6 +55,8 @@ private:
     uint16_t localPort_;
 
     socket_t socket_ = INVALID_SOCKET;
+    struct sockaddr_storage remote_addr_;
+    socklen_t remote_addr_len_ = 0;
 
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;

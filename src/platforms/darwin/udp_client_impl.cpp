@@ -9,6 +9,7 @@
 #include "udp_client_impl.h"
 
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -88,55 +89,73 @@ UdpClientImpl::~UdpClientImpl()
 
 bool UdpClientImpl::Init()
 {
-    socket_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+    // Resolve remote address (numeric only)
+    struct addrinfo hints{};
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags = AI_NUMERICHOST;
+
+    char port_str[16];
+    std::snprintf(port_str, sizeof(port_str), "%u", static_cast<unsigned>(remotePort_));
+    struct addrinfo *res = nullptr;
+    int rv = getaddrinfo(remoteIp_.c_str(), port_str, &hints, &res);
+    if (rv != 0 || res == nullptr) {
+        LMNET_LOGE("getaddrinfo remote failed: %s", gai_strerror(rv));
+        return false;
+    }
+
+    struct addrinfo *picked = res;
+    int family = picked->ai_family;
+
+    // Create one socket matching remote family
+    socket_ = ::socket(family, SOCK_DGRAM, 0);
     if (socket_ == INVALID_SOCKET) {
         LMNET_LOGE("socket creation failed: %s", strerror(errno));
+        freeaddrinfo(res);
         return false;
     }
 
     if (!SetNonBlocking(socket_) || !SetCloseOnExec(socket_)) {
         LMNET_LOGE("Failed to configure UDP client socket: %s", strerror(errno));
         Close();
+        freeaddrinfo(res);
         return false;
     }
 
     DisableSigpipe(socket_);
 
-    struct sockaddr_in remoteAddr {};
-    remoteAddr.sin_family = AF_INET;
-    remoteAddr.sin_port = htons(remotePort_);
-    if (inet_pton(AF_INET, remoteIp_.c_str(), &remoteAddr.sin_addr) <= 0) {
-        LMNET_LOGE("inet_pton failed for %s", remoteIp_.c_str());
-        Close();
-        return false;
-    }
-
+    // Optional local bind using the same family
     if (!localIp_.empty() || localPort_ != 0) {
-        struct sockaddr_in localAddr {};
-        localAddr.sin_family = AF_INET;
-        localAddr.sin_port = htons(localPort_);
-        if (localIp_.empty()) {
-            localIp_ = "0.0.0.0";
-        }
-        if (inet_pton(AF_INET, localIp_.c_str(), &localAddr.sin_addr) <= 0) {
-            LMNET_LOGE("inet_pton failed for local IP %s", localIp_.c_str());
-            Close();
-            return false;
-        }
-
-        if (bind(socket_, reinterpret_cast<struct sockaddr *>(&localAddr), sizeof(localAddr)) < 0) {
-            LMNET_LOGE("bind failed: %s", strerror(errno));
-            Close();
-            return false;
+        if (family == AF_INET) {
+            struct sockaddr_in local4{};
+            std::memset(&local4, 0, sizeof(local4));
+            local4.sin_family = AF_INET;
+            local4.sin_port = htons(localPort_);
+            const char *bind_ip4 = localIp_.empty() ? "0.0.0.0" : localIp_.c_str();
+            if (inet_pton(AF_INET, bind_ip4, &local4.sin_addr) == 1) {
+                if (bind(socket_, reinterpret_cast<struct sockaddr *>(&local4), sizeof(local4)) != 0) {
+                    LMNET_LOGE("bind IPv4 error: %s", strerror(errno));
+                }
+            }
+        } else if (family == AF_INET6) {
+            struct sockaddr_in6 local6{};
+            std::memset(&local6, 0, sizeof(local6));
+            local6.sin6_family = AF_INET6;
+            local6.sin6_port = htons(localPort_);
+            const char *bind_ip6 = localIp_.empty() ? "::" : localIp_.c_str();
+            if (inet_pton(AF_INET6, bind_ip6, &local6.sin6_addr) == 1) {
+                if (bind(socket_, reinterpret_cast<struct sockaddr *>(&local6), sizeof(local6)) != 0) {
+                    LMNET_LOGE("bind IPv6 error: %s", strerror(errno));
+                }
+            }
         }
     }
 
-    // Connect the UDP socket to simplify send/recv operations
-    if (connect(socket_, reinterpret_cast<struct sockaddr *>(&remoteAddr), sizeof(remoteAddr)) < 0) {
-        LMNET_LOGE("connect failed: %s", strerror(errno));
-        Close();
-        return false;
-    }
+    // Cache remote address and length
+    std::memcpy(&remote_addr_, picked->ai_addr, picked->ai_addrlen);
+    remote_addr_len_ = picked->ai_addrlen;
+    freeaddrinfo(res);
 
     if (taskQueue_->Start() != 0) {
         LMNET_LOGE("Failed to start UDP client task queue");
@@ -151,7 +170,17 @@ bool UdpClientImpl::Init()
         return false;
     }
 
-    LMNET_LOGD("UDP client initialized for %s:%u", remoteIp_.c_str(), remotePort_);
+    if (family == AF_INET) {
+        auto *sin = reinterpret_cast<sockaddr_in *>(&remote_addr_);
+        char ipbuf[INET_ADDRSTRLEN]{};
+        inet_ntop(AF_INET, &sin->sin_addr, ipbuf, sizeof(ipbuf));
+        LMNET_LOGD("UDP client initialized IPv4 remote %s:%u", ipbuf, static_cast<unsigned>(ntohs(sin->sin_port)));
+    } else {
+        auto *sin6 = reinterpret_cast<sockaddr_in6 *>(&remote_addr_);
+        char ipbuf[INET6_ADDRSTRLEN]{};
+        inet_ntop(AF_INET6, &sin6->sin6_addr, ipbuf, sizeof(ipbuf));
+        LMNET_LOGD("UDP client initialized IPv6 remote [%s]:%u", ipbuf, static_cast<unsigned>(ntohs(sin6->sin6_port)));
+    }
     return true;
 }
 
@@ -177,22 +206,25 @@ bool UdpClientImpl::Send(const void *data, size_t len)
         LMNET_LOGE("Socket not initialized");
         return false;
     }
+    if (remote_addr_len_ == 0) {
+        LMNET_LOGE("Remote address not set; call Init() first");
+        return false;
+    }
 
     if (!data || len == 0) {
         LMNET_LOGE("Invalid send parameters: data=%p len=%zu", data, len);
         return false;
     }
 
-    ssize_t nbytes = send(socket_, data, len, 0);
+    ssize_t nbytes =
+        sendto(socket_, data, len, 0, reinterpret_cast<struct sockaddr *>(&remote_addr_), remote_addr_len_);
     if (nbytes < 0) {
-        LMNET_LOGE("send failed: %s", strerror(errno));
+        LMNET_LOGE("sendto failed: %s", strerror(errno));
         return false;
     }
-
     if (static_cast<size_t>(nbytes) != len) {
         LMNET_LOGW("Partial UDP send: %zd of %zu bytes", nbytes, len);
     }
-
     return true;
 }
 
