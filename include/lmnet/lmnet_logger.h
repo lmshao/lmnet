@@ -18,9 +18,6 @@ struct LmnetModuleTag {};
 
 /**
  * @brief Initialize Lmnet logger with specified settings
- * @param level Log level (default: Debug in debug builds, Warn in release builds)
- * @param output Output destination (default: CONSOLE)
- * @param filename Log file name (optional)
  */
 inline void InitLmnetLogger(lmcore::LogLevel level =
 #if defined(_DEBUG) || defined(DEBUG) || !defined(NDEBUG)
@@ -30,9 +27,18 @@ inline void InitLmnetLogger(lmcore::LogLevel level =
 #endif
                             lmcore::LogOutput output = lmcore::LogOutput::CONSOLE, const std::string &filename = "")
 {
-    // Register module if not already registered
     lmcore::LoggerRegistry::RegisterModule<LmnetModuleTag>("LMNet");
     lmcore::LoggerRegistry::InitLogger<LmnetModuleTag>(level, output, filename);
+}
+
+/**
+ * @brief Set Lmnet logger level (use this to change level at runtime)
+ */
+inline void SetLmnetLogLevel(lmcore::LogLevel level)
+{
+    lmcore::LoggerRegistry::RegisterModule<LmnetModuleTag>("LMNet");
+    auto &logger = lmcore::LoggerRegistry::GetLogger<LmnetModuleTag>();
+    logger.SetLevel(level);
 }
 
 } // namespace lmshao::lmnet
