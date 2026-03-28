@@ -292,6 +292,7 @@ void TcpServerImpl::Disconnect(socket_t fd)
     if (!IoUringManager::GetInstance().SubmitCloseRequest(
             fd, [self, fd](int, int) { self->HandleConnectionClose(fd, "Disconnected by server", false); })) {
         close(fd);
+        HandleConnectionClose(fd, "Disconnected by server", false);
     }
 }
 

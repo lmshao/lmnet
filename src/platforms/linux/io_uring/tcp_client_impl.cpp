@@ -126,10 +126,10 @@ void TcpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_
         taskQueue_->EnqueueTask(task);
         SubmitRead();
     } else if (bytes_read == 0) {
-        HandleClose(false, "Connection closed by peer");
+        HandleClose(socket_, false, "Connection closed by peer");
         Close();
     } else {
-        HandleClose(true, std::string("Read error: ") + strerror(-bytes_read));
+        HandleClose(socket_, true, std::string("Read error: ") + strerror(-bytes_read));
         Close();
     }
 }
@@ -176,7 +176,7 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
         return true;
     }
 
-    HandleClose(true, "Failed to submit write request");
+    HandleClose(socket_, true, "Failed to submit write request");
     Close();
     return false;
 }
@@ -206,7 +206,7 @@ void TcpClientImpl::HandleWriteComplete(int result)
 {
     if (result < 0) {
         LMNET_LOGE("Send failed: %s", strerror(-result));
-        HandleClose(true, std::string("Send error: ") + strerror(-result));
+        HandleClose(socket_, true, std::string("Send error: ") + strerror(-result));
         Close();
         return;
     }
@@ -235,13 +235,13 @@ void TcpClientImpl::HandleWriteComplete(int result)
     }
 
     if (result == 0) {
-        HandleClose(true, "Send returned zero bytes");
+        HandleClose(socket_, true, "Send returned zero bytes");
         Close();
         return;
     }
 
     if (shouldSubmitNext && !SubmitNextWrite()) {
-        HandleClose(true, "Failed to submit write request");
+        HandleClose(socket_, true, "Failed to submit write request");
         Close();
     }
 }
@@ -261,28 +261,29 @@ void TcpClientImpl::Close()
     if (socket_ != INVALID_SOCKET) {
         int socketToClose = socket_;
         auto self = weak_from_this();
-        bool submitted = IoUringManager::GetInstance().SubmitCloseRequest(socket_, [self](int, int) {
+        bool submitted = IoUringManager::GetInstance().SubmitCloseRequest(socket_, [self, socketToClose](int, int) {
             if (auto strong = self.lock()) {
-                strong->HandleClose(false, "Closed by client");
+                strong->HandleClose(socketToClose, false, "Closed by client");
             }
         });
         socket_ = INVALID_SOCKET;
         if (!submitted) {
             close(socketToClose);
+            HandleClose(socketToClose, false, "Closed by client");
         }
     }
 }
 
-void TcpClientImpl::HandleClose(bool is_error, const std::string &reason)
+void TcpClientImpl::HandleClose(socket_t fd, bool is_error, const std::string &reason)
 {
     if (isConnected_.exchange(false)) { // Ensure close logic runs only once
         LMNET_LOGI("Connection closed: %s", reason.c_str());
-        auto task = std::make_shared<TaskHandler<void>>([this, listener = listener_.lock(), is_error, reason] {
+        auto task = std::make_shared<TaskHandler<void>>([listener = listener_.lock(), is_error, reason, fd] {
             if (listener) {
                 if (is_error) {
-                    listener->OnError(GetSocketFd(), reason);
+                    listener->OnError(fd, reason);
                 }
-                listener->OnClose(GetSocketFd());
+                listener->OnClose(fd);
             }
         });
         taskQueue_->EnqueueTask(task);
