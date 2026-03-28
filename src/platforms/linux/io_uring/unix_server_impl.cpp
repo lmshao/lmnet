@@ -104,7 +104,10 @@ void UnixServerImpl::SubmitAccept()
 void UnixServerImpl::HandleAccept(int client_fd)
 {
     if (client_fd >= 0) {
-        auto session = std::make_shared<IoUringSessionImpl>(client_fd, "", 0);
+        auto self = shared_from_this();
+        auto session = std::make_shared<IoUringSessionImpl>(
+            client_fd, "", 0, IoUringSessionImpl::TransportKind::UNIX_STREAM,
+            [self](socket_t fd, const std::string &) { self->HandleConnectionClose(fd); });
         sessions_[client_fd] = session;
 
         if (auto listener = listener_.lock()) {

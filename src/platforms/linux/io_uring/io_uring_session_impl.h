@@ -13,6 +13,9 @@
 #include <netinet/in.h>
 
 #include <cstring>
+#include <deque>
+#include <functional>
+#include <mutex>
 
 #include "internal_logger.h"
 #include "io_uring_manager.h"
@@ -21,9 +24,18 @@
 
 namespace lmshao::lmnet {
 
-class IoUringSessionImpl : public Session {
+class IoUringSessionImpl : public Session, public std::enable_shared_from_this<IoUringSessionImpl> {
 public:
-    IoUringSessionImpl(socket_t fd, std::string host, uint16_t port)
+    enum class TransportKind {
+        TCP_STREAM,
+        UDP_DATAGRAM,
+        UNIX_STREAM,
+    };
+
+    IoUringSessionImpl(socket_t fd, std::string host, uint16_t port,
+                       TransportKind transportKind = TransportKind::TCP_STREAM,
+                       std::function<void(socket_t, const std::string &)> errorHandler = {})
+        : transportKind_(transportKind), errorHandler_(std::move(errorHandler))
     {
         this->host = std::move(host);
         this->port = port;
@@ -31,13 +43,13 @@ public:
     }
 
     IoUringSessionImpl(socket_t server_socket, std::string remote_host, uint16_t remote_port, bool is_udp)
-        : is_udp_(is_udp)
+        : transportKind_(is_udp ? TransportKind::UDP_DATAGRAM : TransportKind::TCP_STREAM)
     {
         this->host = std::move(remote_host);
         this->port = remote_port;
         this->fd = server_socket;
 
-        if (is_udp_) {
+        if (transportKind_ == TransportKind::UDP_DATAGRAM) {
             memset(&client_addr_, 0, sizeof(client_addr_));
             client_addr_.sin_family = AF_INET;
             client_addr_.sin_port = htons(remote_port);
@@ -56,15 +68,20 @@ public:
 
     bool Send(std::shared_ptr<DataBuffer> buffer) const override
     {
-        if (is_udp_) {
+        if (!buffer || buffer->Size() == 0) {
+            LMNET_LOGW("No data to send");
+            return false;
+        }
+
+        if (transportKind_ == TransportKind::UDP_DATAGRAM) {
             return IoUringManager::GetInstance().SubmitSendToRequest(fd, buffer, client_addr_, [](int, int res) {
                 if (res < 0) {
                     LMNET_LOGE("UDP Send failed: %s", strerror(-res));
                 }
             });
         }
-        // Use unified SendUnixMessage for consistency (Unix Socket)
-        return SendUnixMessage(buffer, {});
+
+        return QueueStreamWrite(std::move(buffer));
     }
 
     bool Send(const std::string &str) const override
@@ -76,8 +93,8 @@ public:
 
     bool SendFds(const std::vector<int> &fds) const override
     {
-        if (is_udp_) {
-            LMNET_LOGE("SendFds is not supported on UDP sockets");
+        if (transportKind_ != TransportKind::UNIX_STREAM) {
+            LMNET_LOGE("SendFds is only supported on Unix stream sockets");
             return false;
         }
 
@@ -86,8 +103,8 @@ public:
 
     bool SendWithFds(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds) const override
     {
-        if (is_udp_) {
-            LMNET_LOGE("SendWithFds is not supported on UDP sockets");
+        if (transportKind_ != TransportKind::UNIX_STREAM) {
+            LMNET_LOGE("SendWithFds is only supported on Unix stream sockets");
             return false;
         }
 
@@ -107,6 +124,105 @@ public:
     }
 
 private:
+    bool QueueStreamWrite(std::shared_ptr<DataBuffer> buffer) const
+    {
+        bool shouldSubmit = false;
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            sendQueue_.push_back(std::move(buffer));
+            if (!writeInFlight_) {
+                writeInFlight_ = true;
+                shouldSubmit = true;
+            }
+        }
+
+        if (!shouldSubmit) {
+            return true;
+        }
+
+        if (SubmitNextStreamWrite()) {
+            return true;
+        }
+
+        std::lock_guard<std::mutex> lock(sendMutex_);
+        if (!sendQueue_.empty()) {
+            sendQueue_.pop_front();
+        }
+        writeInFlight_ = !sendQueue_.empty();
+        return false;
+    }
+
+    bool SubmitNextStreamWrite() const
+    {
+        std::shared_ptr<DataBuffer> buffer;
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            if (sendQueue_.empty()) {
+                writeInFlight_ = false;
+                return true;
+            }
+            buffer = sendQueue_.front();
+        }
+
+        auto self = shared_from_this();
+        return IoUringManager::GetInstance().SubmitWriteRequest(
+            fd, buffer, [self](int, int res) { self->HandleStreamWriteComplete(res); });
+    }
+
+    void HandleStreamWriteComplete(int result) const
+    {
+        if (result < 0) {
+            FailStreamWrite(std::string("Send error: ") + strerror(-result));
+            return;
+        }
+
+        bool shouldSubmitNext = false;
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            if (sendQueue_.empty()) {
+                writeInFlight_ = false;
+                return;
+            }
+
+            auto &buffer = sendQueue_.front();
+            if (result == 0) {
+                writeInFlight_ = false;
+            } else if (static_cast<size_t>(result) < buffer->Size()) {
+                auto remaining = DataBuffer::PoolAlloc(buffer->Size() - static_cast<size_t>(result));
+                remaining->Assign(buffer->Data() + result, buffer->Size() - static_cast<size_t>(result));
+                buffer = remaining;
+                shouldSubmitNext = true;
+            } else {
+                sendQueue_.pop_front();
+                shouldSubmitNext = !sendQueue_.empty();
+                writeInFlight_ = shouldSubmitNext;
+            }
+        }
+
+        if (result == 0) {
+            FailStreamWrite("Send returned zero bytes");
+            return;
+        }
+
+        if (shouldSubmitNext && !SubmitNextStreamWrite()) {
+            FailStreamWrite("Failed to submit write request");
+        }
+    }
+
+    void FailStreamWrite(const std::string &reason) const
+    {
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            sendQueue_.clear();
+            writeInFlight_ = false;
+        }
+
+        LMNET_LOGE("Stream send failed on fd %d: %s", fd, reason.c_str());
+        if (errorHandler_) {
+            errorHandler_(fd, reason);
+        }
+    }
+
     // Common Unix Socket send method
     bool SendUnixMessage(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds) const
     {
@@ -121,14 +237,22 @@ private:
 
         // Create a copy for cleanup callback before moving duplicatedFds
         std::vector<int> fdsForCleanup = duplicatedFds;
-        return IoUringManager::GetInstance().SubmitSendMsgRequest(
-            fd, buffer, std::move(duplicatedFds),
+        bool submitted = IoUringManager::GetInstance().SubmitSendMsgRequest(
+            fd, buffer, duplicatedFds,
             UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message"));
+        if (!submitted) {
+            UnixSocketUtils::CleanupFds(duplicatedFds);
+        }
+        return submitted;
     }
 
 private:
-    bool is_udp_ = false;
+    TransportKind transportKind_ = TransportKind::TCP_STREAM;
     sockaddr_in client_addr_{};
+    std::function<void(socket_t, const std::string &)> errorHandler_;
+    mutable std::mutex sendMutex_;
+    mutable std::deque<std::shared_ptr<DataBuffer>> sendQueue_;
+    mutable bool writeInFlight_ = false;
 };
 
 } // namespace lmshao::lmnet

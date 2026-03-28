@@ -302,6 +302,246 @@ TEST(TcpTest, ConcurrentSendBurst)
     server->Stop();
 }
 
+TEST(TcpTest, LargeServerReplySend)
+{
+    const uint16_t port = 12349;
+    const size_t payload_size = 2 * 1024 * 1024;
+    const std::string request = "send-large-reply";
+
+    std::string payload(payload_size, '\0');
+    for (size_t i = 0; i < payload.size(); ++i) {
+        payload[i] = static_cast<char>('a' + (i % 19));
+    }
+
+    int send_buffer_size = 4096;
+    std::atomic<bool> send_ok{false};
+    std::atomic<bool> client_done{false};
+    std::atomic<bool> client_ok{false};
+    std::mutex client_mutex;
+    std::string client_data;
+    client_data.reserve(payload.size());
+
+    class ServerListener : public IServerListener {
+    public:
+        ServerListener(const std::string &expectedRequest, const std::string &payload, int sendBufferSize,
+                       std::atomic<bool> &sendOk)
+            : expectedRequest_(expectedRequest), payload_(payload), sendBufferSize_(sendBufferSize), sendOk_(sendOk)
+        {
+        }
+
+        void OnAccept(std::shared_ptr<Session> session) override
+        {
+            int buffer_size = sendBufferSize_;
+            (void)setsockopt(session->fd, SOL_SOCKET, SO_SNDBUF, &buffer_size, sizeof(buffer_size));
+        }
+        void OnClose(std::shared_ptr<Session>) override {}
+        void OnError(std::shared_ptr<Session>, const std::string &) override {}
+
+        void OnReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> data) override
+        {
+            if (data->ToString() == expectedRequest_) {
+                sendOk_ = session->Send(payload_.data(), payload_.size());
+            }
+        }
+
+    private:
+        const std::string &expectedRequest_;
+        const std::string &payload_;
+        int sendBufferSize_;
+        std::atomic<bool> &sendOk_;
+    };
+
+    class ClientListener : public IClientListener {
+    public:
+        ClientListener(const std::string &expected, std::mutex &mutex, std::string &received, std::atomic<bool> &done,
+                       std::atomic<bool> &ok)
+            : expected_(expected), mutex_(mutex), received_(received), done_(done), ok_(ok)
+        {
+        }
+
+        void OnReceive(socket_t, std::shared_ptr<DataBuffer> data) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            received_.append(reinterpret_cast<const char *>(data->Data()), data->Size());
+            if (received_.size() >= expected_.size()) {
+                ok_ = (received_ == expected_);
+                done_ = true;
+            }
+        }
+
+        void OnClose(socket_t) override {}
+        void OnError(socket_t, const std::string &) override {}
+
+    private:
+        const std::string &expected_;
+        std::mutex &mutex_;
+        std::string &received_;
+        std::atomic<bool> &done_;
+        std::atomic<bool> &ok_;
+    };
+
+    auto server = TcpServer::Create("0.0.0.0", port);
+    auto server_listener = std::make_shared<ServerListener>(request, payload, send_buffer_size, send_ok);
+    server->SetListener(server_listener);
+    EXPECT_TRUE(server->Init());
+    EXPECT_TRUE(server->Start());
+
+    auto client = TcpClient::Create("127.0.0.1", port);
+    auto client_listener = std::make_shared<ClientListener>(payload, client_mutex, client_data, client_done, client_ok);
+    client->SetListener(client_listener);
+    EXPECT_TRUE(client->Init());
+    EXPECT_TRUE(client->Connect());
+
+    EXPECT_TRUE(client->Send(request));
+    EXPECT_TRUE(WaitFor([&] { return send_ok.load(); }, 5000));
+    EXPECT_TRUE(WaitFor([&] { return client_done.load(); }, 10000));
+    EXPECT_TRUE(client_ok.load());
+
+    client->Close();
+    server->Stop();
+}
+
+TEST(TcpTest, ConcurrentServerSendBurst)
+{
+    const uint16_t port = 12350;
+    const int thread_count = 4;
+    const int messages_per_thread = 200;
+
+    std::mutex session_mutex;
+    std::shared_ptr<Session> accepted_session;
+    std::atomic<bool> accepted{false};
+    std::atomic<bool> send_failed{false};
+    std::atomic<bool> client_done{false};
+    std::atomic<bool> client_ok{false};
+    std::mutex client_mutex;
+    std::string stream_buffer;
+    std::set<std::string> received_messages;
+    std::set<std::string> expected_messages;
+
+    for (int thread_index = 0; thread_index < thread_count; ++thread_index) {
+        for (int message_index = 0; message_index < messages_per_thread; ++message_index) {
+            std::ostringstream oss;
+            oss << "server-thread=" << thread_index << ";msg=" << message_index
+                << ";payload=abcdefghijklmnopqrstuvwxyz\n";
+            expected_messages.insert(oss.str());
+        }
+    }
+
+    class ServerListener : public IServerListener {
+    public:
+        ServerListener(std::mutex &mutex, std::shared_ptr<Session> &session, std::atomic<bool> &accepted)
+            : mutex_(mutex), session_(session), accepted_(accepted)
+        {
+        }
+
+        void OnAccept(std::shared_ptr<Session> session) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            session_ = std::move(session);
+            accepted_ = true;
+        }
+
+        void OnReceive(std::shared_ptr<Session>, std::shared_ptr<DataBuffer>) override {}
+        void OnClose(std::shared_ptr<Session>) override {}
+        void OnError(std::shared_ptr<Session>, const std::string &) override {}
+
+    private:
+        std::mutex &mutex_;
+        std::shared_ptr<Session> &session_;
+        std::atomic<bool> &accepted_;
+    };
+
+    class ClientListener : public IClientListener {
+    public:
+        ClientListener(std::mutex &mutex, std::string &streamBuffer, std::set<std::string> &receivedMessages,
+                       const std::set<std::string> &expectedMessages, std::atomic<bool> &done,
+                       std::atomic<bool> &ok)
+            : mutex_(mutex), streamBuffer_(streamBuffer), receivedMessages_(receivedMessages),
+              expectedMessages_(expectedMessages), done_(done), ok_(ok)
+        {
+        }
+
+        void OnReceive(socket_t, std::shared_ptr<DataBuffer> data) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            streamBuffer_.append(reinterpret_cast<const char *>(data->Data()), data->Size());
+
+            size_t newline_pos = std::string::npos;
+            while ((newline_pos = streamBuffer_.find('\n')) != std::string::npos) {
+                std::string message = streamBuffer_.substr(0, newline_pos + 1);
+                streamBuffer_.erase(0, newline_pos + 1);
+                receivedMessages_.insert(message);
+            }
+
+            if (receivedMessages_.size() == expectedMessages_.size()) {
+                ok_ = (receivedMessages_ == expectedMessages_);
+                done_ = true;
+            }
+        }
+
+        void OnClose(socket_t) override {}
+        void OnError(socket_t, const std::string &) override {}
+
+    private:
+        std::mutex &mutex_;
+        std::string &streamBuffer_;
+        std::set<std::string> &receivedMessages_;
+        const std::set<std::string> &expectedMessages_;
+        std::atomic<bool> &done_;
+        std::atomic<bool> &ok_;
+    };
+
+    auto server = TcpServer::Create("0.0.0.0", port);
+    auto server_listener = std::make_shared<ServerListener>(session_mutex, accepted_session, accepted);
+    server->SetListener(server_listener);
+    EXPECT_TRUE(server->Init());
+    EXPECT_TRUE(server->Start());
+
+    auto client = TcpClient::Create("127.0.0.1", port);
+    auto client_listener =
+        std::make_shared<ClientListener>(client_mutex, stream_buffer, received_messages, expected_messages, client_done,
+                                         client_ok);
+    client->SetListener(client_listener);
+    EXPECT_TRUE(client->Init());
+    EXPECT_TRUE(client->Connect());
+
+    EXPECT_TRUE(WaitFor([&] { return accepted.load(); }, 5000));
+
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(session_mutex);
+        session = accepted_session;
+    }
+    EXPECT_TRUE(static_cast<bool>(session));
+
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+    for (int thread_index = 0; thread_index < thread_count; ++thread_index) {
+        threads.emplace_back([session, thread_index, messages_per_thread, &send_failed]() {
+            for (int message_index = 0; message_index < messages_per_thread; ++message_index) {
+                std::ostringstream oss;
+                oss << "server-thread=" << thread_index << ";msg=" << message_index
+                    << ";payload=abcdefghijklmnopqrstuvwxyz\n";
+                if (!session->Send(oss.str())) {
+                    send_failed = true;
+                    return;
+                }
+            }
+        });
+    }
+
+    for (auto &thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_FALSE(send_failed.load());
+    EXPECT_TRUE(WaitFor([&] { return client_done.load(); }, 10000));
+    EXPECT_TRUE(client_ok.load());
+
+    client->Close();
+    server->Stop();
+}
+
 int main()
 {
     int result = TestRunner::getInstance().runAllTests();

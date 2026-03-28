@@ -109,13 +109,24 @@ bool TcpServerImpl::Stop()
         socket_ = INVALID_SOCKET;
     }
 
-    // Disconnect all active sessions
-    std::unique_lock<std::mutex> lock(sessionMutex_);
-    for (auto const &[fd, session] : sessions_) {
-        Disconnect(fd);
+    std::vector<socket_t> sessionFds;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        sessionFds.reserve(sessions_.size());
+        for (const auto &[fd, session] : sessions_) {
+            (void)session;
+            sessionFds.push_back(fd);
+        }
     }
-    sessions_.clear();
-    lock.unlock();
+
+    for (socket_t fd : sessionFds) {
+        IoUringManager::GetInstance().SubmitCloseRequest(fd, nullptr);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        sessions_.clear();
+    }
 
     LMNET_LOGI("TCP server stopped.");
     return true;
@@ -151,7 +162,10 @@ void TcpServerImpl::HandleAccept(int res, const sockaddr_in &client_addr)
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
         uint16_t client_port = ntohs(client_addr.sin_port);
 
-        auto session = std::make_shared<IoUringSessionImpl>(client_fd, std::string(client_ip), client_port);
+        auto self = shared_from_this();
+        auto session = std::make_shared<IoUringSessionImpl>(
+            client_fd, std::string(client_ip), client_port, IoUringSessionImpl::TransportKind::TCP_STREAM,
+            [self](socket_t fd, const std::string &) { self->Disconnect(fd); });
 
         {
             std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -168,7 +182,6 @@ void TcpServerImpl::HandleAccept(int res, const sockaddr_in &client_addr)
         taskQueue_->EnqueueTask(task);
 
         SubmitRead(session);
-        SubmitAccept(); // Continue accepting new connections
     } else {
         if (isRunning_) {
             LMNET_LOGE("Accept failed: %s", strerror(-res));

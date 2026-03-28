@@ -14,7 +14,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cerrno>
+#include <mutex>
 #include <queue>
 #include <utility>
 
@@ -99,10 +101,9 @@ public:
 
     int GetEvents() const override
     {
-        int events =
-            static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) | static_cast<int>(EventType::CLOSE);
+        int events = BaseEvents();
 
-        if (writeEventsEnabled_) {
+        if (writeEventsEnabled_.load(std::memory_order_acquire)) {
             events |= static_cast<int>(EventType::WRITE);
         }
 
@@ -114,52 +115,85 @@ public:
         if (!buffer || buffer->Size() == 0) {
             return;
         }
-        sendQueue_.push(buffer);
-        EnableWriteEvents();
+
+        bool shouldEnableWrite = false;
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            sendQueue_.push(std::move(buffer));
+            if (!writeEventsEnabled_.load(std::memory_order_relaxed)) {
+                writeEventsEnabled_.store(true, std::memory_order_release);
+                shouldEnableWrite = true;
+            }
+        }
+
+        if (shouldEnableWrite) {
+            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
+        }
     }
 
 private:
-    void EnableWriteEvents()
+    void DisableWriteEvents()
     {
-        if (!writeEventsEnabled_) {
-            writeEventsEnabled_ = true;
+        if (writeEventsEnabled_.exchange(false, std::memory_order_acq_rel)) {
             EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
         }
     }
 
-    void DisableWriteEvents()
+    static int BaseEvents()
     {
-        if (writeEventsEnabled_) {
-            writeEventsEnabled_ = false;
-            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
-        }
+        return static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) |
+               static_cast<int>(EventType::CLOSE);
     }
 
     void ProcessSendQueue()
     {
-        while (!sendQueue_.empty()) {
-            auto &buf = sendQueue_.front();
+        while (true) {
+            std::shared_ptr<DataBuffer> buf;
+            {
+                std::lock_guard<std::mutex> lock(sendMutex_);
+                if (sendQueue_.empty()) {
+                    break;
+                }
+                buf = sendQueue_.front();
+            }
+
             ssize_t bytesSent = send(fd_, buf->Data(), buf->Size(), MSG_NOSIGNAL);
             if (bytesSent > 0) {
                 if (static_cast<size_t>(bytesSent) == buf->Size()) {
-                    sendQueue_.pop();
+                    std::lock_guard<std::mutex> lock(sendMutex_);
+                    if (!sendQueue_.empty() && sendQueue_.front() == buf) {
+                        sendQueue_.pop();
+                    }
                 } else {
                     auto remaining = DataBuffer::PoolAlloc(buf->Size() - bytesSent);
                     remaining->Assign(buf->Data() + bytesSent, buf->Size() - bytesSent);
-                    sendQueue_.front() = remaining;
-                    break;
+
+                    std::lock_guard<std::mutex> lock(sendMutex_);
+                    if (!sendQueue_.empty() && sendQueue_.front() == buf) {
+                        sendQueue_.front() = remaining;
+                    }
+                    continue;
                 }
             } else if (bytesSent == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     break;
                 } else {
                     LMNET_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
+                    if (auto server = server_.lock()) {
+                        server->HandleConnectionClose(fd_, true, strerror(errno));
+                    }
                     return;
                 }
             }
         }
 
-        if (sendQueue_.empty()) {
+        bool queueEmpty = false;
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            queueEmpty = sendQueue_.empty();
+        }
+
+        if (queueEmpty) {
             DisableWriteEvents();
         }
     }
@@ -168,7 +202,8 @@ private:
     socket_t fd_;
     std::weak_ptr<TcpServerImpl> server_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
-    bool writeEventsEnabled_;
+    std::mutex sendMutex_;
+    std::atomic_bool writeEventsEnabled_;
 };
 
 TcpServerImpl::~TcpServerImpl()

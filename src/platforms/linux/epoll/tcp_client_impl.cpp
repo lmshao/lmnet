@@ -133,7 +133,7 @@ private:
                     if (!sendQueue_.empty() && sendQueue_.front() == buf) {
                         sendQueue_.front() = remaining;
                     }
-                    break;
+                    continue;
                 }
             } else if (bytesSent == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
