@@ -240,8 +240,7 @@ private:
         auto cleanup = UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message");
         auto self = weak_from_this();
         bool submitted = IoUringManager::GetInstance().SubmitSendMsgRequest(
-            fd, buffer, duplicatedFds,
-            [self, buffer, cleanup = std::move(cleanup)](int fd, int res) mutable {
+            fd, buffer, duplicatedFds, [self, buffer, cleanup = std::move(cleanup)](int fd, int res) mutable {
                 cleanup(fd, res);
 
                 auto strong = self.lock();

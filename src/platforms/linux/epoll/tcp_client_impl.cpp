@@ -13,8 +13,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <cerrno>
 #include <atomic>
+#include <cerrno>
 #include <mutex>
 #include <queue>
 

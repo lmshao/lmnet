@@ -258,14 +258,17 @@ void TcpClientImpl::Close()
     }
 
     if (socket_ != INVALID_SOCKET) {
+        int socketToClose = socket_;
         auto self = weak_from_this();
-        IoUringManager::GetInstance().SubmitCloseRequest(
-            socket_, [self](int, int) {
-                if (auto strong = self.lock()) {
-                    strong->HandleClose(false, "Closed by client");
-                }
-            });
+        bool submitted = IoUringManager::GetInstance().SubmitCloseRequest(socket_, [self](int, int) {
+            if (auto strong = self.lock()) {
+                strong->HandleClose(false, "Closed by client");
+            }
+        });
         socket_ = INVALID_SOCKET;
+        if (!submitted) {
+            close(socketToClose);
+        }
     }
 }
 

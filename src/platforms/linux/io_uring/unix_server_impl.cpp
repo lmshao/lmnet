@@ -100,12 +100,17 @@ bool UnixServerImpl::Stop()
     }
 
     for (int fd : sessionFds) {
-        IoUringManager::GetInstance().SubmitCloseRequest(fd, nullptr);
+        if (!IoUringManager::GetInstance().SubmitCloseRequest(fd, nullptr)) {
+            close(fd);
+        }
     }
 
     // Close server socket
     if (socket_ != INVALID_SOCKET) {
-        IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr);
+        int socketToClose = socket_;
+        if (!IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr)) {
+            close(socketToClose);
+        }
         socket_ = INVALID_SOCKET;
     }
 
@@ -240,7 +245,9 @@ void UnixServerImpl::HandleConnectionClose(int client_fd)
         }
     }
     // The actual close is submitted to io_uring, no need to call close() here directly
-    IoUringManager::GetInstance().SubmitCloseRequest(client_fd, nullptr);
+    if (!IoUringManager::GetInstance().SubmitCloseRequest(client_fd, nullptr)) {
+        close(client_fd);
+    }
 }
 
 } // namespace lmshao::lmnet

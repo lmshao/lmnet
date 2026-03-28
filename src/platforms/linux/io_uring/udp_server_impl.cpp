@@ -81,7 +81,10 @@ bool UdpServerImpl::Stop()
         return true;
     }
     if (socket_ != INVALID_SOCKET) {
-        IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr);
+        int socketToClose = socket_;
+        if (!IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr)) {
+            close(socketToClose);
+        }
         socket_ = INVALID_SOCKET;
     }
     LMNET_LOGI("UDP server stopped.");

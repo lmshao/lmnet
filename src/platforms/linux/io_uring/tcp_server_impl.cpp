@@ -114,7 +114,10 @@ bool TcpServerImpl::Stop()
 
     // Close listening socket first to prevent new connections
     if (socket_ != INVALID_SOCKET) {
-        IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr);
+        int socketToClose = socket_;
+        if (!IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr)) {
+            close(socketToClose);
+        }
         socket_ = INVALID_SOCKET;
     }
 
@@ -129,7 +132,9 @@ bool TcpServerImpl::Stop()
     }
 
     for (socket_t fd : sessionFds) {
-        IoUringManager::GetInstance().SubmitCloseRequest(fd, nullptr);
+        if (!IoUringManager::GetInstance().SubmitCloseRequest(fd, nullptr)) {
+            close(fd);
+        }
     }
 
     {
@@ -275,8 +280,10 @@ void TcpServerImpl::Disconnect(socket_t fd)
     }
 
     auto self = shared_from_this();
-    IoUringManager::GetInstance().SubmitCloseRequest(
-        fd, [self, fd](int, int) { self->HandleConnectionClose(fd, "Disconnected by server"); });
+    if (!IoUringManager::GetInstance().SubmitCloseRequest(
+            fd, [self, fd](int, int) { self->HandleConnectionClose(fd, "Disconnected by server"); })) {
+        close(fd);
+    }
 }
 
 } // namespace lmshao::lmnet

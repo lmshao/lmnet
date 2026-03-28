@@ -45,7 +45,7 @@ private:
     uint16_t port_;
 
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_{};
+    struct sockaddr_in serverAddr_ {};
 
     std::weak_ptr<IServerListener> listener_;
     std::atomic_bool isRunning_{false};

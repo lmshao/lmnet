@@ -537,8 +537,8 @@ TEST(UnixFdEnhanced, LargeMixedDataAndFdTransfer)
     public:
         TestServerListener(std::atomic<bool> &fdReceived, std::atomic<bool> &payloadReceived, std::mutex &payloadMutex,
                            std::string &payload, const std::string &expectedPayload, int &fd)
-            : fdReceived_(fdReceived), payloadReceived_(payloadReceived), payloadMutex_(payloadMutex), payload_(payload),
-              expectedPayload_(expectedPayload), fd_(fd)
+            : fdReceived_(fdReceived), payloadReceived_(payloadReceived), payloadMutex_(payloadMutex),
+              payload_(payload), expectedPayload_(expectedPayload), fd_(fd)
         {
         }
 
@@ -578,8 +578,8 @@ TEST(UnixFdEnhanced, LargeMixedDataAndFdTransfer)
 
     std::remove(socket_path.c_str());
     auto server = UnixServer::Create(socket_path);
-    auto server_listener = std::make_shared<TestServerListener>(
-        message_received, payload_received, payload_mutex, received_payload, payload, received_fd);
+    auto server_listener = std::make_shared<TestServerListener>(message_received, payload_received, payload_mutex,
+                                                                received_payload, payload, received_fd);
     server->SetListener(server_listener);
     EXPECT_TRUE(server->Init());
     EXPECT_TRUE(server->Start());

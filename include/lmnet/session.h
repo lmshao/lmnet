@@ -49,10 +49,7 @@ public:
      * @param fds File descriptors to send
      * @return true on success, false on failure
      */
-    virtual bool SendFds(const std::vector<int> &fds) const
-    {
-        return false;
-    }
+    virtual bool SendFds(const std::vector<int> &fds) const { return false; }
 
     /**
      * @brief Send data buffer with file descriptors
@@ -60,10 +57,7 @@ public:
      * @param fds File descriptors to send
      * @return true on success, false on failure
      */
-    virtual bool SendWithFds(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds) const
-    {
-        return false;
-    }
+    virtual bool SendWithFds(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds) const { return false; }
 
     /**
      * @brief Send Unix message (unified interface for data and/or file descriptors)

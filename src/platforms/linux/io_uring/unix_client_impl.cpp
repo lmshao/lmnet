@@ -256,8 +256,8 @@ bool UnixClientImpl::SubmitNextWrite()
     }
 
     auto self = shared_from_this();
-    return IoUringManager::GetInstance().SubmitWriteRequest(
-        socket_, buffer, [self](int, int res) { self->HandleWriteComplete(res); });
+    return IoUringManager::GetInstance().SubmitWriteRequest(socket_, buffer,
+                                                            [self](int, int res) { self->HandleWriteComplete(res); });
 }
 
 void UnixClientImpl::HandleWriteComplete(int result)
@@ -324,8 +324,7 @@ bool UnixClientImpl::SendUnixMessage(std::shared_ptr<DataBuffer> buffer, const s
     auto cleanup = UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message");
     auto self = weak_from_this();
     bool submitted = IoUringManager::GetInstance().SubmitSendMsgRequest(
-        socket_, buffer, duplicatedFds,
-        [self, buffer, cleanup = std::move(cleanup)](int fd, int res) mutable {
+        socket_, buffer, duplicatedFds, [self, buffer, cleanup = std::move(cleanup)](int fd, int res) mutable {
             cleanup(fd, res);
 
             auto strong = self.lock();
@@ -389,7 +388,10 @@ void UnixClientImpl::HandleClose()
         }
     }
     if (socket_ != INVALID_SOCKET) {
-        IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr);
+        int socketToClose = socket_;
+        if (!IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr)) {
+            close(socketToClose);
+        }
         socket_ = INVALID_SOCKET;
     }
     LMNET_LOGI("Unix client connection closed.");

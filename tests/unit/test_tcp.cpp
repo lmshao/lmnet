@@ -8,12 +8,13 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <sys/socket.h>
+
 #include <atomic>
 #include <chrono>
 #include <mutex>
 #include <set>
 #include <sstream>
-#include <sys/socket.h>
 #include <thread>
 #include <vector>
 
@@ -261,9 +262,8 @@ TEST(TcpTest, ConcurrentSendBurst)
     };
 
     auto server = TcpServer::Create("0.0.0.0", port);
-    auto server_listener =
-        std::make_shared<ServerListener>(server_mutex, stream_buffer, received_messages, expected_messages, server_done,
-                                         server_ok);
+    auto server_listener = std::make_shared<ServerListener>(server_mutex, stream_buffer, received_messages,
+                                                            expected_messages, server_done, server_ok);
     server->SetListener(server_listener);
     EXPECT_TRUE(server->Init());
     EXPECT_TRUE(server->Start());
@@ -280,8 +280,7 @@ TEST(TcpTest, ConcurrentSendBurst)
         threads.emplace_back([client, thread_index, messages_per_thread, &send_failed]() {
             for (int message_index = 0; message_index < messages_per_thread; ++message_index) {
                 std::ostringstream oss;
-                oss << "thread=" << thread_index << ";msg=" << message_index
-                    << ";payload=abcdefghijklmnopqrstuvwxyz\n";
+                oss << "thread=" << thread_index << ";msg=" << message_index << ";payload=abcdefghijklmnopqrstuvwxyz\n";
                 if (!client->Send(oss.str())) {
                     send_failed = true;
                     return;
@@ -454,8 +453,7 @@ TEST(TcpTest, ConcurrentServerSendBurst)
     class ClientListener : public IClientListener {
     public:
         ClientListener(std::mutex &mutex, std::string &streamBuffer, std::set<std::string> &receivedMessages,
-                       const std::set<std::string> &expectedMessages, std::atomic<bool> &done,
-                       std::atomic<bool> &ok)
+                       const std::set<std::string> &expectedMessages, std::atomic<bool> &done, std::atomic<bool> &ok)
             : mutex_(mutex), streamBuffer_(streamBuffer), receivedMessages_(receivedMessages),
               expectedMessages_(expectedMessages), done_(done), ok_(ok)
         {
@@ -498,9 +496,8 @@ TEST(TcpTest, ConcurrentServerSendBurst)
     EXPECT_TRUE(server->Start());
 
     auto client = TcpClient::Create("127.0.0.1", port);
-    auto client_listener =
-        std::make_shared<ClientListener>(client_mutex, stream_buffer, received_messages, expected_messages, client_done,
-                                         client_ok);
+    auto client_listener = std::make_shared<ClientListener>(client_mutex, stream_buffer, received_messages,
+                                                            expected_messages, client_done, client_ok);
     client->SetListener(client_listener);
     EXPECT_TRUE(client->Init());
     EXPECT_TRUE(client->Connect());
