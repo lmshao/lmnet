@@ -30,13 +30,13 @@ EventReactor::EventReactor() : wakeupFd_(INVALID_WAKEUP_FD)
     epollThread_ = std::make_unique<std::thread>([&]() { this->Run(); });
     SetThreadName("EventReactor");
     std::unique_lock<std::mutex> taskLock(signalMutex_);
-    runningSignal_.wait_for(taskLock, std::chrono::milliseconds(5), [this] { return this->running_ == true; });
+    runningSignal_.wait(taskLock, [this] { return startupComplete_; });
 }
 
 EventReactor::~EventReactor()
 {
     LMNET_LOGD("enter");
-    running_ = false;
+    running_.store(false, std::memory_order_release);
 
     if (wakeupFd_ != INVALID_WAKEUP_FD) {
         uint64_t one = 1;
@@ -56,6 +56,9 @@ EventReactor::~EventReactor()
         close(epollFd_);
         epollFd_ = -1;
     }
+
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+    handlers_.clear();
 }
 
 void EventReactor::Run()
@@ -65,6 +68,12 @@ void EventReactor::Run()
     if (epollFd_ == -1) {
         perror("epoll_create");
         LMNET_LOGE("epoll_create %s", strerror(errno));
+        {
+            std::lock_guard<std::mutex> signalLock(signalMutex_);
+            startupSucceeded_ = false;
+            startupComplete_ = true;
+        }
+        runningSignal_.notify_all();
         return;
     }
 
@@ -76,11 +85,16 @@ void EventReactor::Run()
     }
 
     int nfds = 0;
-    running_ = true;
+    {
+        std::lock_guard<std::mutex> signalLock(signalMutex_);
+        running_.store(true, std::memory_order_release);
+        startupSucceeded_ = true;
+        startupComplete_ = true;
+    }
     runningSignal_.notify_all();
     struct epoll_event readyEvents[EPOLL_WAIT_EVENT_NUMS_MAX] = {};
 
-    while (running_) {
+    while (running_.load(std::memory_order_acquire)) {
         nfds = epoll_wait(epollFd_, readyEvents, EPOLL_WAIT_EVENT_NUMS_MAX, 100);
         if (nfds == -1) {
             if (errno == EINTR) {
@@ -139,7 +153,7 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
     int events = handler->GetEvents();
     LMNET_LOGD("[%p] Register handler for fd:%d, events:0x%x", this, fd, events);
 
-    if (!running_) {
+    if (!running_.load(std::memory_order_acquire)) {
         LMNET_LOGE("Reactor has exited");
         return false;
     }
@@ -189,7 +203,7 @@ bool EventReactor::RemoveHandler(socket_t fd)
     handlers_.erase(it);
     lock.unlock();
 
-    if (!running_) {
+    if (!running_.load(std::memory_order_acquire)) {
         LMNET_LOGE("Reactor has exited");
         return false;
     }
@@ -208,7 +222,7 @@ bool EventReactor::ModifyHandler(socket_t fd, int events)
 {
     LMNET_LOGD("Modify handler for fd(%d), events:0x%x", fd, events);
 
-    if (!running_) {
+    if (!running_.load(std::memory_order_acquire)) {
         LMNET_LOGE("Reactor has exited");
         return false;
     }

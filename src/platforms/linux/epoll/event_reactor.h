@@ -11,6 +11,7 @@
 
 #include <lmcore/singleton.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <shared_mutex>
@@ -62,11 +63,13 @@ private:
 private:
     int epollFd_ = -1;
     int wakeupFd_ = -1;
-    bool running_ = false;
+    std::atomic_bool running_ = false;
 
     std::shared_mutex mutex_;
     std::mutex signalMutex_;
     std::condition_variable runningSignal_;
+    bool startupComplete_ = false;
+    bool startupSucceeded_ = false;
 
     std::unordered_map<int, std::shared_ptr<EventHandler>> handlers_;
 
