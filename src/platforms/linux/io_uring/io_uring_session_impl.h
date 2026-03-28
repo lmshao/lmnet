@@ -237,9 +237,36 @@ private:
 
         // Create a copy for cleanup callback before moving duplicatedFds
         std::vector<int> fdsForCleanup = duplicatedFds;
+        auto cleanup = UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message");
+        auto self = weak_from_this();
         bool submitted = IoUringManager::GetInstance().SubmitSendMsgRequest(
             fd, buffer, duplicatedFds,
-            UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message"));
+            [self, buffer, cleanup = std::move(cleanup)](int fd, int res) mutable {
+                cleanup(fd, res);
+
+                auto strong = self.lock();
+                if (!strong) {
+                    return;
+                }
+
+                if (res < 0) {
+                    strong->FailStreamWrite(std::string("Send error: ") + strerror(-res));
+                    return;
+                }
+
+                if (res == 0) {
+                    strong->FailStreamWrite("Send returned zero bytes");
+                    return;
+                }
+
+                if (buffer && static_cast<size_t>(res) < buffer->Size()) {
+                    auto remaining = DataBuffer::PoolAlloc(buffer->Size() - static_cast<size_t>(res));
+                    remaining->Assign(buffer->Data() + res, buffer->Size() - static_cast<size_t>(res));
+                    if (!strong->QueueStreamWrite(std::move(remaining))) {
+                        strong->FailStreamWrite("Failed to queue remaining Unix stream data");
+                    }
+                }
+            });
         if (!submitted) {
             UnixSocketUtils::CleanupFds(duplicatedFds);
         }

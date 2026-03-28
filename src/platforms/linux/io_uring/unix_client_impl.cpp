@@ -321,9 +321,45 @@ bool UnixClientImpl::SendUnixMessage(std::shared_ptr<DataBuffer> buffer, const s
 
     // Create a copy for cleanup callback before moving duplicatedFds
     std::vector<int> fdsForCleanup = duplicatedFds;
+    auto cleanup = UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message");
+    auto self = weak_from_this();
     bool submitted = IoUringManager::GetInstance().SubmitSendMsgRequest(
         socket_, buffer, duplicatedFds,
-        UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message"));
+        [self, buffer, cleanup = std::move(cleanup)](int fd, int res) mutable {
+            cleanup(fd, res);
+
+            auto strong = self.lock();
+            if (!strong) {
+                return;
+            }
+
+            if (res < 0) {
+                if (auto listener = strong->listener_.lock()) {
+                    listener->OnError(fd, std::string("Send error: ") + strerror(-res));
+                }
+                strong->HandleClose();
+                return;
+            }
+
+            if (res == 0) {
+                if (auto listener = strong->listener_.lock()) {
+                    listener->OnError(fd, "Send returned zero bytes");
+                }
+                strong->HandleClose();
+                return;
+            }
+
+            if (buffer && static_cast<size_t>(res) < buffer->Size()) {
+                auto remaining = DataBuffer::PoolAlloc(buffer->Size() - static_cast<size_t>(res));
+                remaining->Assign(buffer->Data() + res, buffer->Size() - static_cast<size_t>(res));
+                if (!strong->QueueStreamWrite(std::move(remaining))) {
+                    if (auto listener = strong->listener_.lock()) {
+                        listener->OnError(fd, "Failed to queue remaining Unix stream data");
+                    }
+                    strong->HandleClose();
+                }
+            }
+        });
     if (!submitted) {
         UnixSocketUtils::CleanupFds(duplicatedFds);
     }

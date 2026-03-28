@@ -516,6 +516,97 @@ TEST(UnixFdEnhanced, BackwardCompatibility)
     std::remove(socket_path.c_str());
 }
 
+TEST(UnixFdEnhanced, LargeMixedDataAndFdTransfer)
+{
+    const std::string socket_path = "/tmp/test_large_mixed_transfer";
+    const size_t payload_size = 2 * 1024 * 1024;
+    const std::string file_content = "Large mixed transfer FD content";
+
+    std::string payload(payload_size, '\0');
+    for (size_t i = 0; i < payload.size(); ++i) {
+        payload[i] = static_cast<char>('a' + (i % 17));
+    }
+
+    std::atomic<bool> message_received{false};
+    std::atomic<bool> payload_received{false};
+    std::mutex payload_mutex;
+    std::string received_payload;
+    int received_fd = -1;
+
+    class TestServerListener : public IServerListener {
+    public:
+        TestServerListener(std::atomic<bool> &fdReceived, std::atomic<bool> &payloadReceived, std::mutex &payloadMutex,
+                           std::string &payload, const std::string &expectedPayload, int &fd)
+            : fdReceived_(fdReceived), payloadReceived_(payloadReceived), payloadMutex_(payloadMutex), payload_(payload),
+              expectedPayload_(expectedPayload), fd_(fd)
+        {
+        }
+
+        void OnReceive(std::shared_ptr<Session>, std::shared_ptr<DataBuffer> buffer) override
+        {
+            std::lock_guard<std::mutex> lock(payloadMutex_);
+            payload_.append(reinterpret_cast<const char *>(buffer->Data()), buffer->Size());
+            if (payload_.size() >= expectedPayload_.size()) {
+                payloadReceived_ = (payload_ == expectedPayload_);
+            }
+        }
+
+        void OnReceiveUnixMessage(std::shared_ptr<Session>, const UnixMessage &message) override
+        {
+            if (message.HasFds() && !message.fds.empty()) {
+                fd_ = message.fds[0];
+                fdReceived_ = true;
+            }
+        }
+
+        void OnAccept(std::shared_ptr<Session>) override {}
+
+        void OnError(std::shared_ptr<Session>, const std::string &) override {}
+        void OnClose(std::shared_ptr<Session>) override {}
+
+    private:
+        std::atomic<bool> &fdReceived_;
+        std::atomic<bool> &payloadReceived_;
+        std::mutex &payloadMutex_;
+        std::string &payload_;
+        const std::string &expectedPayload_;
+        int &fd_;
+    };
+
+    auto [test_fd, test_file] = CreateTestFile(file_content);
+    EXPECT_GT(test_fd, -1);
+
+    std::remove(socket_path.c_str());
+    auto server = UnixServer::Create(socket_path);
+    auto server_listener = std::make_shared<TestServerListener>(
+        message_received, payload_received, payload_mutex, received_payload, payload, received_fd);
+    server->SetListener(server_listener);
+    EXPECT_TRUE(server->Init());
+    EXPECT_TRUE(server->Start());
+
+    auto client = UnixClient::Create(socket_path);
+    client->SetListener(std::make_shared<DummyClientListener>());
+    EXPECT_TRUE(client->Init());
+    EXPECT_TRUE(client->Connect());
+
+    auto buffer = DataBuffer::PoolAlloc(payload.size());
+    buffer->Assign(payload.data(), payload.size());
+    EXPECT_TRUE(client->SendWithFds(buffer, {test_fd}));
+
+    EXPECT_TRUE(WaitFor([&] { return message_received.load(); }, 10000));
+    EXPECT_TRUE(WaitFor([&] { return payload_received.load(); }, 10000));
+    EXPECT_EQ(payload, received_payload);
+    EXPECT_GT(received_fd, -1);
+    EXPECT_EQ(file_content, ReadFileByFd(received_fd));
+
+    close(test_fd);
+    close(received_fd);
+    unlink(test_file.c_str());
+    client->Close();
+    server->Stop();
+    std::remove(socket_path.c_str());
+}
+
 #else
 // Placeholder tests for non-Linux platforms
 TEST(UnixFdEnhanced, BasicDataTransfer)
@@ -549,6 +640,12 @@ TEST(UnixFdEnhanced, ErrorHandlingInvalidFds)
 }
 
 TEST(UnixFdEnhanced, BackwardCompatibility)
+{
+    std::puts("Unix FD transfer tests are only supported on Linux. Skipping test.");
+    EXPECT_TRUE(true);
+}
+
+TEST(UnixFdEnhanced, LargeMixedDataAndFdTransfer)
 {
     std::puts("Unix FD transfer tests are only supported on Linux. Skipping test.");
     EXPECT_TRUE(true);

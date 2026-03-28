@@ -16,7 +16,6 @@
 #include <vector>
 
 #if defined(__linux__) || defined(__APPLE__)
-#include <sys/socket.h>
 #include <unistd.h>
 #endif
 
@@ -168,9 +167,6 @@ TEST(UnixTest, LargeClientSend)
     client->SetListener(client_listener);
     EXPECT_TRUE(client->Init());
     EXPECT_TRUE(client->Connect());
-
-    int send_buffer_size = 4096;
-    (void)setsockopt(client->GetSocketFd(), SOL_SOCKET, SO_SNDBUF, &send_buffer_size, sizeof(send_buffer_size));
 
     EXPECT_TRUE(client->Send(payload));
 
