@@ -270,18 +270,21 @@ bool TcpServerImpl::Stop()
     auto &reactor = EventReactor::GetInstance();
 
     std::vector<int> clientFds;
-    for (const auto &pair : sessions_) {
-        clientFds.push_back(pair.first);
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        clientFds.reserve(sessions_.size());
+        for (const auto &pair : sessions_) {
+            clientFds.push_back(pair.first);
+        }
+        sessions_.clear();
+        connectionHandlers_.clear();
     }
 
     for (int clientFd : clientFds) {
         LMNET_LOGD("close client fd: %d", clientFd);
         reactor.RemoveHandler(clientFd);
         close(clientFd);
-
-        connectionHandlers_.erase(clientFd);
     }
-    sessions_.clear();
 
     if (socket_ != INVALID_SOCKET && serverHandler_) {
         LMNET_LOGD("close server fd: %d", socket_);
@@ -317,18 +320,23 @@ bool TcpServerImpl::Send(socket_t fd, std::shared_ptr<DataBuffer> buffer)
         return false;
     }
 
-    if (sessions_.find(fd) == sessions_.end()) {
-        LMNET_LOGD("invalid session fd");
-        return false;
+    std::shared_ptr<TcpConnectionHandler> tcpHandler;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        if (sessions_.find(fd) == sessions_.end()) {
+            LMNET_LOGD("invalid session fd");
+            return false;
+        }
+
+        auto handlerIt = connectionHandlers_.find(fd);
+        if (handlerIt != connectionHandlers_.end()) {
+            tcpHandler = handlerIt->second;
+        }
     }
 
-    auto handlerIt = connectionHandlers_.find(fd);
-    if (handlerIt != connectionHandlers_.end()) {
-        auto tcpHandler = handlerIt->second;
-        if (tcpHandler) {
-            tcpHandler->QueueSend(buffer);
-            return true;
-        }
+    if (tcpHandler) {
+        tcpHandler->QueueSend(buffer);
+        return true;
     }
     LMNET_LOGE("Connection handler not found for fd: %d", fd);
     return false;
@@ -363,8 +371,6 @@ void TcpServerImpl::HandleAccept(socket_t fd)
         return;
     }
 
-    connectionHandlers_[clientSocket] = connectionHandler;
-
     // EnableKeepAlive(clientSocket);
 
     std::string host = inet_ntoa(clientAddr.sin_addr);
@@ -374,11 +380,14 @@ void TcpServerImpl::HandleAccept(socket_t fd)
                ntohs(clientAddr.sin_port));
 
     auto session = std::make_shared<TcpSessionImpl>(clientSocket, host, port, shared_from_this());
-    sessions_.emplace(clientSocket, session);
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        connectionHandlers_[clientSocket] = connectionHandler;
+        sessions_.emplace(clientSocket, session);
+    }
 
     if (!listener_.expired()) {
         auto listenerWeak = listener_;
-        auto session = sessions_[clientSocket];
         auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session]() {
             LMNET_LOGD("invoke OnAccept callback");
             auto listener = listenerWeak.lock();
@@ -417,9 +426,12 @@ void TcpServerImpl::HandleReceive(socket_t fd)
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
 
                 std::shared_ptr<Session> session;
-                auto it = sessions_.find(fd);
-                if (it != sessions_.end()) {
-                    session = it->second;
+                {
+                    std::lock_guard<std::mutex> lock(sessionMutex_);
+                    auto it = sessions_.find(fd);
+                    if (it != sessions_.end()) {
+                        session = it->second;
+                    }
                 }
 
                 if (session) {
@@ -476,20 +488,22 @@ void TcpServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
 {
     LMNET_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
 
-    auto sessionIt = sessions_.find(fd);
-    if (sessionIt == sessions_.end()) {
-        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
-        return;
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        auto sessionIt = sessions_.find(fd);
+        if (sessionIt == sessions_.end()) {
+            LMNET_LOGD("Connection fd: %d already cleaned up", fd);
+            return;
+        }
+        session = sessionIt->second;
+        sessions_.erase(sessionIt);
+        connectionHandlers_.erase(fd);
     }
 
     EventReactor::GetInstance().RemoveHandler(fd);
 
     close(fd);
-
-    std::shared_ptr<Session> session = sessionIt->second;
-    sessions_.erase(sessionIt);
-
-    connectionHandlers_.erase(fd);
 
     if (!listener_.expired() && session) {
         auto listenerWeak = listener_;

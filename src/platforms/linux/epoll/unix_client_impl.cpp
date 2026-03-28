@@ -14,8 +14,10 @@
 #include <unistd.h>
 
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <cstring>
+#include <mutex>
 #include <queue>
 #include <utility>
 #include <vector>
@@ -73,10 +75,9 @@ public:
 
     int GetEvents() const override
     {
-        int events =
-            static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) | static_cast<int>(EventType::CLOSE);
+        int events = BaseEvents();
 
-        if (writeEventsEnabled_) {
+        if (writeEventsEnabled_.load(std::memory_order_acquire)) {
             events |= static_cast<int>(EventType::WRITE);
         }
 
@@ -88,31 +89,47 @@ public:
         if ((!pending.data || pending.data->Size() == 0) && pending.fds.empty()) {
             return;
         }
-        sendQueue_.push(std::move(pending));
-        EnableWriteEvents();
-    }
 
-private:
-    void EnableWriteEvents()
-    {
-        if (!writeEventsEnabled_) {
-            writeEventsEnabled_ = true;
+        bool shouldEnableWrite = false;
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            sendQueue_.push(std::move(pending));
+            if (!writeEventsEnabled_.load(std::memory_order_relaxed)) {
+                writeEventsEnabled_.store(true, std::memory_order_release);
+                shouldEnableWrite = true;
+            }
+        }
+
+        if (shouldEnableWrite) {
             EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
         }
     }
 
+private:
+    static int BaseEvents()
+    {
+        return static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) |
+               static_cast<int>(EventType::CLOSE);
+    }
+
     void DisableWriteEvents()
     {
-        if (writeEventsEnabled_) {
-            writeEventsEnabled_ = false;
+        if (writeEventsEnabled_.exchange(false, std::memory_order_acq_rel)) {
             EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
         }
     }
 
     void ProcessSendQueue()
     {
-        while (!sendQueue_.empty()) {
-            auto &pending = sendQueue_.front();
+        while (true) {
+            PendingSend pending;
+            {
+                std::lock_guard<std::mutex> lock(sendMutex_);
+                if (sendQueue_.empty()) {
+                    break;
+                }
+                pending = sendQueue_.front();
+            }
 
             std::array<char, 1> placeholder{{0}};
             struct iovec iov;
@@ -143,23 +160,41 @@ private:
 
             ssize_t bytesSent = sendmsg(fd_, &msg, MSG_NOSIGNAL);
             if (bytesSent > 0) {
-                pending.fdsSent = true;
-                CloseDescriptors(pending.fds);
+                PendingSend updatedPending = pending;
+                updatedPending.fdsSent = true;
+                CloseDescriptors(updatedPending.fds);
 
                 size_t sentBytes = static_cast<size_t>(bytesSent);
-                if (pending.data && pending.data->Size() > pending.offset) {
-                    pending.offset += sentBytes;
-                    if (pending.offset >= pending.data->Size()) {
-                        pending.data.reset();
+                if (updatedPending.data && updatedPending.data->Size() > updatedPending.offset) {
+                    updatedPending.offset += sentBytes;
+                    if (updatedPending.offset >= updatedPending.data->Size()) {
+                        updatedPending.data.reset();
                     }
                 } else {
-                    pending.offset = 1; // placeholder consumed
+                    updatedPending.offset = 1;
                 }
 
-                if (!pending.data || (pending.data->Size() <= pending.offset)) {
-                    sendQueue_.pop();
+                bool shouldContinue = false;
+                {
+                    std::lock_guard<std::mutex> lock(sendMutex_);
+                    if (sendQueue_.empty() || sendQueue_.front().data != pending.data ||
+                        sendQueue_.front().offset != pending.offset || sendQueue_.front().fdsSent != pending.fdsSent ||
+                        sendQueue_.front().fds != pending.fds) {
+                        continue;
+                    }
+
+                    if (!updatedPending.data || (updatedPending.data->Size() <= updatedPending.offset)) {
+                        sendQueue_.pop();
+                    } else {
+                        sendQueue_.front() = std::move(updatedPending);
+                        shouldContinue = true;
+                    }
+                }
+
+                if (shouldContinue) {
+                    continue;
                 } else {
-                    break;
+                    continue;
                 }
             } else if (bytesSent == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -167,21 +202,36 @@ private:
                 }
 
                 LMNET_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
-                CloseDescriptors(pending.fds);
+                {
+                    std::lock_guard<std::mutex> lock(sendMutex_);
+                    if (!sendQueue_.empty()) {
+                        CloseDescriptors(sendQueue_.front().fds);
+                        sendQueue_.pop();
+                    }
+                }
                 if (auto client = client_.lock()) {
                     client->HandleConnectionClose(fd_, true, strerror(errno));
                 }
-                sendQueue_.pop();
                 break;
             } else {
-                // bytesSent == 0, treat as success and remove entry
-                pending.fdsSent = true;
-                CloseDescriptors(pending.fds);
-                sendQueue_.pop();
+                {
+                    std::lock_guard<std::mutex> lock(sendMutex_);
+                    if (!sendQueue_.empty()) {
+                        sendQueue_.front().fdsSent = true;
+                        CloseDescriptors(sendQueue_.front().fds);
+                        sendQueue_.pop();
+                    }
+                }
             }
         }
 
-        if (sendQueue_.empty()) {
+        bool queueEmpty = false;
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            queueEmpty = sendQueue_.empty();
+        }
+
+        if (queueEmpty) {
             DisableWriteEvents();
         }
     }
@@ -200,7 +250,8 @@ private:
     socket_t fd_;
     std::weak_ptr<UnixClientImpl> client_;
     std::queue<PendingSend> sendQueue_;
-    bool writeEventsEnabled_;
+    std::mutex sendMutex_;
+    std::atomic_bool writeEventsEnabled_;
 };
 
 UnixClientImpl::UnixClientImpl(const std::string &socketPath) : socketPath_(socketPath)

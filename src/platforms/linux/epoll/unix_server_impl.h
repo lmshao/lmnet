@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -53,10 +54,11 @@ private:
 private:
     std::string socketPath_;
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_un serverAddr_{};
+    struct sockaddr_un serverAddr_ {};
 
     std::weak_ptr<IServerListener> listener_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
+    std::mutex sessionMutex_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::shared_ptr<DataBuffer> readBuffer_;
 

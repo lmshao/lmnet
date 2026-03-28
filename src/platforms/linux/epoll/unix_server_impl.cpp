@@ -14,8 +14,10 @@
 #include <unistd.h>
 
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <cstring>
+#include <mutex>
 #include <queue>
 #include <utility>
 #include <vector>
@@ -110,10 +112,9 @@ public:
 
     int GetEvents() const override
     {
-        int events =
-            static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) | static_cast<int>(EventType::CLOSE);
+        int events = BaseEvents();
 
-        if (writeEventsEnabled_) {
+        if (writeEventsEnabled_.load(std::memory_order_acquire)) {
             events |= static_cast<int>(EventType::WRITE);
         }
 
@@ -125,31 +126,47 @@ public:
         if ((!pending.data || pending.data->Size() == 0) && pending.fds.empty()) {
             return;
         }
-        sendQueue_.push(std::move(pending));
-        EnableWriteEvents();
-    }
 
-private:
-    void EnableWriteEvents()
-    {
-        if (!writeEventsEnabled_) {
-            writeEventsEnabled_ = true;
+        bool shouldEnableWrite = false;
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            sendQueue_.push(std::move(pending));
+            if (!writeEventsEnabled_.load(std::memory_order_relaxed)) {
+                writeEventsEnabled_.store(true, std::memory_order_release);
+                shouldEnableWrite = true;
+            }
+        }
+
+        if (shouldEnableWrite) {
             EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
         }
     }
 
+private:
+    static int BaseEvents()
+    {
+        return static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) |
+               static_cast<int>(EventType::CLOSE);
+    }
+
     void DisableWriteEvents()
     {
-        if (writeEventsEnabled_) {
-            writeEventsEnabled_ = false;
+        if (writeEventsEnabled_.exchange(false, std::memory_order_acq_rel)) {
             EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
         }
     }
 
     void ProcessSendQueue()
     {
-        while (!sendQueue_.empty()) {
-            auto &pending = sendQueue_.front();
+        while (true) {
+            PendingSend pending;
+            {
+                std::lock_guard<std::mutex> lock(sendMutex_);
+                if (sendQueue_.empty()) {
+                    break;
+                }
+                pending = sendQueue_.front();
+            }
 
             std::array<char, 1> placeholder{{0}};
             struct iovec iov;
@@ -180,23 +197,41 @@ private:
 
             ssize_t bytesSent = sendmsg(fd_, &msg, MSG_NOSIGNAL);
             if (bytesSent > 0) {
-                pending.fdsSent = true;
-                CloseDescriptors(pending.fds);
+                PendingSend updatedPending = pending;
+                updatedPending.fdsSent = true;
+                CloseDescriptors(updatedPending.fds);
 
                 size_t sentBytes = static_cast<size_t>(bytesSent);
-                if (pending.data && pending.data->Size() > pending.offset) {
-                    pending.offset += sentBytes;
-                    if (pending.offset >= pending.data->Size()) {
-                        pending.data.reset();
+                if (updatedPending.data && updatedPending.data->Size() > updatedPending.offset) {
+                    updatedPending.offset += sentBytes;
+                    if (updatedPending.offset >= updatedPending.data->Size()) {
+                        updatedPending.data.reset();
                     }
                 } else {
-                    pending.offset = 1;
+                    updatedPending.offset = 1;
                 }
 
-                if (!pending.data || (pending.data->Size() <= pending.offset)) {
-                    sendQueue_.pop();
+                bool shouldContinue = false;
+                {
+                    std::lock_guard<std::mutex> lock(sendMutex_);
+                    if (sendQueue_.empty() || sendQueue_.front().data != pending.data ||
+                        sendQueue_.front().offset != pending.offset || sendQueue_.front().fdsSent != pending.fdsSent ||
+                        sendQueue_.front().fds != pending.fds) {
+                        continue;
+                    }
+
+                    if (!updatedPending.data || (updatedPending.data->Size() <= updatedPending.offset)) {
+                        sendQueue_.pop();
+                    } else {
+                        sendQueue_.front() = std::move(updatedPending);
+                        shouldContinue = true;
+                    }
+                }
+
+                if (shouldContinue) {
+                    continue;
                 } else {
-                    break;
+                    continue;
                 }
             } else if (bytesSent == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -204,20 +239,36 @@ private:
                 }
 
                 LMNET_LOGE("Send error on fd %d: %s", fd_, strerror(errno));
-                CloseDescriptors(pending.fds);
+                {
+                    std::lock_guard<std::mutex> lock(sendMutex_);
+                    if (!sendQueue_.empty()) {
+                        CloseDescriptors(sendQueue_.front().fds);
+                        sendQueue_.pop();
+                    }
+                }
                 if (auto server = server_.lock()) {
                     server->HandleConnectionClose(fd_, true, strerror(errno));
                 }
-                sendQueue_.pop();
                 break;
             } else {
-                pending.fdsSent = true;
-                CloseDescriptors(pending.fds);
-                sendQueue_.pop();
+                {
+                    std::lock_guard<std::mutex> lock(sendMutex_);
+                    if (!sendQueue_.empty()) {
+                        sendQueue_.front().fdsSent = true;
+                        CloseDescriptors(sendQueue_.front().fds);
+                        sendQueue_.pop();
+                    }
+                }
             }
         }
 
-        if (sendQueue_.empty()) {
+        bool queueEmpty = false;
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            queueEmpty = sendQueue_.empty();
+        }
+
+        if (queueEmpty) {
             DisableWriteEvents();
         }
     }
@@ -236,7 +287,8 @@ private:
     socket_t fd_;
     std::weak_ptr<UnixServerImpl> server_;
     std::queue<PendingSend> sendQueue_;
-    bool writeEventsEnabled_;
+    std::mutex sendMutex_;
+    std::atomic_bool writeEventsEnabled_;
 };
 
 UnixServerImpl::UnixServerImpl(const std::string &socketPath) : socketPath_(socketPath) {}
@@ -301,18 +353,21 @@ bool UnixServerImpl::Stop()
     auto &reactor = EventReactor::GetInstance();
 
     std::vector<int> clientFds;
-    for (const auto &pair : sessions_) {
-        clientFds.push_back(pair.first);
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        clientFds.reserve(sessions_.size());
+        for (const auto &pair : sessions_) {
+            clientFds.push_back(pair.first);
+        }
+        sessions_.clear();
+        connectionHandlers_.clear();
     }
 
     for (int clientFd : clientFds) {
         LMNET_LOGD("close client fd: %d", clientFd);
         reactor.RemoveHandler(clientFd);
         close(clientFd);
-
-        connectionHandlers_.erase(clientFd);
     }
-    sessions_.clear();
 
     if (socket_ != INVALID_SOCKET && serverHandler_) {
         LMNET_LOGD("close server fd: %d", socket_);
@@ -341,11 +396,6 @@ bool UnixServerImpl::SendWithFds(socket_t fd, std::shared_ptr<DataBuffer> buffer
         return false;
     }
 
-    if (sessions_.find(fd) == sessions_.end()) {
-        LMNET_LOGE("Invalid session fd");
-        return false;
-    }
-
     std::vector<int> duplicatedFds;
     if (!fds.empty()) {
         // Duplicate file descriptors to avoid closing original descriptors
@@ -356,16 +406,27 @@ bool UnixServerImpl::SendWithFds(socket_t fd, std::shared_ptr<DataBuffer> buffer
         }
     }
 
-    auto handlerIt = connectionHandlers_.find(fd);
-    if (handlerIt != connectionHandlers_.end()) {
-        auto unixHandler = handlerIt->second;
-        if (unixHandler) {
-            PendingSend pending;
-            pending.data = std::move(buffer);
-            pending.fds = std::move(duplicatedFds);
-            unixHandler->QueueSend(std::move(pending));
-            return true;
+    std::shared_ptr<UnixConnectionHandler> unixHandler;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        if (sessions_.find(fd) == sessions_.end()) {
+            LMNET_LOGE("Invalid session fd");
+            UnixSocketUtils::CleanupFds(duplicatedFds);
+            return false;
         }
+
+        auto handlerIt = connectionHandlers_.find(fd);
+        if (handlerIt != connectionHandlers_.end()) {
+            unixHandler = handlerIt->second;
+        }
+    }
+
+    if (unixHandler) {
+        PendingSend pending;
+        pending.data = std::move(buffer);
+        pending.fds = std::move(duplicatedFds);
+        unixHandler->QueueSend(std::move(pending));
+        return true;
     }
 
     // Clean up duplicated file descriptors if send failed
@@ -395,22 +456,23 @@ void UnixServerImpl::HandleAccept(socket_t fd)
         return;
     }
 
-    connectionHandlers_[clientSocket] = connectionHandler;
-
     LMNET_LOGD("New Unix client connection client[%d]\n", clientSocket);
 
     // Unix domain socket uses empty host and port
     auto session = std::make_shared<UnixSessionImpl>(clientSocket, socketPath_, shared_from_this());
-    sessions_.emplace(clientSocket, session);
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        connectionHandlers_[clientSocket] = connectionHandler;
+        sessions_.emplace(clientSocket, session);
+    }
 
     if (!listener_.expired()) {
         auto listenerWeak = listener_;
-        auto sessionPtr = sessions_[clientSocket];
-        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, sessionPtr]() {
+        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, session]() {
             LMNET_LOGD("invoke OnAccept callback");
             auto listener = listenerWeak.lock();
             if (listener) {
-                listener->OnAccept(sessionPtr);
+                listener->OnAccept(session);
             } else {
                 LMNET_LOGD("not found listener!");
             }
@@ -471,9 +533,16 @@ void UnixServerImpl::HandleReceive(socket_t fd)
                     }
                 }
 
-                auto sessionIt = sessions_.find(fd);
-                if (sessionIt != sessions_.end()) {
-                    auto session = sessionIt->second;
+                std::shared_ptr<Session> session;
+                {
+                    std::lock_guard<std::mutex> lock(sessionMutex_);
+                    auto sessionIt = sessions_.find(fd);
+                    if (sessionIt != sessions_.end()) {
+                        session = sessionIt->second;
+                    }
+                }
+
+                if (session) {
                     auto listenerWeak = listener_;
                     auto task = std::make_shared<TaskHandler<void>>(
                         [listenerWeak, session, dataBuffer, fds = std::move(receivedFds)]() mutable {
@@ -518,20 +587,22 @@ void UnixServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std:
 {
     LMNET_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
 
-    auto sessionIt = sessions_.find(fd);
-    if (sessionIt == sessions_.end()) {
-        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
-        return;
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        auto sessionIt = sessions_.find(fd);
+        if (sessionIt == sessions_.end()) {
+            LMNET_LOGD("Connection fd: %d already cleaned up", fd);
+            return;
+        }
+        session = sessionIt->second;
+        sessions_.erase(sessionIt);
+        connectionHandlers_.erase(fd);
     }
 
     EventReactor::GetInstance().RemoveHandler(fd);
 
     close(fd);
-
-    std::shared_ptr<Session> session = sessionIt->second;
-    sessions_.erase(sessionIt);
-
-    connectionHandlers_.erase(fd);
 
     if (!listener_.expired() && session) {
         auto listenerWeak = listener_;
