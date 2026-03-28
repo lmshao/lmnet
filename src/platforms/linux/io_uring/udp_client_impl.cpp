@@ -64,7 +64,10 @@ bool UdpClientImpl::Init()
     }
 
     isRunning_ = true;
-    StartReceive();
+    if (!StartReceive()) {
+        Close();
+        return false;
+    }
     return true;
 }
 
@@ -78,15 +81,15 @@ bool UdpClientImpl::EnableBroadcast()
     return true;
 }
 
-void UdpClientImpl::StartReceive()
+bool UdpClientImpl::StartReceive()
 {
     if (!isRunning_)
-        return;
+        return false;
 
     auto buffer = DataBuffer::PoolAlloc();
     auto self = shared_from_this();
 
-    IoUringManager::GetInstance().SubmitRecvFromRequest(
+    return IoUringManager::GetInstance().SubmitRecvFromRequest(
         socket_, buffer, [self](int fd, std::shared_ptr<DataBuffer> buf, int bytes_read, const sockaddr_in &from) {
             self->HandleReceive(buf, bytes_read, from);
         });

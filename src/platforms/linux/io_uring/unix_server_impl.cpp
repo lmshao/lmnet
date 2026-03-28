@@ -77,7 +77,10 @@ bool UnixServerImpl::Start()
 {
     if (!isRunning_)
         return false;
-    SubmitAccept();
+    if (!SubmitAccept()) {
+        Stop();
+        return false;
+    }
     LMNET_LOGI("Unix server started on %s", socketPath_.c_str());
     return true;
 }
@@ -119,13 +122,13 @@ bool UnixServerImpl::Stop()
     return true;
 }
 
-void UnixServerImpl::SubmitAccept()
+bool UnixServerImpl::SubmitAccept()
 {
     if (!isRunning_)
-        return;
+        return false;
 
     auto self = shared_from_this();
-    IoUringManager::GetInstance().SubmitAcceptRequest(
+    return IoUringManager::GetInstance().SubmitAcceptRequest(
         socket_, [self](int fd, int client_fd, const sockaddr *, socklen_t *) { self->HandleAccept(client_fd); });
 }
 

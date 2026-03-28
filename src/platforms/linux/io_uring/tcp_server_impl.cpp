@@ -99,7 +99,10 @@ bool TcpServerImpl::Start()
         LMNET_LOGW("Server is not initialized or has been stopped.");
         return false;
     }
-    SubmitAccept();
+    if (!SubmitAccept()) {
+        Stop();
+        return false;
+    }
     LMNET_LOGI("TCP server started.");
     return true;
 }
@@ -146,13 +149,13 @@ bool TcpServerImpl::Stop()
     return true;
 }
 
-void TcpServerImpl::SubmitAccept()
+bool TcpServerImpl::SubmitAccept()
 {
     if (!isRunning_)
-        return;
+        return false;
 
     auto self = shared_from_this();
-    IoUringManager::GetInstance().SubmitAcceptRequest(
+    return IoUringManager::GetInstance().SubmitAcceptRequest(
         socket_, [self](int fd, int client_fd, const sockaddr *addr, socklen_t *addrlen) {
             if (client_fd >= 0) {
                 const sockaddr_in *client_addr = reinterpret_cast<const sockaddr_in *>(addr);

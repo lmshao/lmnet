@@ -43,7 +43,7 @@ public:
 
 private:
     void HandleConnect(int result);
-    void StartReceive();
+    bool StartReceive();
     void HandleReceiveWithFds(std::shared_ptr<DataBuffer> buffer, int bytes_read, std::vector<int> fds);
     bool QueueStreamWrite(std::shared_ptr<DataBuffer> buffer);
     bool SubmitNextWrite();

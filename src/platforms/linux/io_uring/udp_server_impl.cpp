@@ -70,7 +70,10 @@ bool UdpServerImpl::Start()
 {
     if (!isRunning_)
         return false;
-    StartReceive();
+    if (!StartReceive()) {
+        Stop();
+        return false;
+    }
     LMNET_LOGI("UDP server started on %s:%d", ip_.c_str(), port_);
     return true;
 }
@@ -91,15 +94,15 @@ bool UdpServerImpl::Stop()
     return true;
 }
 
-void UdpServerImpl::StartReceive()
+bool UdpServerImpl::StartReceive()
 {
     if (!isRunning_)
-        return;
+        return false;
 
     auto buffer = DataBuffer::PoolAlloc();
     auto self = shared_from_this();
 
-    IoUringManager::GetInstance().SubmitRecvFromRequest(
+    return IoUringManager::GetInstance().SubmitRecvFromRequest(
         socket_, buffer, [self](int fd, std::shared_ptr<DataBuffer> buf, int bytes_read, const sockaddr_in &from) {
             self->HandleReceive(buf, bytes_read, from);
         });

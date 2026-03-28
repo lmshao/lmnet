@@ -90,7 +90,10 @@ bool UnixClientImpl::Connect()
     LMNET_LOGI("Unix client connected to %s", socketPath_.c_str());
 
     // Start receiving data
-    StartReceive();
+    if (!StartReceive()) {
+        HandleClose();
+        return false;
+    }
 
     return true;
 }
@@ -112,16 +115,16 @@ void UnixClientImpl::HandleConnect(int result)
     }
 }
 
-void UnixClientImpl::StartReceive()
+bool UnixClientImpl::StartReceive()
 {
     if (!isRunning_ || !isConnected_)
-        return;
+        return false;
 
     auto buffer = DataBuffer::PoolAlloc();
     auto self = shared_from_this();
 
     // Use SubmitRecvMsgRequest to receive both data and file descriptors
-    IoUringManager::GetInstance().SubmitRecvMsgRequest(
+    return IoUringManager::GetInstance().SubmitRecvMsgRequest(
         socket_, buffer, [self](int fd, std::shared_ptr<DataBuffer> buf, int bytes_read, std::vector<int> fds) {
             self->HandleReceiveWithFds(buf, bytes_read, std::move(fds));
         });

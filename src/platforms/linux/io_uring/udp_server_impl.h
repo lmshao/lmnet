@@ -37,7 +37,7 @@ public:
     socket_t GetSocketFd() const override { return socket_; }
 
 private:
-    void StartReceive();
+    bool StartReceive();
     void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read, const sockaddr_in &from_addr);
 
 private:

@@ -72,15 +72,14 @@ bool TcpClientImpl::Connect()
         LMNET_LOGE("Client is not initialized.");
         return false;
     }
-    SubmitConnect();
-    return true;
+    return SubmitConnect();
 }
 
-void TcpClientImpl::SubmitConnect()
+bool TcpClientImpl::SubmitConnect()
 {
     auto self = shared_from_this();
-    IoUringManager::GetInstance().SubmitConnectRequest(socket_, serverAddr_,
-                                                       [self](int fd, int res) { self->HandleConnect(res); });
+    return IoUringManager::GetInstance().SubmitConnectRequest(socket_, serverAddr_,
+                                                              [self](int fd, int res) { self->HandleConnect(res); });
 }
 
 void TcpClientImpl::HandleConnect(int result)
@@ -97,7 +96,10 @@ void TcpClientImpl::HandleConnect(int result)
         SubmitRead();
     } else {
         LMNET_LOGE("Failed to connect: %s", strerror(-result));
-        HandleClose(true, strerror(-result));
+        if (auto listener = listener_.lock()) {
+            listener->OnError(socket_, strerror(-result));
+        }
+        ReInit();
     }
 }
 

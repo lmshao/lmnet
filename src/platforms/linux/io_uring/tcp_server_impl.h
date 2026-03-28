@@ -43,7 +43,7 @@ public:
     socket_t GetSocketFd() const override { return socket_; }
 
 private:
-    void SubmitAccept();
+    bool SubmitAccept();
     void HandleAccept(int res, const sockaddr_in &client_addr);
     void SubmitRead(std::shared_ptr<Session> session);
     void HandleReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer, int bytes_read);

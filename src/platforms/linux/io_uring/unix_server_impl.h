@@ -37,7 +37,7 @@ public:
     socket_t GetSocketFd() const override { return socket_; }
 
 private:
-    void SubmitAccept();
+    bool SubmitAccept();
     void HandleAccept(int client_fd);
     void SubmitRead(int client_fd);
     void HandleReceiveWithFds(int client_fd, std::shared_ptr<DataBuffer> buffer, int bytes_read, std::vector<int> fds);
