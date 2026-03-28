@@ -174,11 +174,8 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
         return true;
     }
 
-    std::lock_guard<std::mutex> lock(sendMutex_);
-    if (!sendQueue_.empty()) {
-        sendQueue_.pop_front();
-    }
-    writeInFlight_ = !sendQueue_.empty();
+    HandleClose(true, "Failed to submit write request");
+    Close();
     return false;
 }
 

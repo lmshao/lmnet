@@ -234,11 +234,10 @@ bool UnixClientImpl::QueueStreamWrite(std::shared_ptr<DataBuffer> buffer)
         return true;
     }
 
-    std::lock_guard<std::mutex> lock(sendMutex_);
-    if (!sendQueue_.empty()) {
-        sendQueue_.pop_front();
+    if (auto listener = listener_.lock()) {
+        listener->OnError(socket_, "Failed to submit write request");
     }
-    writeInFlight_ = !sendQueue_.empty();
+    HandleClose();
     return false;
 }
 

@@ -144,11 +144,7 @@ private:
             return true;
         }
 
-        std::lock_guard<std::mutex> lock(sendMutex_);
-        if (!sendQueue_.empty()) {
-            sendQueue_.pop_front();
-        }
-        writeInFlight_ = !sendQueue_.empty();
+        FailStreamWrite("Failed to submit write request");
         return false;
     }
 
