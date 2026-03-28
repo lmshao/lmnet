@@ -239,13 +239,13 @@ void TcpServerImpl::HandleReceive(std::shared_ptr<Session> session, std::shared_
 
         SubmitRead(session); // Continue reading from the client
     } else if (bytes_read == 0) {
-        HandleConnectionClose(session->fd, "Connection closed by peer");
+        HandleConnectionClose(session->fd, "Connection closed by peer", true);
     } else {
-        HandleConnectionClose(session->fd, std::string("Read error: ") + strerror(-bytes_read));
+        HandleConnectionClose(session->fd, std::string("Read error: ") + strerror(-bytes_read), true);
     }
 }
 
-void TcpServerImpl::HandleConnectionClose(int client_fd, const std::string &reason)
+void TcpServerImpl::HandleConnectionClose(int client_fd, const std::string &reason, bool closeFd)
 {
     std::shared_ptr<Session> session;
     {
@@ -264,6 +264,12 @@ void TcpServerImpl::HandleConnectionClose(int client_fd, const std::string &reas
             }
         });
         taskQueue_->EnqueueTask(task);
+    }
+
+    if (closeFd) {
+        if (!IoUringManager::GetInstance().SubmitCloseRequest(client_fd, nullptr)) {
+            close(client_fd);
+        }
     }
 }
 
@@ -284,7 +290,7 @@ void TcpServerImpl::Disconnect(socket_t fd)
 
     auto self = shared_from_this();
     if (!IoUringManager::GetInstance().SubmitCloseRequest(
-            fd, [self, fd](int, int) { self->HandleConnectionClose(fd, "Disconnected by server"); })) {
+            fd, [self, fd](int, int) { self->HandleConnectionClose(fd, "Disconnected by server", false); })) {
         close(fd);
     }
 }

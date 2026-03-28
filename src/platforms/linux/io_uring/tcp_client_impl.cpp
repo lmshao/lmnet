@@ -127,8 +127,10 @@ void TcpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_
         SubmitRead();
     } else if (bytes_read == 0) {
         HandleClose(false, "Connection closed by peer");
+        Close();
     } else {
         HandleClose(true, std::string("Read error: ") + strerror(-bytes_read));
+        Close();
     }
 }
 
