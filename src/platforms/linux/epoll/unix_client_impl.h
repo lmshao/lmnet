@@ -60,6 +60,7 @@ private:
     std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<UnixClientHandler> clientHandler_;
+    bool handlerRegistered_ = false;
 };
 
 } // namespace lmshao::lmnet

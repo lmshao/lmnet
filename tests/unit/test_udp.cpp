@@ -144,6 +144,18 @@ TEST(UdpTest, GetIdlePortTest)
     printf("Port discovery test completed successfully.\n");
 }
 
+TEST(UdpTest, CloseAfterInitInvalidatesSocket)
+{
+    auto client = UdpClient::Create("127.0.0.1", 6553);
+
+    EXPECT_TRUE(client->Init());
+    EXPECT_TRUE(client->GetSocketFd() != INVALID_SOCKET);
+
+    client->Close();
+
+    EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
+}
+
 int main()
 {
     int result = TestRunner::getInstance().runAllTests();

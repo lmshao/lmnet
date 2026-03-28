@@ -184,6 +184,18 @@ TEST(UnixTest, LargeClientSend)
     std::remove(socket_path.c_str());
 }
 
+TEST(UnixTest, CloseAfterInitInvalidatesSocket)
+{
+    auto client = UnixClient::Create("/tmp/lmnet_close_after_init.sock");
+
+    EXPECT_TRUE(client->Init());
+    EXPECT_TRUE(client->GetSocketFd() != INVALID_SOCKET);
+
+    client->Close();
+
+    EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
+}
+
 TEST(UnixTest, ConcurrentClientSendBurst)
 {
     const std::string socket_path = "/tmp/test_unix_concurrent_client_send";

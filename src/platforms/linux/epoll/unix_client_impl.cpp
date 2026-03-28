@@ -310,15 +310,18 @@ bool UnixClientImpl::Connect()
         socklen_t len = sizeof(error);
         if (getsockopt(socket_, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
             LMNET_LOGE("getsockopt error, %s", strerror(errno));
+            Close();
             return false;
         }
 
         if (error != 0) {
             LMNET_LOGE("connect error, %s", strerror(error));
+            Close();
             return false;
         }
     } else {
         LMNET_LOGE("connect timeout or error, %s", strerror(errno));
+        Close();
         return false;
     }
 
@@ -327,8 +330,14 @@ bool UnixClientImpl::Connect()
     clientHandler_ = std::make_shared<UnixClientHandler>(socket_, shared_from_this());
     if (!EventReactor::GetInstance().RegisterHandler(clientHandler_)) {
         LMNET_LOGE("Failed to register client handler");
+        clientHandler_.reset();
+        if (taskQueue_) {
+            taskQueue_->Stop();
+        }
+        Close();
         return false;
     }
+    handlerRegistered_ = true;
 
     LMNET_LOGD("Connect (%s) success with new EventHandler interface.", socketPath_.c_str());
     return true;
@@ -408,11 +417,18 @@ bool UnixClientImpl::SendWithFds(std::shared_ptr<DataBuffer> data, const std::ve
 
 void UnixClientImpl::Close()
 {
-    if (socket_ != INVALID_SOCKET && clientHandler_) {
-        EventReactor::GetInstance().RemoveHandler(socket_);
+    if (socket_ != INVALID_SOCKET) {
+        if (handlerRegistered_) {
+            EventReactor::GetInstance().RemoveHandler(socket_);
+            handlerRegistered_ = false;
+        }
+
+        clientHandler_.reset();
         close(socket_);
         socket_ = INVALID_SOCKET;
+    } else {
         clientHandler_.reset();
+        handlerRegistered_ = false;
     }
 }
 
@@ -481,11 +497,9 @@ void UnixClientImpl::HandleReceive(socket_t fd)
             continue;
         } else if (nbytes == 0) {
             LMNET_LOGW("Disconnect fd[%d]", fd);
-            // Do not call HandleConnectionClose directly; let the event system handle EPOLLHUP
             break;
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) { // Usually same value, but check both for portability
-                // Normal case: no data available to read, return directly
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;
             }
 
@@ -496,8 +510,6 @@ void UnixClientImpl::HandleReceive(socket_t fd)
             break;
         }
     }
-
-    // exit while loop
 }
 
 void UnixClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
@@ -510,7 +522,10 @@ void UnixClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std:
         return;
     }
 
-    EventReactor::GetInstance().RemoveHandler(fd);
+    if (handlerRegistered_) {
+        EventReactor::GetInstance().RemoveHandler(socket_);
+        handlerRegistered_ = false;
+    }
     close(fd);
     socket_ = INVALID_SOCKET;
     clientHandler_.reset();

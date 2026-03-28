@@ -118,6 +118,18 @@ TEST(TcpTest, ServerClientSendRecv)
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
+TEST(TcpTest, CloseAfterInitInvalidatesSocket)
+{
+    auto client = TcpClient::Create("127.0.0.1", 6553);
+
+    EXPECT_TRUE(client->Init());
+    EXPECT_TRUE(client->GetSocketFd() != INVALID_SOCKET);
+
+    client->Close();
+
+    EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
+}
+
 TEST(TcpTest, LargePayloadSend)
 {
     const uint16_t port = 12347;

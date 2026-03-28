@@ -65,6 +65,7 @@ private:
     std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<TcpClientHandler> clientHandler_;
+    bool handlerRegistered_ = false;
 };
 
 } // namespace lmshao::lmnet

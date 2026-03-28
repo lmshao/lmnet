@@ -106,6 +106,8 @@ bool UdpClientImpl::Init()
         int ret = bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr));
         if (ret != 0) {
             LMNET_LOGE("bind error: %s", strerror(errno));
+            close(socket_);
+            socket_ = INVALID_SOCKET;
             return false;
         }
     }
