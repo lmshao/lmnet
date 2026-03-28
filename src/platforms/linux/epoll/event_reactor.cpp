@@ -205,19 +205,20 @@ bool EventReactor::RemoveHandler(socket_t fd)
         LMNET_LOGW("Handler not found for fd:%d", fd);
         return false;
     }
+
+    if (running_.load(std::memory_order_acquire) && epollFd_ != -1) {
+        struct epoll_event ev = {};
+        if (epoll_ctl(epollFd_, EPOLL_CTL_DEL, fd, &ev) == -1) {
+            if (errno != ENOENT && errno != EBADF) {
+                LMNET_LOGE("epoll_ctl DEL error for fd %d: %s", fd, strerror(errno));
+                return false;
+            }
+
+            LMNET_LOGW("Ignore epoll_ctl DEL race for fd %d: %s", fd, strerror(errno));
+        }
+    }
+
     handlers_.erase(it);
-    lock.unlock();
-
-    if (!running_.load(std::memory_order_acquire)) {
-        LMNET_LOGE("Reactor has exited");
-        return false;
-    }
-
-    struct epoll_event ev;
-    if (epoll_ctl(epollFd_, EPOLL_CTL_DEL, fd, &ev) == -1) {
-        LMNET_LOGE("epoll_ctl DEL error for fd %d: %s", fd, strerror(errno));
-        return false;
-    }
 
     LMNET_LOGD("Handler removed successfully for fd:%d", fd);
     return true;
