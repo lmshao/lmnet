@@ -11,6 +11,15 @@
 
 namespace lmshao::lmnet {
 
+namespace {
+
+bool IsFatalSubmissionError(int result)
+{
+    return result == -ENOMEM || result == -ESHUTDOWN || result == -ECANCELED;
+}
+
+} // namespace
+
 UdpServerImpl::UdpServerImpl(std::string ip, uint16_t port) : ip_(std::move(ip)), port_(port) {}
 
 UdpServerImpl::~UdpServerImpl()
@@ -95,6 +104,8 @@ void UdpServerImpl::StartReceive()
 
 void UdpServerImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read, const sockaddr_in &from_addr)
 {
+    bool shouldContinue = false;
+
     if (bytes_read > 0) {
         buffer->SetSize(bytes_read);
         if (auto listener = listener_.lock()) {
@@ -107,14 +118,20 @@ void UdpServerImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_
             // For UDP, call the listener with session
             listener->OnReceive(session, buffer);
         }
+        shouldContinue = true;
     } else if (bytes_read < 0) {
         if (isRunning_) {
             LMNET_LOGE("RecvFrom failed: %s", strerror(-bytes_read));
+            if (IsFatalSubmissionError(bytes_read)) {
+                Stop();
+                return;
+            }
+            shouldContinue = true;
         }
     }
 
     // Always restart receiving unless the server is stopped.
-    if (isRunning_) {
+    if (isRunning_ && shouldContinue) {
         StartReceive();
     }
 }

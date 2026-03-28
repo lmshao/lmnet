@@ -12,6 +12,20 @@
 
 namespace lmshao::lmnet {
 
+namespace {
+
+bool ShouldResubmitAccept(int result)
+{
+    return result != -ENOMEM && result != -ESHUTDOWN && result != -ECANCELED;
+}
+
+bool IsFatalSubmissionError(int result)
+{
+    return result == -ENOMEM || result == -ESHUTDOWN || result == -ECANCELED;
+}
+
+} // namespace
+
 UnixServerImpl::UnixServerImpl(const std::string &socketPath) : socketPath_(socketPath) {}
 
 UnixServerImpl::~UnixServerImpl()
@@ -134,7 +148,7 @@ void UnixServerImpl::HandleAccept(int client_fd)
     }
 
     // Always try to accept the next connection
-    if (isRunning_) {
+    if (isRunning_ && ShouldResubmitAccept(client_fd)) {
         SubmitAccept();
     }
 }
@@ -201,6 +215,9 @@ void UnixServerImpl::HandleReceiveWithFds(int client_fd, std::shared_ptr<DataBuf
                 listener->OnError(session, strerror(-bytes_read));
             }
             HandleConnectionClose(client_fd);
+            if (IsFatalSubmissionError(bytes_read)) {
+                return;
+            }
         }
     }
 }

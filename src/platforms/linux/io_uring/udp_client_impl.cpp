@@ -10,6 +10,15 @@
 
 namespace lmshao::lmnet {
 
+namespace {
+
+bool IsFatalSubmissionError(int result)
+{
+    return result == -ENOMEM || result == -ESHUTDOWN || result == -ECANCELED;
+}
+
+} // namespace
+
 UdpClientImpl::UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(std::move(remoteIp)), remotePort_(remotePort), localIp_(std::move(localIp)), localPort_(localPort)
 {
@@ -85,6 +94,8 @@ void UdpClientImpl::StartReceive()
 
 void UdpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read, const sockaddr_in &from_addr)
 {
+    bool shouldContinue = false;
+
     if (bytes_read > 0) {
         buffer->SetSize(bytes_read);
         if (auto listener = listener_.lock()) {
@@ -92,13 +103,19 @@ void UdpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_
             inet_ntop(AF_INET, &from_addr.sin_addr, ip_str, sizeof(ip_str));
             listener->OnReceive(socket_, buffer);
         }
+        shouldContinue = true;
     } else if (bytes_read < 0) {
         if (isRunning_) {
             LMNET_LOGE("RecvFrom failed: %s", strerror(-bytes_read));
+            if (IsFatalSubmissionError(bytes_read)) {
+                Close();
+                return;
+            }
+            shouldContinue = true;
         }
     }
 
-    if (isRunning_) {
+    if (isRunning_ && shouldContinue) {
         StartReceive();
     }
 }

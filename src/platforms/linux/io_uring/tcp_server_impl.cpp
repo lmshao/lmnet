@@ -23,6 +23,15 @@
 namespace lmshao::lmnet {
 using lmshao::lmcore::TaskHandler;
 
+namespace {
+
+bool ShouldResubmitAccept(int result)
+{
+    return result != -ENOMEM && result != -ESHUTDOWN && result != -ECANCELED;
+}
+
+} // namespace
+
 TcpServerImpl::TcpServerImpl(std::string local_ip, uint16_t local_port)
     : localIp_(std::move(local_ip)), localPort_(local_port), taskQueue_(std::make_unique<TaskQueue>("tcp_server_tq"))
 {
@@ -148,7 +157,7 @@ void TcpServerImpl::SubmitAccept()
             }
 
             // Resubmit for next connection
-            if (self->isRunning_) {
+            if (self->isRunning_ && ShouldResubmitAccept(client_fd)) {
                 self->SubmitAccept();
             }
         });
