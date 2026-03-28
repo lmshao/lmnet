@@ -317,15 +317,21 @@ bool UnixServerImpl::Init()
 
     if (bind(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
         LMNET_LOGE("bind error: %s", strerror(errno));
+        close(socket_);
+        socket_ = INVALID_SOCKET;
         return false;
     }
 
     if (listen(socket_, 10) < 0) {
         LMNET_LOGE("listen error: %s", strerror(errno));
+        close(socket_);
+        socket_ = INVALID_SOCKET;
         return false;
     }
 
-    taskQueue_ = std::make_unique<TaskQueue>("UnixServerCb");
+    if (!taskQueue_) {
+        taskQueue_ = std::make_unique<TaskQueue>("UnixServerCb");
+    }
     return true;
 }
 
@@ -336,13 +342,20 @@ bool UnixServerImpl::Start()
         return false;
     }
 
+    if (!taskQueue_) {
+        taskQueue_ = std::make_unique<TaskQueue>("UnixServerCb");
+    }
+
     taskQueue_->Start();
 
     serverHandler_ = std::make_shared<UnixServerHandler>(shared_from_this());
     if (!EventReactor::GetInstance().RegisterHandler(serverHandler_)) {
         LMNET_LOGE("Failed to register server handler");
+        serverHandler_.reset();
+        taskQueue_->Stop();
         return false;
     }
+    serverHandlerRegistered_ = true;
 
     LMNET_LOGD("UnixServerImpl started with new EventHandler interface");
     return true;
@@ -369,17 +382,22 @@ bool UnixServerImpl::Stop()
         close(clientFd);
     }
 
-    if (socket_ != INVALID_SOCKET && serverHandler_) {
+    if (socket_ != INVALID_SOCKET) {
         LMNET_LOGD("close server fd: %d", socket_);
-        reactor.RemoveHandler(socket_);
+        if (serverHandlerRegistered_) {
+            reactor.RemoveHandler(socket_);
+            serverHandlerRegistered_ = false;
+        }
         close(socket_);
         socket_ = INVALID_SOCKET;
+        serverHandler_.reset();
+    } else {
+        serverHandlerRegistered_ = false;
         serverHandler_.reset();
     }
 
     if (taskQueue_) {
         taskQueue_->Stop();
-        taskQueue_.reset();
     }
 
     // Remove socket file

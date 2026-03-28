@@ -151,6 +151,7 @@ bool UdpServerImpl::Start()
     // Add to event loop
     if (!EventReactor::GetInstance().RegisterHandler(serverHandler_)) {
         LMNET_LOGE("Failed to add server handler to event reactor");
+        serverHandler_.reset();
         return false;
     }
 
@@ -158,6 +159,7 @@ bool UdpServerImpl::Start()
     if (taskQueue_->Start() != 0) {
         LMNET_LOGE("Failed to start task queue");
         EventReactor::GetInstance().RemoveHandler(socket_);
+        serverHandler_.reset();
         return false;
     }
 

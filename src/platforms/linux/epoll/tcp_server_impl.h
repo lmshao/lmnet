@@ -65,6 +65,7 @@ private:
     std::unique_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<EventHandler> serverHandler_;
+    bool serverHandlerRegistered_ = false;
     std::unordered_map<int, std::shared_ptr<TcpConnectionHandler>> connectionHandlers_;
 };
 
