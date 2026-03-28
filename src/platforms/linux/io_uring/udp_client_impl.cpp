@@ -120,12 +120,11 @@ bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
     if (!isRunning_)
         return false;
 
-    IoUringManager::GetInstance().SubmitSendToRequest(socket_, data, serverAddr_, [](int, int res) {
+    return IoUringManager::GetInstance().SubmitSendToRequest(socket_, data, serverAddr_, [](int, int res) {
         if (res < 0) {
             LMNET_LOGE("SendTo failed: %s", strerror(-res));
         }
     });
-    return true;
 }
 
 void UdpClientImpl::Close()

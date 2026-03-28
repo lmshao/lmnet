@@ -74,11 +74,20 @@ bool UnixServerImpl::Stop()
         return true;
     }
 
-    // Close all client sessions
-    for (auto const &[fd, session] : sessions_) {
+    std::vector<int> sessionFds;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        sessionFds.reserve(sessions_.size());
+        for (const auto &[fd, session] : sessions_) {
+            (void)session;
+            sessionFds.push_back(fd);
+        }
+        sessions_.clear();
+    }
+
+    for (int fd : sessionFds) {
         IoUringManager::GetInstance().SubmitCloseRequest(fd, nullptr);
     }
-    sessions_.clear();
 
     // Close server socket
     if (socket_ != INVALID_SOCKET) {
@@ -108,7 +117,10 @@ void UnixServerImpl::HandleAccept(int client_fd)
         auto session = std::make_shared<IoUringSessionImpl>(
             client_fd, "", 0, IoUringSessionImpl::TransportKind::UNIX_STREAM,
             [self](socket_t fd, const std::string &) { self->HandleConnectionClose(fd); });
-        sessions_[client_fd] = session;
+        {
+            std::lock_guard<std::mutex> lock(sessionMutex_);
+            sessions_[client_fd] = session;
+        }
 
         if (auto listener = listener_.lock()) {
             listener->OnAccept(session);
@@ -146,13 +158,20 @@ void UnixServerImpl::SubmitRead(int client_fd)
 void UnixServerImpl::HandleReceiveWithFds(int client_fd, std::shared_ptr<DataBuffer> buffer, int bytes_read,
                                           std::vector<int> fds)
 {
-    auto it = sessions_.find(client_fd);
-    if (it == sessions_.end()) {
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        auto it = sessions_.find(client_fd);
+        if (it != sessions_.end()) {
+            session = it->second;
+        }
+    }
+
+    if (!session) {
         // Clean up any received file descriptors if session not found
         UnixSocketUtils::CleanupFds(fds);
         return; // Session already closed
     }
-    auto session = it->second;
 
     if (bytes_read > 0) {
         buffer->SetSize(bytes_read);
@@ -188,12 +207,20 @@ void UnixServerImpl::HandleReceiveWithFds(int client_fd, std::shared_ptr<DataBuf
 
 void UnixServerImpl::HandleConnectionClose(int client_fd)
 {
-    auto it = sessions_.find(client_fd);
-    if (it != sessions_.end()) {
-        if (auto listener = listener_.lock()) {
-            listener->OnClose(it->second);
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        auto it = sessions_.find(client_fd);
+        if (it != sessions_.end()) {
+            session = it->second;
+            sessions_.erase(it);
         }
-        sessions_.erase(it);
+    }
+
+    if (session) {
+        if (auto listener = listener_.lock()) {
+            listener->OnClose(session);
+        }
     }
     // The actual close is submitted to io_uring, no need to call close() here directly
     IoUringManager::GetInstance().SubmitCloseRequest(client_fd, nullptr);

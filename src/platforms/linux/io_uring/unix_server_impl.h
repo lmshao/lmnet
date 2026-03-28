@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -51,6 +52,7 @@ private:
 
     std::weak_ptr<IServerListener> listener_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
+    std::mutex sessionMutex_;
 };
 
 } // namespace lmshao::lmnet

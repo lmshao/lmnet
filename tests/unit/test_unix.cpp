@@ -11,10 +11,12 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <mutex>
 #include <thread>
 #include <vector>
 
 #if defined(__linux__) || defined(__APPLE__)
+#include <sys/socket.h>
 #include <unistd.h>
 #endif
 
@@ -96,6 +98,88 @@ TEST(UnixTest, ServerClientSendRecv)
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_TRUE(client_received);
     EXPECT_TRUE(client_recv_data == "world");
+
+    client->Close();
+    server->Stop();
+    std::remove(socket_path.c_str());
+}
+
+TEST(UnixTest, LargeClientSend)
+{
+    const std::string socket_path = "/tmp/test_unix_large_send";
+    const size_t payload_size = 2 * 1024 * 1024;
+
+    std::string payload(payload_size, '\0');
+    for (size_t i = 0; i < payload.size(); ++i) {
+        payload[i] = static_cast<char>('a' + (i % 23));
+    }
+
+    std::atomic<bool> server_done{false};
+    std::atomic<bool> server_ok{false};
+    std::mutex server_mutex;
+    std::string server_data;
+    server_data.reserve(payload.size());
+
+    class ServerListener : public IServerListener {
+    public:
+        ServerListener(const std::string &expected, std::mutex &mutex, std::string &received, std::atomic<bool> &done,
+                       std::atomic<bool> &ok)
+            : expected_(expected), mutex_(mutex), received_(received), done_(done), ok_(ok)
+        {
+        }
+
+        void OnError(std::shared_ptr<Session>, const std::string &) override {}
+        void OnClose(std::shared_ptr<Session>) override {}
+        void OnAccept(std::shared_ptr<Session>) override {}
+        void OnReceive(std::shared_ptr<Session>, std::shared_ptr<DataBuffer> data) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            received_.append(reinterpret_cast<const char *>(data->Data()), data->Size());
+            if (received_.size() >= expected_.size()) {
+                ok_ = (received_ == expected_);
+                done_ = true;
+            }
+        }
+
+    private:
+        const std::string &expected_;
+        std::mutex &mutex_;
+        std::string &received_;
+        std::atomic<bool> &done_;
+        std::atomic<bool> &ok_;
+    };
+
+    class ClientListener : public IClientListener {
+    public:
+        void OnReceive(int, std::shared_ptr<DataBuffer>) override {}
+        void OnClose(int) override {}
+        void OnError(int, const std::string &) override {}
+    };
+
+    std::remove(socket_path.c_str());
+    auto server = UnixServer::Create(socket_path);
+    auto server_listener = std::make_shared<ServerListener>(payload, server_mutex, server_data, server_done, server_ok);
+    server->SetListener(server_listener);
+    EXPECT_TRUE(server->Init());
+    EXPECT_TRUE(server->Start());
+
+    auto client = UnixClient::Create(socket_path);
+    auto client_listener = std::make_shared<ClientListener>();
+    client->SetListener(client_listener);
+    EXPECT_TRUE(client->Init());
+    EXPECT_TRUE(client->Connect());
+
+    int send_buffer_size = 4096;
+    (void)setsockopt(client->GetSocketFd(), SOL_SOCKET, SO_SNDBUF, &send_buffer_size, sizeof(send_buffer_size));
+
+    EXPECT_TRUE(client->Send(payload));
+
+    for (int i = 0; i < 200 && !server_done.load(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    EXPECT_TRUE(server_done.load());
+    EXPECT_TRUE(server_ok.load());
 
     client->Close();
     server->Stop();

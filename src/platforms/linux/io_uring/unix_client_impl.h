@@ -10,7 +10,9 @@
 #define LMSHAO_LMNET_LINUX_UNIX_CLIENT_IMPL_H
 
 #include <atomic>
+#include <deque>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -43,6 +45,9 @@ private:
     void HandleConnect(int result);
     void StartReceive();
     void HandleReceiveWithFds(std::shared_ptr<DataBuffer> buffer, int bytes_read, std::vector<int> fds);
+    bool QueueStreamWrite(std::shared_ptr<DataBuffer> buffer);
+    bool SubmitNextWrite();
+    void HandleWriteComplete(int result);
     void HandleClose();
 
     // Common Unix Socket send method
@@ -56,6 +61,9 @@ private:
     std::atomic_bool isConnected_{false};
 
     std::weak_ptr<IClientListener> listener_;
+    std::mutex sendMutex_;
+    std::deque<std::shared_ptr<DataBuffer>> sendQueue_;
+    bool writeInFlight_ = false;
 };
 
 } // namespace lmshao::lmnet

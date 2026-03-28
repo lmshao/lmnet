@@ -178,8 +178,11 @@ bool UnixClientImpl::Send(std::shared_ptr<DataBuffer> data)
     if (!isRunning_ || !isConnected_)
         return false;
 
-    // Use unified SendUnixMessage for consistency
-    return SendUnixMessage(data, {});
+    if (!data || data->Size() == 0) {
+        return false;
+    }
+
+    return QueueStreamWrite(std::move(data));
 }
 
 bool UnixClientImpl::SendFds(const std::vector<int> &fds)
@@ -208,6 +211,104 @@ bool UnixClientImpl::SendWithFds(std::shared_ptr<DataBuffer> data, const std::ve
     return SendUnixMessage(data, fds);
 }
 
+bool UnixClientImpl::QueueStreamWrite(std::shared_ptr<DataBuffer> buffer)
+{
+    bool shouldSubmit = false;
+    {
+        std::lock_guard<std::mutex> lock(sendMutex_);
+        sendQueue_.push_back(std::move(buffer));
+        if (!writeInFlight_) {
+            writeInFlight_ = true;
+            shouldSubmit = true;
+        }
+    }
+
+    if (!shouldSubmit) {
+        return true;
+    }
+
+    if (SubmitNextWrite()) {
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(sendMutex_);
+    if (!sendQueue_.empty()) {
+        sendQueue_.pop_front();
+    }
+    writeInFlight_ = !sendQueue_.empty();
+    return false;
+}
+
+bool UnixClientImpl::SubmitNextWrite()
+{
+    std::shared_ptr<DataBuffer> buffer;
+    {
+        std::lock_guard<std::mutex> lock(sendMutex_);
+        if (sendQueue_.empty()) {
+            writeInFlight_ = false;
+            return true;
+        }
+        if (!isRunning_ || !isConnected_ || socket_ == INVALID_SOCKET) {
+            writeInFlight_ = false;
+            return false;
+        }
+        buffer = sendQueue_.front();
+    }
+
+    auto self = shared_from_this();
+    return IoUringManager::GetInstance().SubmitWriteRequest(
+        socket_, buffer, [self](int, int res) { self->HandleWriteComplete(res); });
+}
+
+void UnixClientImpl::HandleWriteComplete(int result)
+{
+    if (result < 0) {
+        if (auto listener = listener_.lock()) {
+            listener->OnError(socket_, std::string("Send error: ") + strerror(-result));
+        }
+        HandleClose();
+        return;
+    }
+
+    bool shouldSubmitNext = false;
+    {
+        std::lock_guard<std::mutex> lock(sendMutex_);
+        if (sendQueue_.empty()) {
+            writeInFlight_ = false;
+            return;
+        }
+
+        auto &buffer = sendQueue_.front();
+        if (result == 0) {
+            writeInFlight_ = false;
+        } else if (static_cast<size_t>(result) < buffer->Size()) {
+            auto remaining = DataBuffer::PoolAlloc(buffer->Size() - static_cast<size_t>(result));
+            remaining->Assign(buffer->Data() + result, buffer->Size() - static_cast<size_t>(result));
+            buffer = remaining;
+            shouldSubmitNext = true;
+        } else {
+            sendQueue_.pop_front();
+            shouldSubmitNext = !sendQueue_.empty();
+            writeInFlight_ = shouldSubmitNext;
+        }
+    }
+
+    if (result == 0) {
+        if (auto listener = listener_.lock()) {
+            listener->OnError(socket_, "Send returned zero bytes");
+        }
+        HandleClose();
+        return;
+    }
+
+    if (shouldSubmitNext && !SubmitNextWrite()) {
+        if (auto listener = listener_.lock()) {
+            listener->OnError(socket_, "Failed to submit write request");
+        }
+        HandleClose();
+    }
+}
+
 bool UnixClientImpl::SendUnixMessage(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds)
 {
     std::vector<int> duplicatedFds;
@@ -220,9 +321,13 @@ bool UnixClientImpl::SendUnixMessage(std::shared_ptr<DataBuffer> buffer, const s
 
     // Create a copy for cleanup callback before moving duplicatedFds
     std::vector<int> fdsForCleanup = duplicatedFds;
-    return IoUringManager::GetInstance().SubmitSendMsgRequest(
-        socket_, buffer, std::move(duplicatedFds),
+    bool submitted = IoUringManager::GetInstance().SubmitSendMsgRequest(
+        socket_, buffer, duplicatedFds,
         UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message"));
+    if (!submitted) {
+        UnixSocketUtils::CleanupFds(duplicatedFds);
+    }
+    return submitted;
 }
 
 void UnixClientImpl::Close()
@@ -236,6 +341,12 @@ void UnixClientImpl::Close()
 
 void UnixClientImpl::HandleClose()
 {
+    {
+        std::lock_guard<std::mutex> lock(sendMutex_);
+        sendQueue_.clear();
+        writeInFlight_ = false;
+    }
+
     if (isConnected_.exchange(false)) {
         if (auto listener = listener_.lock()) {
             listener->OnClose(socket_);
