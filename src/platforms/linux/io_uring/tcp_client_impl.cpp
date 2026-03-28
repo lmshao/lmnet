@@ -144,14 +144,105 @@ bool TcpClientImpl::Send(const void *data, size_t len)
 
 bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 {
-    if (!isRunning_)
+    if (!data || data->Size() == 0) {
+        LMNET_LOGE("Invalid data buffer");
         return false;
-    IoUringManager::GetInstance().SubmitWriteRequest(socket_, data, [self = shared_from_this()](int fd, int res) {
-        if (res < 0) {
-            LMNET_LOGE("Send failed: %s", strerror(-res));
+    }
+
+    if (!isRunning_ || socket_ == INVALID_SOCKET) {
+        LMNET_LOGE("Client is not initialized.");
+        return false;
+    }
+
+    bool shouldSubmit = false;
+    {
+        std::lock_guard<std::mutex> lock(sendMutex_);
+        sendQueue_.push_back(std::move(data));
+        if (!writeInFlight_) {
+            writeInFlight_ = true;
+            shouldSubmit = true;
         }
-    });
-    return true;
+    }
+
+    if (!shouldSubmit) {
+        return true;
+    }
+
+    if (SubmitNextWrite()) {
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(sendMutex_);
+    if (!sendQueue_.empty()) {
+        sendQueue_.pop_front();
+    }
+    writeInFlight_ = !sendQueue_.empty();
+    return false;
+}
+
+bool TcpClientImpl::SubmitNextWrite()
+{
+    std::shared_ptr<DataBuffer> buffer;
+    {
+        std::lock_guard<std::mutex> lock(sendMutex_);
+        if (sendQueue_.empty()) {
+            writeInFlight_ = false;
+            return true;
+        }
+        if (!isRunning_ || socket_ == INVALID_SOCKET) {
+            writeInFlight_ = false;
+            return false;
+        }
+        buffer = sendQueue_.front();
+    }
+
+    auto self = shared_from_this();
+    return IoUringManager::GetInstance().SubmitWriteRequest(socket_, buffer,
+                                                            [self](int, int res) { self->HandleWriteComplete(res); });
+}
+
+void TcpClientImpl::HandleWriteComplete(int result)
+{
+    if (result < 0) {
+        LMNET_LOGE("Send failed: %s", strerror(-result));
+        HandleClose(true, std::string("Send error: ") + strerror(-result));
+        Close();
+        return;
+    }
+
+    bool shouldSubmitNext = false;
+    {
+        std::lock_guard<std::mutex> lock(sendMutex_);
+        if (sendQueue_.empty()) {
+            writeInFlight_ = false;
+            return;
+        }
+
+        auto &buffer = sendQueue_.front();
+        if (result == 0) {
+            writeInFlight_ = false;
+        } else if (static_cast<size_t>(result) < buffer->Size()) {
+            auto remaining = DataBuffer::PoolAlloc(buffer->Size() - static_cast<size_t>(result));
+            remaining->Assign(buffer->Data() + result, buffer->Size() - static_cast<size_t>(result));
+            buffer = remaining;
+            shouldSubmitNext = true;
+        } else {
+            sendQueue_.pop_front();
+            shouldSubmitNext = !sendQueue_.empty();
+            writeInFlight_ = shouldSubmitNext;
+        }
+    }
+
+    if (result == 0) {
+        HandleClose(true, "Send returned zero bytes");
+        Close();
+        return;
+    }
+
+    if (shouldSubmitNext && !SubmitNextWrite()) {
+        HandleClose(true, "Failed to submit write request");
+        Close();
+    }
 }
 
 void TcpClientImpl::Close()
@@ -159,6 +250,13 @@ void TcpClientImpl::Close()
     if (!isRunning_.exchange(false)) {
         return;
     }
+
+    {
+        std::lock_guard<std::mutex> lock(sendMutex_);
+        sendQueue_.clear();
+        writeInFlight_ = false;
+    }
+
     if (socket_ != INVALID_SOCKET) {
         IoUringManager::GetInstance().SubmitCloseRequest(
             socket_, [self = shared_from_this()](int, int) { self->HandleClose(false, "Closed by client"); });

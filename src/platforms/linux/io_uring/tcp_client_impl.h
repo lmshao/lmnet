@@ -14,7 +14,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "itcp_client.h"
@@ -47,6 +49,8 @@ private:
     void HandleConnect(int result);
     void SubmitRead();
     void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read);
+    bool SubmitNextWrite();
+    void HandleWriteComplete(int result);
     void HandleClose(bool is_error, const std::string &reason);
 
 private:
@@ -63,6 +67,9 @@ private:
     std::atomic_bool isConnected_{false};
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
+    std::mutex sendMutex_;
+    std::deque<std::shared_ptr<DataBuffer>> sendQueue_;
+    bool writeInFlight_ = false;
 };
 
 } // namespace lmshao::lmnet
