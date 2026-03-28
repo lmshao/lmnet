@@ -83,6 +83,8 @@ public:
     {
     }
 
+    ~UnixConnectionHandler() override { ClearSendQueue(); }
+
     void HandleRead(socket_t fd) override
     {
         if (auto server = server_.lock()) {
@@ -127,22 +129,36 @@ public:
             return;
         }
 
-        bool shouldEnableWrite = false;
         {
             std::lock_guard<std::mutex> lock(sendMutex_);
             sendQueue_.push(std::move(pending));
-            if (!writeEventsEnabled_.load(std::memory_order_relaxed)) {
-                writeEventsEnabled_.store(true, std::memory_order_release);
-                shouldEnableWrite = true;
-            }
         }
 
-        if (shouldEnableWrite) {
-            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
+        if (!EnableWriteEvents()) {
+            LMNET_LOGE("Failed to enable Unix connection write events for fd: %d", fd_);
+            if (auto server = server_.lock()) {
+                server->HandleConnectionClose(fd_, true, "Failed to enable write events");
+            }
         }
     }
 
 private:
+    bool EnableWriteEvents()
+    {
+        bool expected = false;
+        if (!writeEventsEnabled_.compare_exchange_strong(expected, true, std::memory_order_acq_rel,
+                                                         std::memory_order_acquire)) {
+            return true;
+        }
+
+        if (EventReactor::GetInstance().ModifyHandler(fd_, GetEvents())) {
+            return true;
+        }
+
+        writeEventsEnabled_.store(false, std::memory_order_release);
+        return false;
+    }
+
     static int BaseEvents()
     {
         return static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) |
@@ -151,8 +167,20 @@ private:
 
     void DisableWriteEvents()
     {
-        if (writeEventsEnabled_.exchange(false, std::memory_order_acq_rel)) {
-            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
+        bool expected = true;
+        if (writeEventsEnabled_.compare_exchange_strong(expected, false, std::memory_order_acq_rel,
+                                                        std::memory_order_acquire) &&
+            !EventReactor::GetInstance().ModifyHandler(fd_, GetEvents())) {
+            LMNET_LOGW("Failed to disable Unix connection write events for fd: %d", fd_);
+        }
+    }
+
+    void ClearSendQueue()
+    {
+        std::lock_guard<std::mutex> lock(sendMutex_);
+        while (!sendQueue_.empty()) {
+            CloseDescriptors(sendQueue_.front().fds);
+            sendQueue_.pop();
         }
     }
 

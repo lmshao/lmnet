@@ -76,26 +76,43 @@ public:
         if (!buffer || buffer->Size() == 0)
             return;
 
-        bool shouldEnableWrite = false;
         {
             std::lock_guard<std::mutex> lock(sendMutex_);
             sendQueue_.push(std::move(buffer));
-            if (!writeEventsEnabled_.load(std::memory_order_relaxed)) {
-                writeEventsEnabled_.store(true, std::memory_order_release);
-                shouldEnableWrite = true;
-            }
         }
 
-        if (shouldEnableWrite) {
-            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
+        if (!EnableWriteEvents()) {
+            LMNET_LOGE("Failed to enable client write events for fd: %d", fd_);
+            if (auto client = client_.lock()) {
+                client->HandleConnectionClose(fd_, true, "Failed to enable write events");
+            }
         }
     }
 
 private:
+    bool EnableWriteEvents()
+    {
+        bool expected = false;
+        if (!writeEventsEnabled_.compare_exchange_strong(expected, true, std::memory_order_acq_rel,
+                                                         std::memory_order_acquire)) {
+            return true;
+        }
+
+        if (EventReactor::GetInstance().ModifyHandler(fd_, GetEvents())) {
+            return true;
+        }
+
+        writeEventsEnabled_.store(false, std::memory_order_release);
+        return false;
+    }
+
     void DisableWriteEvents()
     {
-        if (writeEventsEnabled_.exchange(false, std::memory_order_acq_rel)) {
-            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
+        bool expected = true;
+        if (writeEventsEnabled_.compare_exchange_strong(expected, false, std::memory_order_acq_rel,
+                                                        std::memory_order_acquire) &&
+            !EventReactor::GetInstance().ModifyHandler(fd_, GetEvents())) {
+            LMNET_LOGW("Failed to disable client write events for fd: %d", fd_);
         }
     }
 
@@ -301,6 +318,46 @@ bool TcpClientImpl::Send(const std::string &str)
         LMNET_LOGE("Invalid string data");
         return false;
     }
+
+    auto buf = DataBuffer::PoolAlloc(str.size());
+    buf->Assign(str.data(), str.size());
+    return Send(buf);
+}
+
+bool TcpClientImpl::Send(const void *data, size_t len)
+{
+    if (!data || len == 0) {
+        LMNET_LOGE("Invalid data");
+        return false;
+    }
+
+    auto buf = DataBuffer::PoolAlloc(len);
+    buf->Assign(data, len);
+    return Send(buf);
+}
+
+bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
+{
+    if (!data || data->Size() == 0) {
+        LMNET_LOGE("Invalid data buffer");
+        return false;
+    }
+
+    if (socket_ == INVALID_SOCKET) {
+        LMNET_LOGE("socket not initialized");
+        return false;
+    }
+
+    if (clientHandler_) {
+        clientHandler_->QueueSend(data);
+        return true;
+    }
+    LMNET_LOGE("Client handler not found");
+    return false;
+}
+
+void TcpClientImpl::Close()
+{
     if (socket_ != INVALID_SOCKET) {
         if (handlerRegistered_) {
             EventReactor::GetInstance().RemoveHandler(socket_);
@@ -370,54 +427,10 @@ void TcpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
     }
 
     if (handlerRegistered_) {
-        auto buf = DataBuffer::PoolAlloc(str.size());
+        EventReactor::GetInstance().RemoveHandler(fd);
         handlerRegistered_ = false;
-
-        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, dataBuffer, fd]() {
-            auto listener = listenerWeak.lock();
-            if (listener) {
-                listener->OnReceive(fd, dataBuffer);
-            }
-        });
-        if (taskQueue_) {
-            taskQueue_->EnqueueTask(task);
-        }
-    }
-    continue;
-}
-else if (nbytes == 0)
-{
-    LMNET_LOGW("Disconnect fd[%d]", fd);
-    // Do not call HandleConnectionClose directly; let the event system handle EPOLLHUP
-    break;
-}
-else
-{
-    if (errno == EAGAIN || errno == EWOULDBLOCK) { // Usually same value, but check both for portability
-        // Normal case: no data available to read, return directly
-        break;
     }
 
-    std::string info = strerror(errno);
-    LMNET_LOGE("recv error: %s(%d)", info.c_str(), errno);
-    HandleConnectionClose(fd, true, info);
-}
-
-break;
-}
-}
-
-void TcpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
-{
-    LMNET_LOGD("Closing client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
-               isError ? "true" : "false");
-
-    if (socket_ != fd) {
-        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
-        return;
-    }
-
-    EventReactor::GetInstance().RemoveHandler(fd);
     close(fd);
     socket_ = INVALID_SOCKET;
     clientHandler_.reset();

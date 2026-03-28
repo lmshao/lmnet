@@ -116,26 +116,43 @@ public:
             return;
         }
 
-        bool shouldEnableWrite = false;
         {
             std::lock_guard<std::mutex> lock(sendMutex_);
             sendQueue_.push(std::move(buffer));
-            if (!writeEventsEnabled_.load(std::memory_order_relaxed)) {
-                writeEventsEnabled_.store(true, std::memory_order_release);
-                shouldEnableWrite = true;
-            }
         }
 
-        if (shouldEnableWrite) {
-            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
+        if (!EnableWriteEvents()) {
+            LMNET_LOGE("Failed to enable connection write events for fd: %d", fd_);
+            if (auto server = server_.lock()) {
+                server->HandleConnectionClose(fd_, true, "Failed to enable write events");
+            }
         }
     }
 
 private:
+    bool EnableWriteEvents()
+    {
+        bool expected = false;
+        if (!writeEventsEnabled_.compare_exchange_strong(expected, true, std::memory_order_acq_rel,
+                                                         std::memory_order_acquire)) {
+            return true;
+        }
+
+        if (EventReactor::GetInstance().ModifyHandler(fd_, GetEvents())) {
+            return true;
+        }
+
+        writeEventsEnabled_.store(false, std::memory_order_release);
+        return false;
+    }
+
     void DisableWriteEvents()
     {
-        if (writeEventsEnabled_.exchange(false, std::memory_order_acq_rel)) {
-            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
+        bool expected = true;
+        if (writeEventsEnabled_.compare_exchange_strong(expected, false, std::memory_order_acq_rel,
+                                                        std::memory_order_acquire) &&
+            !EventReactor::GetInstance().ModifyHandler(fd_, GetEvents())) {
+            LMNET_LOGW("Failed to disable connection write events for fd: %d", fd_);
         }
     }
 
