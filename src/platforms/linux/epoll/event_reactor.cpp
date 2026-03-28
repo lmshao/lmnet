@@ -178,13 +178,18 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
     ev.events = epollEvents;
     ev.data.fd = fd;
 
-    if (epoll_ctl(epollFd_, EPOLL_CTL_ADD, fd, &ev) == -1) {
-        LMNET_LOGE("epoll_ctl ADD error for fd %d: %s", fd, strerror(errno));
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+    auto [it, inserted] = handlers_.emplace(fd, handler);
+    if (!inserted) {
+        LMNET_LOGW("Handler already exists for fd:%d", fd);
         return false;
     }
 
-    std::unique_lock<std::shared_mutex> lock(mutex_);
-    handlers_.emplace(fd, handler);
+    if (epoll_ctl(epollFd_, EPOLL_CTL_ADD, fd, &ev) == -1) {
+        LMNET_LOGE("epoll_ctl ADD error for fd %d: %s", fd, strerror(errno));
+        handlers_.erase(it);
+        return false;
+    }
 
     LMNET_LOGD("Handler registered successfully for fd:%d", fd);
     return true;
