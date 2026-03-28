@@ -73,11 +73,11 @@ UdpClientImpl::UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::str
 
 UdpClientImpl::~UdpClientImpl()
 {
+    Close();
     if (taskQueue_) {
         taskQueue_->Stop();
         taskQueue_.reset();
     }
-    Close();
 }
 
 bool UdpClientImpl::Init()
@@ -115,6 +115,12 @@ bool UdpClientImpl::Init()
     clientHandler_ = std::make_shared<UdpClientHandler>(socket_, shared_from_this());
     if (!EventReactor::GetInstance().RegisterHandler(clientHandler_)) {
         LMNET_LOGE("Failed to register UDP client handler");
+        clientHandler_.reset();
+        if (taskQueue_) {
+            taskQueue_->Stop();
+        }
+        close(socket_);
+        socket_ = INVALID_SOCKET;
         return false;
     }
 
@@ -141,12 +147,7 @@ bool UdpClientImpl::EnableBroadcast()
 
 void UdpClientImpl::Close()
 {
-    if (socket_ != INVALID_SOCKET && clientHandler_) {
-        EventReactor::GetInstance().RemoveHandler(socket_);
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-        clientHandler_.reset();
-    }
+    CloseInternal(socket_, false, "Connection closed", false);
 }
 
 bool UdpClientImpl::Send(const void *data, size_t len)
@@ -237,25 +238,44 @@ void UdpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
     LMNET_LOGD("Closing UDP client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
                isError ? "true" : "false");
 
-    if (socket_ != fd) {
-        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
-        return;
+    CloseInternal(fd, isError, reason, true);
+}
+
+void UdpClientImpl::CloseInternal(socket_t fd, bool isError, const std::string &reason, bool notifyListener)
+{
+    std::shared_ptr<EventHandler> handler;
+    socket_t socketToClose = INVALID_SOCKET;
+
+    {
+        std::lock_guard<std::mutex> lock(closeMutex_);
+        if (socket_ == INVALID_SOCKET) {
+            return;
+        }
+
+        if (fd != INVALID_SOCKET && socket_ != fd) {
+            LMNET_LOGD("Connection fd: %d already cleaned up", fd);
+            return;
+        }
+
+        socketToClose = socket_;
+        socket_ = INVALID_SOCKET;
+        handler = std::move(clientHandler_);
     }
 
-    EventReactor::GetInstance().RemoveHandler(fd);
-    close(fd);
-    socket_ = INVALID_SOCKET;
-    clientHandler_.reset();
+    if (handler) {
+        EventReactor::GetInstance().RemoveHandler(socketToClose);
+    }
+    close(socketToClose);
 
-    if (!listener_.expired()) {
+    if (notifyListener && !listener_.expired()) {
         auto listenerWeak = listener_;
-        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, reason, isError, fd]() {
+        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, reason, isError, socketToClose]() {
             auto listener = listenerWeak.lock();
             if (listener != nullptr) {
                 if (isError) {
-                    listener->OnError(fd, reason);
+                    listener->OnError(socketToClose, reason);
                 } else {
-                    listener->OnClose(fd);
+                    listener->OnClose(socketToClose);
                 }
             }
         });

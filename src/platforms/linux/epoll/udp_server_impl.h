@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "base_server.h"
@@ -45,19 +46,21 @@ public:
 
 private:
     void HandleReceive(socket_t fd);
+    void CloseSocket();
 
 private:
     std::string ip_;
     uint16_t port_;
 
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_{};
+    struct sockaddr_in serverAddr_ {};
 
     std::weak_ptr<IServerListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<EventHandler> serverHandler_;
+    std::mutex stateMutex_;
 };
 
 } // namespace lmshao::lmnet

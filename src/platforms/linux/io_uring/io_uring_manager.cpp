@@ -10,6 +10,54 @@
 
 namespace lmshao::lmnet {
 
+namespace {
+
+void CompleteRequestWithError(Request *req, int errorCode)
+{
+    if (!req) {
+        return;
+    }
+
+    switch (req->event_type) {
+        case RequestType::CONNECT:
+            if (req->connect_cb)
+                req->connect_cb(req->fd, errorCode);
+            break;
+        case RequestType::ACCEPT:
+            if (req->accept_cb)
+                req->accept_cb(req->fd, errorCode, nullptr, nullptr);
+            break;
+        case RequestType::READ:
+            if (req->read_cb)
+                req->read_cb(req->fd, req->buffer, errorCode);
+            break;
+        case RequestType::WRITE:
+            if (req->write_cb)
+                req->write_cb(req->fd, errorCode);
+            break;
+        case RequestType::CLOSE:
+            if (req->close_cb)
+                req->close_cb(req->fd, errorCode);
+            break;
+        case RequestType::RECVFROM:
+            if (req->recvfrom_cb)
+                req->recvfrom_cb(req->fd, req->buffer, errorCode, {});
+            break;
+        case RequestType::SENDMSG:
+            if (req->sendmsg_cb)
+                req->sendmsg_cb(req->fd, errorCode);
+            break;
+        case RequestType::RECVMSG:
+            if (req->recvmsg_cb)
+                req->recvmsg_cb(req->fd, req->buffer, errorCode, {});
+            break;
+        case RequestType::EXIT:
+            break;
+    }
+}
+
+} // namespace
+
 IoUringManager::~IoUringManager()
 {
     Stop();
@@ -17,15 +65,21 @@ IoUringManager::~IoUringManager()
 
 bool IoUringManager::Init(int entries)
 {
+    std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
     if (isRunning_) {
         return true;
     }
+
+    freeRequests_.clear();
+    requestPool_.clear();
+    workerThread_.reset();
 
     entries_ = entries;
     if (io_uring_queue_init(entries_, &ring_, 0) < 0) {
         LMNET_LOGE("io_uring_queue_init failed: %s", strerror(errno));
         return false;
     }
+    ringInitialized_ = true;
     LMNET_LOGI("io_uring initialized with %d entries", entries_);
 
     requestPool_.resize(entries_);
@@ -40,36 +94,37 @@ bool IoUringManager::Init(int entries)
 
 void IoUringManager::Stop()
 {
-    if (!isRunning_) {
-        return;
-    }
-    isRunning_ = false;
-
     Exit();
 }
 
 void IoUringManager::Exit()
 {
-    Request *req = GetRequest();
-    if (req) {
-        req->event_type = RequestType::EXIT;
-
-        std::lock_guard<std::mutex> lk(submitMutex_);
-        io_uring_sqe *sqe = io_uring_get_sqe(&ring_);
-        io_uring_prep_nop(sqe);
-        io_uring_sqe_set_data(sqe, req);
-        io_uring_submit(&ring_);
+    std::unique_ptr<std::thread> worker;
+    {
+        std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
+        if (!ringInitialized_) {
+            return;
+        }
+        isRunning_ = false;
+        worker = std::move(workerThread_);
     }
 
-    if (workerThread_ && workerThread_->joinable()) {
-        workerThread_->join();
+    if (worker && worker->joinable()) {
+        SubmitExitRequest();
+        worker->join();
     }
+
     io_uring_queue_exit(&ring_);
+
+    std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
+    ringInitialized_ = false;
+    freeRequests_.clear();
+    requestPool_.clear();
 }
 
 void IoUringManager::Run()
 {
-    while (isRunning_) {
+    while (true) {
         io_uring_cqe *cqe;
 
         int ret = io_uring_wait_cqe(&ring_, &cqe);
@@ -121,17 +176,6 @@ void IoUringManager::PutRequest(Request *req)
     }
 }
 
-bool IoUringManager::SubmitDirect()
-{
-    stats_.operations_submitted.fetch_add(1);
-    int ret = io_uring_submit(&ring_);
-    if (ret < 0) {
-        LMNET_LOGE("io_uring_submit failed: %s", strerror(-ret));
-        return false;
-    }
-    return true;
-}
-
 Request *IoUringManager::GetRequest()
 {
     std::lock_guard<std::mutex> lk(poolMutex_);
@@ -142,6 +186,44 @@ Request *IoUringManager::GetRequest()
     freeRequests_.pop_back();
     req->Clear();
     return req;
+}
+
+bool IoUringManager::SubmitExitRequest()
+{
+    exitRequest_.Clear();
+    exitRequest_.event_type = RequestType::EXIT;
+
+    while (true) {
+        {
+            std::lock_guard<std::mutex> lk(submitMutex_);
+            io_uring_sqe *sqe = io_uring_get_sqe(&ring_);
+            if (sqe) {
+                io_uring_prep_nop(sqe);
+                io_uring_sqe_set_data(sqe, &exitRequest_);
+                int ret = io_uring_submit(&ring_);
+                if (ret >= 0) {
+                    return true;
+                }
+                LMNET_LOGE("io_uring_submit exit request failed: %s", strerror(-ret));
+            } else {
+                int ret = io_uring_submit(&ring_);
+                if (ret < 0) {
+                    LMNET_LOGE("io_uring_submit while waiting for exit SQE failed: %s", strerror(-ret));
+                }
+            }
+        }
+
+        if (!ringInitialized_) {
+            return false;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
+
+void IoUringManager::CompleteRequestWithError(Request *req, int errorCode)
+{
+    ::lmshao::lmnet::CompleteRequestWithError(req, errorCode);
 }
 
 void IoUringManager::HandleCompletion(Request *req, int result)
@@ -210,6 +292,17 @@ void IoUringManager::HandleCompletion(Request *req, int result)
 bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::function<void(Request *)> &init_request,
                                      const std::function<void(io_uring_sqe *, Request *)> &prep_sqe)
 {
+    if (!isRunning_ || !ringInitialized_) {
+        Request tempReq;
+        tempReq.event_type = type;
+        tempReq.fd = fd;
+        if (init_request) {
+            init_request(&tempReq);
+        }
+        CompleteRequestWithError(&tempReq, -ESHUTDOWN);
+        return false;
+    }
+
     Request *req = GetRequest();
     if (!req) {
         LMNET_LOGE("Request pool exhausted (capacity: %d)", entries_);
@@ -222,44 +315,7 @@ bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::functi
             init_request(&tempReq);
         }
 
-        // Invoke the callback with -ENOMEM error to notify user
-        constexpr int ERROR_NO_RESOURCE = -ENOMEM;
-        switch (type) {
-            case RequestType::CONNECT:
-                if (tempReq.connect_cb)
-                    tempReq.connect_cb(fd, ERROR_NO_RESOURCE);
-                break;
-            case RequestType::ACCEPT:
-                if (tempReq.accept_cb)
-                    tempReq.accept_cb(fd, -1, nullptr, nullptr);
-                break;
-            case RequestType::READ:
-                if (tempReq.read_cb)
-                    tempReq.read_cb(fd, tempReq.buffer, ERROR_NO_RESOURCE);
-                break;
-            case RequestType::WRITE:
-                if (tempReq.write_cb)
-                    tempReq.write_cb(fd, ERROR_NO_RESOURCE);
-                break;
-            case RequestType::RECVFROM:
-                if (tempReq.recvfrom_cb)
-                    tempReq.recvfrom_cb(fd, tempReq.buffer, ERROR_NO_RESOURCE, {});
-                break;
-            case RequestType::SENDMSG:
-                if (tempReq.sendmsg_cb)
-                    tempReq.sendmsg_cb(fd, ERROR_NO_RESOURCE);
-                break;
-            case RequestType::RECVMSG:
-                if (tempReq.recvmsg_cb)
-                    tempReq.recvmsg_cb(fd, tempReq.buffer, ERROR_NO_RESOURCE, {});
-                break;
-            case RequestType::CLOSE:
-                if (tempReq.close_cb)
-                    tempReq.close_cb(fd, ERROR_NO_RESOURCE);
-                break;
-            default:
-                break;
-        }
+        CompleteRequestWithError(&tempReq, -ENOMEM);
         return false;
     }
 
@@ -268,57 +324,33 @@ bool IoUringManager::SubmitOperation(RequestType type, int fd, const std::functi
     if (init_request)
         init_request(req);
 
-    std::lock_guard<std::mutex> lk(submitMutex_);
-    io_uring_sqe *sqe = io_uring_get_sqe(&ring_);
-    if (!sqe) {
-        LMNET_LOGE("Failed to get SQE (submission queue full)");
-
-        // Invoke the callback with error before returning request to pool
-        constexpr int ERROR_NO_RESOURCE = -ENOMEM;
-        switch (type) {
-            case RequestType::CONNECT:
-                if (req->connect_cb)
-                    req->connect_cb(fd, ERROR_NO_RESOURCE);
-                break;
-            case RequestType::ACCEPT:
-                if (req->accept_cb)
-                    req->accept_cb(fd, -1, nullptr, nullptr);
-                break;
-            case RequestType::READ:
-                if (req->read_cb)
-                    req->read_cb(fd, req->buffer, ERROR_NO_RESOURCE);
-                break;
-            case RequestType::WRITE:
-                if (req->write_cb)
-                    req->write_cb(fd, ERROR_NO_RESOURCE);
-                break;
-            case RequestType::RECVFROM:
-                if (req->recvfrom_cb)
-                    req->recvfrom_cb(fd, req->buffer, ERROR_NO_RESOURCE, {});
-                break;
-            case RequestType::SENDMSG:
-                if (req->sendmsg_cb)
-                    req->sendmsg_cb(fd, ERROR_NO_RESOURCE);
-                break;
-            case RequestType::RECVMSG:
-                if (req->recvmsg_cb)
-                    req->recvmsg_cb(fd, req->buffer, ERROR_NO_RESOURCE, {});
-                break;
-            case RequestType::CLOSE:
-                if (req->close_cb)
-                    req->close_cb(fd, ERROR_NO_RESOURCE);
-                break;
-            default:
-                break;
+    int submitResult = 0;
+    {
+        std::lock_guard<std::mutex> lk(submitMutex_);
+        io_uring_sqe *sqe = io_uring_get_sqe(&ring_);
+        if (!sqe) {
+            LMNET_LOGE("Failed to get SQE (submission queue full)");
+            submitResult = -ENOMEM;
+        } else {
+            if (prep_sqe) {
+                prep_sqe(sqe, req);
+            }
+            io_uring_sqe_set_data(sqe, req);
+            submitResult = io_uring_submit(&ring_);
+            if (submitResult >= 0) {
+                stats_.operations_submitted.fetch_add(1);
+            }
         }
-
-        PutRequest(req);
-        return false;
     }
-    if (prep_sqe)
-        prep_sqe(sqe, req);
-    io_uring_sqe_set_data(sqe, req);
-    return SubmitDirect();
+
+    if (submitResult >= 0) {
+        return true;
+    }
+
+    LMNET_LOGE("io_uring_submit failed: %s", strerror(-submitResult));
+    CompleteRequestWithError(req, submitResult);
+    PutRequest(req);
+    return false;
 }
 
 bool IoUringManager::SubmitConnectRequest(int fd, const sockaddr_in &addr, ConnectCallback callback)

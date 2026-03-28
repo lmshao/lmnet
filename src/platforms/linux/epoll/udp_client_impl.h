@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "iudp_client.h"
@@ -47,6 +48,9 @@ private:
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
 
 private:
+    void CloseInternal(socket_t fd, bool isError, const std::string &reason, bool notifyListener);
+
+private:
     std::string remoteIp_;
     uint16_t remotePort_;
 
@@ -54,13 +58,14 @@ private:
     uint16_t localPort_;
 
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_{};
+    struct sockaddr_in serverAddr_ {};
 
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<EventHandler> clientHandler_;
+    std::mutex closeMutex_;
 };
 
 } // namespace lmshao::lmnet

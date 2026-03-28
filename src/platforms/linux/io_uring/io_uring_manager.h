@@ -135,7 +135,8 @@ private:
     void Run();
     void PutRequest(Request *req);
     Request *GetRequest();
-    bool SubmitDirect();
+    bool SubmitExitRequest();
+    void CompleteRequestWithError(Request *req, int errorCode);
 
     bool SubmitOperation(RequestType type, int fd, const std::function<void(Request *)> &init_request,
                          const std::function<void(io_uring_sqe *, Request *)> &prep_sqe);
@@ -152,8 +153,11 @@ private:
     std::vector<Request *> freeRequests_;
     std::mutex poolMutex_;
     std::mutex submitMutex_;
+    std::mutex lifecycleMutex_;
     std::atomic_bool isRunning_{false};
+    bool ringInitialized_ = false;
     std::unique_ptr<std::thread> workerThread_;
+    Request exitRequest_;
 
     mutable IoUringStats stats_;
 };

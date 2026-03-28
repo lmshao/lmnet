@@ -80,10 +80,6 @@ UdpServerImpl::UdpServerImpl(std::string ip, uint16_t port)
 UdpServerImpl::~UdpServerImpl()
 {
     Stop();
-    if (socket_ != INVALID_SOCKET) {
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-    }
 }
 
 bool UdpServerImpl::Init()
@@ -173,25 +169,36 @@ bool UdpServerImpl::Stop()
 {
     LMNET_LOGD("Stopping UDP server");
 
-    // Stop task queue first
+    CloseSocket();
+
     if (taskQueue_) {
         taskQueue_->Stop();
     }
 
-    // Remove from event loop
-    if (serverHandler_) {
-        EventReactor::GetInstance().RemoveHandler(socket_);
-        serverHandler_.reset();
-    }
-
-    // Close socket
-    if (socket_ != INVALID_SOCKET) {
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-    }
-
     LMNET_LOGD("UDP server stopped");
     return true;
+}
+
+void UdpServerImpl::CloseSocket()
+{
+    std::shared_ptr<EventHandler> handler;
+    socket_t socketToClose = INVALID_SOCKET;
+
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        if (socket_ == INVALID_SOCKET) {
+            return;
+        }
+        socketToClose = socket_;
+        socket_ = INVALID_SOCKET;
+        handler = std::move(serverHandler_);
+    }
+
+    if (handler) {
+        EventReactor::GetInstance().RemoveHandler(socketToClose);
+    }
+
+    close(socketToClose);
 }
 
 void UdpServerImpl::HandleReceive(socket_t fd)
