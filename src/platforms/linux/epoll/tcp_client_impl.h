@@ -12,6 +12,7 @@
 #include <lmcore/task_queue.h>
 #include <netinet/in.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -48,6 +49,7 @@ public:
 private:
     void HandleReceive(socket_t fd);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+    void NotifyClose(socket_t fd, bool isError, const std::string &reason);
     void ReInit();
 
 private:
@@ -66,6 +68,7 @@ private:
 
     std::shared_ptr<TcpClientHandler> clientHandler_;
     bool handlerRegistered_ = false;
+    std::atomic_bool isConnected_{false};
 };
 
 } // namespace lmshao::lmnet

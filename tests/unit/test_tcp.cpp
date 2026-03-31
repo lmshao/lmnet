@@ -170,6 +170,67 @@ TEST(TcpTest, ConnectFailureDoesNotNotifyListener)
     client->Close();
 }
 
+TEST(TcpTest, ExplicitCloseNotifiesOnceWithoutError)
+{
+    const uint16_t port = 12346;
+    std::atomic<bool> accepted{false};
+    std::atomic<int> closeCount{0};
+    std::atomic<int> errorCount{0};
+
+    class ServerListener : public IServerListener {
+    public:
+        explicit ServerListener(std::atomic<bool> &accepted) : accepted_(accepted) {}
+
+        void OnAccept(std::shared_ptr<Session>) override { accepted_ = true; }
+        void OnReceive(std::shared_ptr<Session>, std::shared_ptr<DataBuffer>) override {}
+        void OnClose(std::shared_ptr<Session>) override {}
+        void OnError(std::shared_ptr<Session>, const std::string &) override {}
+
+    private:
+        std::atomic<bool> &accepted_;
+    };
+
+    class ClientListener : public IClientListener {
+    public:
+        ClientListener(std::atomic<int> &closeCount, std::atomic<int> &errorCount)
+            : closeCount_(closeCount), errorCount_(errorCount)
+        {
+        }
+
+        void OnReceive(socket_t, std::shared_ptr<DataBuffer>) override {}
+        void OnClose(socket_t) override { ++closeCount_; }
+        void OnError(socket_t, const std::string &) override { ++errorCount_; }
+
+    private:
+        std::atomic<int> &closeCount_;
+        std::atomic<int> &errorCount_;
+    };
+
+    auto server = TcpServer::Create("0.0.0.0", port);
+    auto serverListener = std::make_shared<ServerListener>(accepted);
+    server->SetListener(serverListener);
+    EXPECT_TRUE(server->Init());
+    EXPECT_TRUE(server->Start());
+
+    auto client = TcpClient::Create("127.0.0.1", port);
+    auto clientListener = std::make_shared<ClientListener>(closeCount, errorCount);
+    client->SetListener(clientListener);
+    EXPECT_TRUE(client->Init());
+    EXPECT_TRUE(client->Connect());
+    EXPECT_TRUE(WaitFor([&] { return accepted.load(); }, 2000));
+
+    client->Close();
+    client->Close();
+
+    EXPECT_TRUE(WaitFor([&] { return closeCount.load() == 1; }, 2000));
+    EXPECT_EQ(1, closeCount.load());
+    EXPECT_EQ(0, errorCount.load());
+    EXPECT_FALSE(WaitFor([&] { return closeCount.load() > 1 || errorCount.load() > 0; }, 500));
+    EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
+
+    server->Stop();
+}
+
 TEST(TcpTest, LargePayloadSend)
 {
     const uint16_t port = 12347;

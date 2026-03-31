@@ -245,7 +245,10 @@ void TcpClientImpl::HandleWriteComplete(int result)
 
 void TcpClientImpl::Close()
 {
-    if (!isRunning_.exchange(false)) {
+    bool wasRunning = isRunning_.exchange(false);
+    bool wasConnected = isConnected_.exchange(false);
+
+    if (!wasRunning) {
         return;
     }
 
@@ -257,16 +260,14 @@ void TcpClientImpl::Close()
 
     if (socket_ != INVALID_SOCKET) {
         int socketToClose = socket_;
-        auto self = weak_from_this();
-        bool submitted = IoUringManager::GetInstance().SubmitCloseRequest(socket_, [self, socketToClose](int, int) {
-            if (auto strong = self.lock()) {
-                strong->HandleClose(socketToClose, false, "Closed by client");
-            }
-        });
+        bool submitted = IoUringManager::GetInstance().SubmitCloseRequest(socket_, nullptr);
         socket_ = INVALID_SOCKET;
         if (!submitted) {
             close(socketToClose);
-            HandleClose(socketToClose, false, "Closed by client");
+        }
+
+        if (wasConnected) {
+            NotifyClose(socketToClose, false, "Closed by client");
         }
     }
 }
@@ -274,17 +275,22 @@ void TcpClientImpl::Close()
 void TcpClientImpl::HandleClose(socket_t fd, bool is_error, const std::string &reason)
 {
     if (isConnected_.exchange(false)) { // Ensure close logic runs only once
-        LMNET_LOGI("Connection closed: %s", reason.c_str());
-        auto task = std::make_shared<TaskHandler<void>>([listener = listener_.lock(), is_error, reason, fd] {
-            if (listener) {
-                if (is_error) {
-                    listener->OnError(fd, reason);
-                }
-                listener->OnClose(fd);
-            }
-        });
-        taskQueue_->EnqueueTask(task);
+        NotifyClose(fd, is_error, reason);
     }
+}
+
+void TcpClientImpl::NotifyClose(socket_t fd, bool is_error, const std::string &reason)
+{
+    LMNET_LOGI("Connection closed: %s", reason.c_str());
+    auto task = std::make_shared<TaskHandler<void>>([listener = listener_.lock(), is_error, reason, fd] {
+        if (listener) {
+            if (is_error) {
+                listener->OnError(fd, reason);
+            }
+            listener->OnClose(fd);
+        }
+    });
+    taskQueue_->EnqueueTask(task);
 }
 
 } // namespace lmshao::lmnet

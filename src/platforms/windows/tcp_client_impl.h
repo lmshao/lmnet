@@ -48,6 +48,7 @@ private:
     void HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError);
     void HandleSend(DWORD bytesOrError);
     void HandleClose(bool isError, const std::string &reason);
+    void NotifyClose(socket_t fd, bool isError, const std::string &reason);
 
 private:
     std::string remoteIp_;

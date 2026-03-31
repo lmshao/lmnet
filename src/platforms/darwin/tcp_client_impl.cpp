@@ -146,15 +146,18 @@ TcpClientImpl::TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::str
 
 TcpClientImpl::~TcpClientImpl()
 {
+    Close();
+
     if (taskQueue_) {
         taskQueue_->Stop();
         taskQueue_.reset();
     }
-    Close();
 }
 
 bool TcpClientImpl::Init()
 {
+    isConnected_.store(false);
+
     socket_ = CreateStreamSocket(AF_INET);
     if (socket_ == INVALID_SOCKET) {
         LMNET_LOGE("Socket error: %s", strerror(errno));
@@ -192,6 +195,7 @@ void TcpClientImpl::ReInit()
         close(socket_);
         socket_ = INVALID_SOCKET;
     }
+    isConnected_.store(false);
     Init();
 }
 
@@ -254,6 +258,8 @@ bool TcpClientImpl::Connect()
         return false;
     }
 
+    isConnected_.store(true);
+
     LMNET_LOGD("Connect (%s:%d) success with kqueue backend", remoteIp_.c_str(), remotePort_);
     return true;
 }
@@ -304,11 +310,18 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 
 void TcpClientImpl::Close()
 {
+    socket_t fd = socket_;
+    bool wasConnected = isConnected_.exchange(false);
+
     if (socket_ != INVALID_SOCKET && clientHandler_) {
         EventReactor::GetInstance().RemoveHandler(socket_);
         close(socket_);
         socket_ = INVALID_SOCKET;
         clientHandler_.reset();
+    }
+
+    if (wasConnected) {
+        NotifyClose(fd, false, "Closed by client");
     }
 }
 
@@ -370,20 +383,29 @@ void TcpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
     socket_ = INVALID_SOCKET;
     clientHandler_.reset();
 
-    if (!listener_.expired()) {
-        auto listenerWeak = listener_;
-        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, reason, isError, fd]() {
-            auto listener = listenerWeak.lock();
-            if (listener != nullptr) {
-                if (isError) {
-                    listener->OnError(fd, reason);
-                }
-                listener->OnClose(fd);
+    if (isConnected_.exchange(false)) {
+        NotifyClose(fd, isError, reason);
+    }
+}
+
+void TcpClientImpl::NotifyClose(socket_t fd, bool isError, const std::string &reason)
+{
+    if (listener_.expired()) {
+        return;
+    }
+
+    auto listenerWeak = listener_;
+    auto task = std::make_shared<TaskHandler<void>>([listenerWeak, reason, isError, fd]() {
+        auto listener = listenerWeak.lock();
+        if (listener != nullptr) {
+            if (isError) {
+                listener->OnError(fd, reason);
             }
-        });
-        if (taskQueue_) {
-            taskQueue_->EnqueueTask(task);
+            listener->OnClose(fd);
         }
+    });
+    if (taskQueue_) {
+        taskQueue_->EnqueueTask(task);
     }
 }
 

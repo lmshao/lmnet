@@ -191,7 +191,15 @@ void TcpClientImpl::SubmitConnect()
 
     if (!success) {
         LMNET_LOGE("Failed to submit connect request");
-        HandleClose(true, "Failed to submit connect request");
+        {
+            std::lock_guard<std::mutex> lock(connectMutex_);
+            connectPending_ = false;
+            connectSuccess_ = false;
+            lastConnectError_ = ERROR_OPERATION_ABORTED;
+            isConnected_.store(false);
+        }
+        connectCond_.notify_all();
+        ReInit();
     }
 }
 
@@ -210,7 +218,7 @@ void TcpClientImpl::HandleConnect(DWORD error)
 
     if (!success) {
         LMNET_LOGE("Connect failed: %lu", error);
-        HandleClose(true, "Connect failed: " + std::to_string(error));
+        ReInit();
         return;
     }
 
@@ -333,8 +341,9 @@ void TcpClientImpl::Close()
 
     LMNET_LOGD("Closing TCP client");
 
+    SOCKET socketToClose = socket_;
+    bool wasConnected = isConnected_.exchange(false);
     isRunning_.store(false);
-    isConnected_.store(false);
 
     if (socket_ != INVALID_SOCKET) {
         closesocket(socket_);
@@ -354,18 +363,25 @@ void TcpClientImpl::Close()
     // Note: Don't stop or reset taskQueue_ here - let the destructor handle it
     // This avoids race conditions with IOCP worker threads still processing completions
 
+    if (wasConnected) {
+        NotifyClose(socketToClose, false, "Closed by client");
+    }
+
     LMNET_LOGD("TCP client closed");
 }
 
 void TcpClientImpl::HandleClose(bool isError, const std::string &reason)
 {
-    if (!isRunning_.load()) {
-        return;
-    }
-
     LMNET_LOGD("Handling close: error=%d, reason=%s", isError, reason.c_str());
 
-    isConnected_.store(false);
+    SOCKET socketToClose = socket_;
+    bool wasConnected = isConnected_.exchange(false);
+    isRunning_.store(false);
+
+    if (socket_ != INVALID_SOCKET) {
+        closesocket(socket_);
+        socket_ = INVALID_SOCKET;
+    }
 
     {
         std::lock_guard<std::mutex> lock(connectMutex_);
@@ -377,15 +393,21 @@ void TcpClientImpl::HandleClose(bool isError, const std::string &reason)
     }
     connectCond_.notify_all();
 
-    // Notify listener
-    if (auto listener = listener_.lock()) {
-        if (isError) {
-            listener->OnError(socket_, reason);
-        }
-        listener->OnClose(socket_);
+    if (wasConnected) {
+        NotifyClose(socketToClose, isError, reason);
     }
 
     // Don't automatically reconnect - let the application decide
+}
+
+void TcpClientImpl::NotifyClose(socket_t fd, bool isError, const std::string &reason)
+{
+    if (auto listener = listener_.lock()) {
+        if (isError) {
+            listener->OnError(fd, reason);
+        }
+        listener->OnClose(fd);
+    }
 }
 
 socket_t TcpClientImpl::GetSocketFd() const

@@ -52,6 +52,7 @@ private:
     bool SubmitNextWrite();
     void HandleWriteComplete(int result);
     void HandleClose(socket_t fd, bool is_error, const std::string &reason);
+    void NotifyClose(socket_t fd, bool is_error, const std::string &reason);
 
 private:
     std::string remoteIp_;
