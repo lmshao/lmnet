@@ -323,12 +323,9 @@ void TcpServerImpl::HandleClientClose(SOCKET clientSocket, bool isError, const s
         // Notify listener
         if (auto listener = listener_.lock()) {
             if (isError) {
-                // For server, we don't have a specific OnError callback for sessions
-                // Just treat it as a close
-                listener->OnClose(session);
-            } else {
-                listener->OnClose(session);
+                listener->OnError(session, reason);
             }
+            listener->OnClose(session);
         }
 
         // Remove session

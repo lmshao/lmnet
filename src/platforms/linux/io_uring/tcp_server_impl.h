@@ -47,7 +47,7 @@ private:
     void HandleAccept(int res, const sockaddr_in &client_addr);
     void SubmitRead(std::shared_ptr<Session> session);
     void HandleReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer, int bytes_read);
-    void HandleConnectionClose(int client_fd, const std::string &reason, bool closeFd = true);
+    void HandleConnectionClose(int client_fd, const std::string &reason, bool closeFd = true, bool isError = false);
 
 private:
     socket_t socket_ = INVALID_SOCKET;

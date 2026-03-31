@@ -276,9 +276,8 @@ void UdpClientImpl::CloseInternal(socket_t fd, bool isError, const std::string &
             if (listener != nullptr) {
                 if (isError) {
                     listener->OnError(socketToClose, reason);
-                } else {
-                    listener->OnClose(socketToClose);
                 }
+                listener->OnClose(socketToClose);
             }
         });
         if (taskQueue_) {

@@ -130,6 +130,46 @@ TEST(TcpTest, CloseAfterInitInvalidatesSocket)
     EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
 }
 
+TEST(TcpTest, ConnectFailureDoesNotNotifyListener)
+{
+    const uint16_t port = 65432;
+    std::atomic<int> receiveCount{0};
+    std::atomic<int> closeCount{0};
+    std::atomic<int> errorCount{0};
+
+    class FailureListener : public IClientListener {
+    public:
+        FailureListener(std::atomic<int> &receiveCount, std::atomic<int> &closeCount, std::atomic<int> &errorCount)
+            : receiveCount_(receiveCount), closeCount_(closeCount), errorCount_(errorCount)
+        {
+        }
+
+        void OnReceive(socket_t, std::shared_ptr<DataBuffer>) override { ++receiveCount_; }
+        void OnClose(socket_t) override { ++closeCount_; }
+        void OnError(socket_t, const std::string &) override { ++errorCount_; }
+
+    private:
+        std::atomic<int> &receiveCount_;
+        std::atomic<int> &closeCount_;
+        std::atomic<int> &errorCount_;
+    };
+
+    auto client = TcpClient::Create("127.0.0.1", port);
+    auto listener = std::make_shared<FailureListener>(receiveCount, closeCount, errorCount);
+    client->SetListener(listener);
+
+    EXPECT_TRUE(client->Init());
+    (void)client->Connect();
+
+    EXPECT_FALSE(
+        WaitFor([&] { return receiveCount.load() > 0 || closeCount.load() > 0 || errorCount.load() > 0; }, 1000));
+    EXPECT_EQ(0, receiveCount.load());
+    EXPECT_EQ(0, closeCount.load());
+    EXPECT_EQ(0, errorCount.load());
+
+    client->Close();
+}
+
 TEST(TcpTest, LargePayloadSend)
 {
     const uint16_t port = 12347;

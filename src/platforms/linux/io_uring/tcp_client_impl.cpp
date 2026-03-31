@@ -96,9 +96,6 @@ void TcpClientImpl::HandleConnect(int result)
         SubmitRead();
     } else {
         LMNET_LOGE("Failed to connect: %s", strerror(-result));
-        if (auto listener = listener_.lock()) {
-            listener->OnError(socket_, strerror(-result));
-        }
         ReInit();
     }
 }

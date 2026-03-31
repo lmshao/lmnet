@@ -285,9 +285,8 @@ void UdpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
             if (auto listener = listenerWeak.lock()) {
                 if (isError) {
                     listener->OnError(fd, reason);
-                } else {
-                    listener->OnClose(fd);
                 }
+                listener->OnClose(fd);
             }
         });
         if (taskQueue_) {

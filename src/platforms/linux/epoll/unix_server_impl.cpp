@@ -657,9 +657,8 @@ void UnixServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std:
             if (listener != nullptr) {
                 if (isError) {
                     listener->OnError(session, reason);
-                } else {
-                    listener->OnClose(session);
                 }
+                listener->OnClose(session);
             }
         });
         if (taskQueue_) {

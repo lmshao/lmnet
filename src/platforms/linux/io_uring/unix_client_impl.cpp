@@ -108,10 +108,7 @@ void UnixClientImpl::HandleConnect(int result)
         StartReceive();
     } else {
         LMNET_LOGE("Failed to connect to %s: %s", socketPath_.c_str(), strerror(-result));
-        if (auto listener = listener_.lock()) {
-            listener->OnError(socket_, strerror(-result));
-        }
-        // No need to call Close() here, as HandleClose will be called by the caller in case of error
+        HandleClose();
     }
 }
 

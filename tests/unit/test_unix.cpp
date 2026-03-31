@@ -27,6 +27,20 @@
 
 using namespace lmshao::lmnet;
 
+namespace {
+template <typename Condition>
+bool WaitFor(Condition condition, int timeout_ms = 5000, int check_interval_ms = 25)
+{
+    for (int i = 0; i < timeout_ms / check_interval_ms; ++i) {
+        if (condition()) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(check_interval_ms));
+    }
+    return false;
+}
+} // namespace
+
 #if defined(__linux__) || defined(__APPLE__)
 // Simple UNIX socket server-client test
 TEST(UnixTest, ServerClientSendRecv)
@@ -102,6 +116,49 @@ TEST(UnixTest, ServerClientSendRecv)
 
     client->Close();
     server->Stop();
+    std::remove(socket_path.c_str());
+}
+
+TEST(UnixTest, ConnectFailureDoesNotNotifyListener)
+{
+    const std::string socket_path = "/tmp/lmnet_missing_socket.sock";
+    std::atomic<int> receiveCount{0};
+    std::atomic<int> closeCount{0};
+    std::atomic<int> errorCount{0};
+
+    class FailureListener : public IClientListener {
+    public:
+        FailureListener(std::atomic<int> &receiveCount, std::atomic<int> &closeCount, std::atomic<int> &errorCount)
+            : receiveCount_(receiveCount), closeCount_(closeCount), errorCount_(errorCount)
+        {
+        }
+
+        void OnReceive(int, std::shared_ptr<DataBuffer>) override { ++receiveCount_; }
+        void OnClose(int) override { ++closeCount_; }
+        void OnError(int, const std::string &) override { ++errorCount_; }
+
+    private:
+        std::atomic<int> &receiveCount_;
+        std::atomic<int> &closeCount_;
+        std::atomic<int> &errorCount_;
+    };
+
+    std::remove(socket_path.c_str());
+
+    auto client = UnixClient::Create(socket_path);
+    auto listener = std::make_shared<FailureListener>(receiveCount, closeCount, errorCount);
+    client->SetListener(listener);
+
+    EXPECT_TRUE(client->Init());
+    (void)client->Connect();
+
+    EXPECT_FALSE(
+        WaitFor([&] { return receiveCount.load() > 0 || closeCount.load() > 0 || errorCount.load() > 0; }, 1000));
+    EXPECT_EQ(0, receiveCount.load());
+    EXPECT_EQ(0, closeCount.load());
+    EXPECT_EQ(0, errorCount.load());
+
+    client->Close();
     std::remove(socket_path.c_str());
 }
 

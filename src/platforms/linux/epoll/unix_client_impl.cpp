@@ -565,9 +565,8 @@ void UnixClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std:
             if (listener != nullptr) {
                 if (isError) {
                     listener->OnError(fd, reason);
-                } else {
-                    listener->OnClose(fd);
                 }
+                listener->OnClose(fd);
             }
         });
         if (taskQueue_) {

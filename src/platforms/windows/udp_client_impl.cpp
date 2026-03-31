@@ -314,9 +314,8 @@ void UdpClientImpl::HandleClose(bool isError, const std::string &reason)
     if (auto listener = listener_.lock()) {
         if (isError) {
             listener->OnError(socket_, reason);
-        } else {
-            listener->OnClose(socket_);
         }
+        listener->OnClose(socket_);
     }
 }
 

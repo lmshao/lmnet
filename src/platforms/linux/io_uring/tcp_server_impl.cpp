@@ -241,11 +241,11 @@ void TcpServerImpl::HandleReceive(std::shared_ptr<Session> session, std::shared_
     } else if (bytes_read == 0) {
         HandleConnectionClose(session->fd, "Connection closed by peer", true);
     } else {
-        HandleConnectionClose(session->fd, std::string("Read error: ") + strerror(-bytes_read), true);
+        HandleConnectionClose(session->fd, std::string("Read error: ") + strerror(-bytes_read), true, true);
     }
 }
 
-void TcpServerImpl::HandleConnectionClose(int client_fd, const std::string &reason, bool closeFd)
+void TcpServerImpl::HandleConnectionClose(int client_fd, const std::string &reason, bool closeFd, bool isError)
 {
     std::shared_ptr<Session> session;
     {
@@ -258,8 +258,11 @@ void TcpServerImpl::HandleConnectionClose(int client_fd, const std::string &reas
 
     if (session) {
         LMNET_LOGI("Connection closed for fd %d: %s", client_fd, reason.c_str());
-        auto task = std::make_shared<TaskHandler<void>>([this, listener = listener_.lock(), session] {
+        auto task = std::make_shared<TaskHandler<void>>([this, listener = listener_.lock(), session, reason, isError] {
             if (listener) {
+                if (isError) {
+                    listener->OnError(session, reason);
+                }
                 listener->OnClose(session);
             }
         });
