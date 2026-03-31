@@ -37,23 +37,21 @@ public:
                        std::function<void(socket_t, const std::string &)> errorHandler = {})
         : transportKind_(transportKind), errorHandler_(std::move(errorHandler))
     {
-        this->host = std::move(host);
-        this->port = port;
-        this->fd = fd;
+        SetPeer(std::move(host), port);
+        SetNativeHandle(fd);
     }
 
     IoUringSessionImpl(socket_t server_socket, std::string remote_host, uint16_t remote_port, bool is_udp)
         : transportKind_(is_udp ? TransportKind::UDP_DATAGRAM : TransportKind::TCP_STREAM)
     {
-        this->host = std::move(remote_host);
-        this->port = remote_port;
-        this->fd = server_socket;
+        SetPeer(std::move(remote_host), remote_port);
+        SetNativeHandle(server_socket);
 
         if (transportKind_ == TransportKind::UDP_DATAGRAM) {
             memset(&client_addr_, 0, sizeof(client_addr_));
             client_addr_.sin_family = AF_INET;
             client_addr_.sin_port = htons(remote_port);
-            client_addr_.sin_addr.s_addr = inet_addr(host.c_str());
+            client_addr_.sin_addr.s_addr = inet_addr(Host().c_str());
         }
     }
 
@@ -74,11 +72,12 @@ public:
         }
 
         if (transportKind_ == TransportKind::UDP_DATAGRAM) {
-            return IoUringManager::GetInstance().SubmitSendToRequest(fd, buffer, client_addr_, [](int, int res) {
-                if (res < 0) {
-                    LMNET_LOGE("UDP Send failed: %s", strerror(-res));
-                }
-            });
+            return IoUringManager::GetInstance().SubmitSendToRequest(
+                NativeHandle(), buffer, client_addr_, [](int, int res) {
+                    if (res < 0) {
+                        LMNET_LOGE("UDP Send failed: %s", strerror(-res));
+                    }
+                });
         }
 
         return QueueStreamWrite(std::move(buffer));
@@ -119,7 +118,7 @@ public:
     std::string ClientInfo() const override
     {
         std::stringstream ss;
-        ss << host << ":" << port << " (" << fd << ")";
+        ss << Host() << ":" << Port() << " (" << NativeHandle() << ")";
         return ss.str();
     }
 
@@ -162,7 +161,7 @@ private:
 
         auto self = shared_from_this();
         return IoUringManager::GetInstance().SubmitWriteRequest(
-            fd, buffer, [self](int, int res) { self->HandleStreamWriteComplete(res); });
+            NativeHandle(), buffer, [self](int, int res) { self->HandleStreamWriteComplete(res); });
     }
 
     void HandleStreamWriteComplete(int result) const
@@ -213,9 +212,9 @@ private:
             writeInFlight_ = false;
         }
 
-        LMNET_LOGE("Stream send failed on fd %d: %s", fd, reason.c_str());
+        LMNET_LOGE("Stream send failed on fd %d: %s", NativeHandle(), reason.c_str());
         if (errorHandler_) {
-            errorHandler_(fd, reason);
+            errorHandler_(NativeHandle(), reason);
         }
     }
 
@@ -236,7 +235,8 @@ private:
         auto cleanup = UnixSocketUtils::CreateCleanupCallback(std::move(fdsForCleanup), "Send Unix message");
         auto self = weak_from_this();
         bool submitted = IoUringManager::GetInstance().SubmitSendMsgRequest(
-            fd, buffer, duplicatedFds, [self, buffer, cleanup = std::move(cleanup)](int fd, int res) mutable {
+            NativeHandle(), buffer, duplicatedFds,
+            [self, buffer, cleanup = std::move(cleanup)](int fd, int res) mutable {
                 cleanup(fd, res);
 
                 auto strong = self.lock();

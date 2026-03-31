@@ -83,14 +83,28 @@ public:
      */
     virtual std::string ClientInfo() const = 0;
 
+    const std::string &Host() const { return host_; }
+
+    uint16_t Port() const { return port_; }
+
+    socket_t NativeHandle() const { return fd_; }
+
 protected:
     Session() = default;
     virtual ~Session() = default;
 
-public:
-    std::string host;             ///< Host address
-    uint16_t port;                ///< Port number
-    socket_t fd = INVALID_SOCKET; ///< Socket file descriptor
+    void SetPeer(std::string host, uint16_t port)
+    {
+        host_ = std::move(host);
+        port_ = port;
+    }
+
+    void SetNativeHandle(socket_t fd) { fd_ = fd; }
+
+private:
+    std::string host_;             ///< Host address
+    uint16_t port_ = 0;            ///< Port number
+    socket_t fd_ = INVALID_SOCKET; ///< Socket file descriptor
 };
 
 } // namespace lmshao::lmnet

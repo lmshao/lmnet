@@ -25,9 +25,8 @@ class UnixSessionImpl : public Session {
 public:
     UnixSessionImpl(socket_t fd, std::string path, std::shared_ptr<UnixServerImpl> server) : server_(server)
     {
-        this->fd = fd;
-        this->host = std::move(path);
-        this->port = 0;
+        SetNativeHandle(fd);
+        SetPeer(std::move(path), 0);
     }
 
     bool Send(std::shared_ptr<DataBuffer> buffer) const override
@@ -37,7 +36,7 @@ public:
             return false;
         }
 
-        return server->SendWithFds(fd, std::move(buffer), {});
+        return server->SendWithFds(NativeHandle(), std::move(buffer), {});
     }
 
     bool Send(const std::string &str) const override
@@ -49,7 +48,7 @@ public:
 
         auto buffer = std::make_shared<DataBuffer>();
         buffer->Assign(str.data(), str.size());
-        return server->SendWithFds(fd, buffer, {});
+        return server->SendWithFds(NativeHandle(), buffer, {});
     }
 
     bool Send(const void *data, size_t size) const override
@@ -61,7 +60,7 @@ public:
 
         auto buffer = std::make_shared<DataBuffer>();
         buffer->Assign(data, size);
-        return server->SendWithFds(fd, buffer, {});
+        return server->SendWithFds(NativeHandle(), buffer, {});
     }
 
     bool SendFds(const std::vector<int> &fds) const override
@@ -71,7 +70,7 @@ public:
             return false;
         }
 
-        return server->SendWithFds(fd, nullptr, fds);
+        return server->SendWithFds(NativeHandle(), nullptr, fds);
     }
 
     bool SendWithFds(std::shared_ptr<DataBuffer> buffer, const std::vector<int> &fds) const override
@@ -81,13 +80,13 @@ public:
             return false;
         }
 
-        return server->SendWithFds(fd, std::move(buffer), fds);
+        return server->SendWithFds(NativeHandle(), std::move(buffer), fds);
     }
 
     std::string ClientInfo() const override
     {
         std::stringstream ss;
-        ss << host << " (" << fd << ")";
+        ss << Host() << " (" << NativeHandle() << ")";
         return ss.str();
     }
 

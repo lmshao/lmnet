@@ -220,7 +220,7 @@ void TcpServerImpl::SubmitRead(std::shared_ptr<Session> session)
     auto self = shared_from_this();
 
     IoUringManager::GetInstance().SubmitReadRequest(
-        session->fd, buffer, [self, session](int fd, std::shared_ptr<DataBuffer> buf, int bytes_read) {
+        session->NativeHandle(), buffer, [self, session](int fd, std::shared_ptr<DataBuffer> buf, int bytes_read) {
             self->HandleReceive(session, buf, bytes_read);
         });
 }
@@ -239,9 +239,9 @@ void TcpServerImpl::HandleReceive(std::shared_ptr<Session> session, std::shared_
 
         SubmitRead(session); // Continue reading from the client
     } else if (bytes_read == 0) {
-        HandleConnectionClose(session->fd, "Connection closed by peer", true);
+        HandleConnectionClose(session->NativeHandle(), "Connection closed by peer", true);
     } else {
-        HandleConnectionClose(session->fd, std::string("Read error: ") + strerror(-bytes_read), true, true);
+        HandleConnectionClose(session->NativeHandle(), std::string("Read error: ") + strerror(-bytes_read), true, true);
     }
 }
 

@@ -79,7 +79,7 @@ class EchoServerListener : public IServerListener {
 public:
     void OnAccept(std::shared_ptr<Session> session) override
     {
-        std::cout << "Client connected: " << session->host << ":" << session->port << "\n";
+        std::cout << "Client connected: " << session->Host() << ":" << session->Port() << "\n";
     }
 
     void OnReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer) override
@@ -90,12 +90,12 @@ public:
 
     void OnClose(std::shared_ptr<Session> session) override
     {
-        std::cout << "Client disconnected: " << session->host << ":" << session->port << "\n";
+        std::cout << "Client disconnected: " << session->Host() << ":" << session->Port() << "\n";
     }
 
     void OnError(std::shared_ptr<Session> session, const std::string &errorInfo) override
     {
-        std::cerr << "Session error " << session->host << ":" << session->port << " - " << errorInfo << "\n";
+        std::cerr << "Session error " << session->Host() << ":" << session->Port() << " - " << errorInfo << "\n";
     }
 };
 

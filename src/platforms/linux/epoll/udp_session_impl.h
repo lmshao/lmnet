@@ -25,9 +25,8 @@ public:
     UdpSessionImpl(socket_t fd, std::string remoteHost, uint16_t remotePort, std::shared_ptr<UdpServerImpl> server)
         : server_(server)
     {
-        this->fd = fd;
-        this->host = std::move(remoteHost);
-        this->port = remotePort;
+        SetNativeHandle(fd);
+        SetPeer(std::move(remoteHost), remotePort);
     }
 
     bool Send(std::shared_ptr<DataBuffer> buffer) const override
@@ -39,25 +38,25 @@ public:
         if (!buffer) {
             return false;
         }
-        return server->Send(host, port, buffer);
+        return server->Send(Host(), Port(), buffer);
     }
 
     bool Send(const std::string &str) const override
     {
         auto server = server_.lock();
-        return server ? server->Send(host, port, str) : false;
+        return server ? server->Send(Host(), Port(), str) : false;
     }
 
     bool Send(const void *data, size_t size) const override
     {
         auto server = server_.lock();
-        return server ? server->Send(host, port, data, size) : false;
+        return server ? server->Send(Host(), Port(), data, size) : false;
     }
 
     std::string ClientInfo() const override
     {
         std::stringstream ss;
-        ss << host << ":" << port << " (" << fd << ")";
+        ss << Host() << ":" << Port() << " (" << NativeHandle() << ")";
         return ss.str();
     }
 

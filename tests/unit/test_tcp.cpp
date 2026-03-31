@@ -488,7 +488,7 @@ TEST(TcpTest, LargeServerReplySend)
         void OnAccept(std::shared_ptr<Session> session) override
         {
             int buffer_size = sendBufferSize_;
-            (void)setsockopt(session->fd, SOL_SOCKET, SO_SNDBUF, &buffer_size, sizeof(buffer_size));
+            (void)setsockopt(session->NativeHandle(), SOL_SOCKET, SO_SNDBUF, &buffer_size, sizeof(buffer_size));
         }
         void OnClose(std::shared_ptr<Session>) override {}
         void OnError(std::shared_ptr<Session>, const std::string &) override {}

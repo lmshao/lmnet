@@ -25,9 +25,8 @@ class UnixSessionImpl : public Session {
 public:
     UnixSessionImpl(socket_t fd, std::string path, std::shared_ptr<UnixServerImpl> server) : server_(std::move(server))
     {
-        this->fd = fd;
-        this->host = std::move(path);
-        this->port = 0;
+        SetNativeHandle(fd);
+        SetPeer(std::move(path), 0);
     }
 
     bool Send(std::shared_ptr<DataBuffer> buffer) const override
@@ -36,31 +35,31 @@ public:
         if (!server || !buffer) {
             return false;
         }
-        return server->Send(fd, buffer);
+        return server->Send(NativeHandle(), buffer);
     }
 
     bool Send(const std::string &str) const override
     {
         auto server = server_.lock();
-        return server ? server->Send(fd, str) : false;
+        return server ? server->Send(NativeHandle(), str) : false;
     }
 
     bool Send(const void *data, size_t size) const override
     {
         auto server = server_.lock();
-        return server ? server->Send(fd, data, size) : false;
+        return server ? server->Send(NativeHandle(), data, size) : false;
     }
 
     bool SendFds(const std::vector<int> &fds) const override
     {
         auto server = server_.lock();
-        return server ? server->SendFds(fd, fds) : false;
+        return server ? server->SendFds(NativeHandle(), fds) : false;
     }
 
     std::string ClientInfo() const override
     {
         std::stringstream ss;
-        ss << host << " (" << fd << ")";
+        ss << Host() << " (" << NativeHandle() << ")";
         return ss.str();
     }
 
