@@ -1,8 +1,6 @@
 /**
- * @file test_unix_fd_enhanced.cpp
- * @brief Enhanced Unix Domain Socket FD Transfer Tests
  * @author SHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2025 SHAO Liming
+ * @copyright Copyright (c) 2025-2026 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT

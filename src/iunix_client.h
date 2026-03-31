@@ -1,7 +1,7 @@
 /**
  * @#ifndef LMSHAO_LMNET_IUNIX_CLIENT_H
 #define LMSHAO_LMNET_IUNIX_CLIENT_HSHAO Liming <lmshao@163.com>
- * @copyright Copyright (c) 2025 SHAO Liming
+ * @copyright Copyright (c) 2025-2026 SHAO Liming
  * @license MIT
  *
  * SPDX-License-Identifier: MIT
