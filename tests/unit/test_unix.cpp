@@ -150,7 +150,7 @@ TEST(UnixTest, ConnectFailureDoesNotNotifyListener)
     client->SetListener(listener);
 
     EXPECT_TRUE(client->Init());
-    (void)client->Connect();
+    EXPECT_FALSE(client->Connect());
 
     EXPECT_FALSE(
         WaitFor([&] { return receiveCount.load() > 0 || closeCount.load() > 0 || errorCount.load() > 0; }, 1000));
@@ -159,6 +159,53 @@ TEST(UnixTest, ConnectFailureDoesNotNotifyListener)
     EXPECT_EQ(0, errorCount.load());
 
     client->Close();
+    std::remove(socket_path.c_str());
+}
+
+TEST(UnixTest, ConnectFailureAllowsRetry)
+{
+    const std::string socket_path = "/tmp/lmnet_retry_socket.sock";
+    std::atomic<bool> accepted{false};
+
+    class ServerListener : public IServerListener {
+    public:
+        explicit ServerListener(std::atomic<bool> &accepted) : accepted_(accepted) {}
+
+        void OnAccept(std::shared_ptr<Session>) override { accepted_ = true; }
+        void OnReceive(std::shared_ptr<Session>, std::shared_ptr<DataBuffer>) override {}
+        void OnClose(std::shared_ptr<Session>) override {}
+        void OnError(std::shared_ptr<Session>, const std::string &) override {}
+
+    private:
+        std::atomic<bool> &accepted_;
+    };
+
+    class ClientListener : public IClientListener {
+    public:
+        void OnReceive(int, std::shared_ptr<DataBuffer>) override {}
+        void OnClose(int) override {}
+        void OnError(int, const std::string &) override {}
+    };
+
+    std::remove(socket_path.c_str());
+
+    auto client = UnixClient::Create(socket_path);
+    auto clientListener = std::make_shared<ClientListener>();
+    client->SetListener(clientListener);
+    EXPECT_TRUE(client->Init());
+    EXPECT_FALSE(client->Connect());
+
+    auto server = UnixServer::Create(socket_path);
+    auto serverListener = std::make_shared<ServerListener>(accepted);
+    server->SetListener(serverListener);
+    EXPECT_TRUE(server->Init());
+    EXPECT_TRUE(server->Start());
+
+    EXPECT_TRUE(client->Connect());
+    EXPECT_TRUE(WaitFor([&] { return accepted.load(); }, 2000));
+
+    client->Close();
+    server->Stop();
     std::remove(socket_path.c_str());
 }
 

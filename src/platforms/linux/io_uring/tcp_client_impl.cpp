@@ -1,6 +1,8 @@
 #include "tcp_client_impl.h"
 
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <sys/select.h>
 #include <unistd.h>
 
 #include <cstring>
@@ -72,32 +74,75 @@ bool TcpClientImpl::Connect()
         LMNET_LOGE("Client is not initialized.");
         return false;
     }
-    return SubmitConnect();
-}
 
-bool TcpClientImpl::SubmitConnect()
-{
-    auto self = shared_from_this();
-    return IoUringManager::GetInstance().SubmitConnectRequest(socket_, serverAddr_,
-                                                              [self](int fd, int res) { self->HandleConnect(res); });
-}
-
-void TcpClientImpl::HandleConnect(int result)
-{
-    if (result >= 0) {
-        LMNET_LOGI("Successfully connected to %s:%d", remoteIp_.c_str(), remotePort_);
-        isConnected_ = true;
-        auto task = std::make_shared<TaskHandler<void>>([this, listener = listener_.lock()] {
-            if (listener) {
-                // OnConnect is not part of the new IClientListener, just start receiving
-            }
-        });
-        taskQueue_->EnqueueTask(task);
-        SubmitRead();
-    } else {
-        LMNET_LOGE("Failed to connect: %s", strerror(-result));
-        ReInit();
+    if (remoteIp_.empty()) {
+        remoteIp_ = "127.0.0.1";
     }
+    serverAddr_.sin_addr.s_addr = inet_addr(remoteIp_.c_str());
+
+    int flags = fcntl(socket_, F_GETFL, 0);
+    if (flags < 0) {
+        LMNET_LOGE("Failed to get socket flags: %s", strerror(errno));
+        ReInit();
+        return false;
+    }
+
+    bool restoreFlags = false;
+    if ((flags & O_NONBLOCK) == 0) {
+        if (fcntl(socket_, F_SETFL, flags | O_NONBLOCK) < 0) {
+            LMNET_LOGE("Failed to set non-blocking connect mode: %s", strerror(errno));
+            ReInit();
+            return false;
+        }
+        restoreFlags = true;
+    }
+
+    int ret = connect(socket_, reinterpret_cast<sockaddr *>(&serverAddr_), sizeof(serverAddr_));
+    if (ret < 0 && errno != EINPROGRESS) {
+        LMNET_LOGE("connect(%s:%d) failed: %s", remoteIp_.c_str(), remotePort_, strerror(errno));
+        ReInit();
+        return false;
+    }
+
+    fd_set writefds;
+    FD_ZERO(&writefds);
+    FD_SET(socket_, &writefds);
+
+    struct timeval timeout;
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+
+    ret = select(socket_ + 1, NULL, &writefds, NULL, &timeout);
+    if (ret > 0) {
+        int error = 0;
+        socklen_t len = sizeof(error);
+        if (getsockopt(socket_, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+            LMNET_LOGE("getsockopt error: %s", strerror(errno));
+            ReInit();
+            return false;
+        }
+
+        if (error != 0) {
+            LMNET_LOGE("connect error: %s", strerror(error));
+            ReInit();
+            return false;
+        }
+    } else {
+        LMNET_LOGE("connect timeout or error: %s", ret == 0 ? "timeout" : strerror(errno));
+        ReInit();
+        return false;
+    }
+
+    if (restoreFlags && fcntl(socket_, F_SETFL, flags) < 0) {
+        LMNET_LOGE("Failed to restore socket flags after connect: %s", strerror(errno));
+        ReInit();
+        return false;
+    }
+
+    LMNET_LOGI("Successfully connected to %s:%d", remoteIp_.c_str(), remotePort_);
+    isConnected_ = true;
+    SubmitRead();
+    return true;
 }
 
 void TcpClientImpl::SubmitRead()

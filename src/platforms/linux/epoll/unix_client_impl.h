@@ -49,6 +49,7 @@ public:
 private:
     void HandleReceive(socket_t fd);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+    void ReInit();
 
 private:
     std::string socketPath_;

@@ -161,6 +161,8 @@ bool TcpClientImpl::Connect()
     if (!completed) {
         LMNET_LOGE("Connect to %s:%u timed out", remoteIp_.c_str(), remotePort_);
         connectPending_ = false;
+        lock.unlock();
+        ReInit();
         return false;
     }
 

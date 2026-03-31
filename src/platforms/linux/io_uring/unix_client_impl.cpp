@@ -22,11 +22,25 @@ UnixClientImpl::~UnixClientImpl()
     Close();
 }
 
-bool UnixClientImpl::Init()
+void UnixClientImpl::ReInit()
 {
+    if (socket_ != INVALID_SOCKET) {
+        close(socket_);
+    }
+
     socket_ = socket(AF_UNIX, SOCK_STREAM, 0);
     if (socket_ == INVALID_SOCKET) {
         LMNET_LOGE("Failed to create socket: %s", strerror(errno));
+        return;
+    }
+
+    isConnected_ = false;
+}
+
+bool UnixClientImpl::Init()
+{
+    ReInit();
+    if (socket_ == INVALID_SOCKET) {
         return false;
     }
 
@@ -54,6 +68,7 @@ bool UnixClientImpl::Connect()
     int ret = connect(socket_, reinterpret_cast<const sockaddr *>(&server_addr), sizeof(server_addr));
     if (ret < 0 && errno != EINPROGRESS) {
         LMNET_LOGE("connect(%s) failed: %s", socketPath_.c_str(), strerror(errno));
+        ReInit();
         return false;
     }
 
@@ -73,15 +88,18 @@ bool UnixClientImpl::Connect()
             socklen_t len = sizeof(error);
             if (getsockopt(socket_, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
                 LMNET_LOGE("getsockopt error, %s", strerror(errno));
+                ReInit();
                 return false;
             }
 
             if (error != 0) {
                 LMNET_LOGE("connect error, %s", strerror(error));
+                ReInit();
                 return false;
             }
         } else {
             LMNET_LOGE("connect timeout or error, %s", strerror(errno));
+            ReInit();
             return false;
         }
     }
@@ -108,6 +126,7 @@ void UnixClientImpl::HandleConnect(int result)
         StartReceive();
     } else {
         LMNET_LOGE("Failed to connect to %s: %s", socketPath_.c_str(), strerror(-result));
+        ReInit();
         HandleClose();
     }
 }

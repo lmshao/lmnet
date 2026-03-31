@@ -311,6 +311,12 @@ bool UnixClientImpl::Init()
     return true;
 }
 
+void UnixClientImpl::ReInit()
+{
+    Close();
+    Init();
+}
+
 bool UnixClientImpl::Connect()
 {
     if (socket_ == INVALID_SOCKET) {
@@ -321,6 +327,7 @@ bool UnixClientImpl::Connect()
     int ret = connect(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_));
     if (ret < 0 && errno != EINPROGRESS) {
         LMNET_LOGE("connect(%s) failed: %s", socketPath_.c_str(), strerror(errno));
+        ReInit();
         return false;
     }
 
@@ -338,18 +345,18 @@ bool UnixClientImpl::Connect()
         socklen_t len = sizeof(error);
         if (getsockopt(socket_, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
             LMNET_LOGE("getsockopt error, %s", strerror(errno));
-            Close();
+            ReInit();
             return false;
         }
 
         if (error != 0) {
             LMNET_LOGE("connect error, %s", strerror(error));
-            Close();
+            ReInit();
             return false;
         }
     } else {
         LMNET_LOGE("connect timeout or error, %s", strerror(errno));
-        Close();
+        ReInit();
         return false;
     }
 

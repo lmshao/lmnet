@@ -45,8 +45,6 @@ public:
 
 private:
     void ReInit();
-    bool SubmitConnect();
-    void HandleConnect(int result);
     void SubmitRead();
     void HandleReceive(std::shared_ptr<DataBuffer> buffer, int bytes_read);
     bool SubmitNextWrite();

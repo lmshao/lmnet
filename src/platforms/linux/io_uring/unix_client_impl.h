@@ -42,6 +42,7 @@ public:
     socket_t GetSocketFd() const override { return socket_; }
 
 private:
+    void ReInit();
     void HandleConnect(int result);
     bool StartReceive();
     void HandleReceiveWithFds(std::shared_ptr<DataBuffer> buffer, int bytes_read, std::vector<int> fds);
