@@ -179,19 +179,19 @@ void IocpManager::WorkerLoop()
             }
 
             // Handle completion
+            bool recycleRequest = true;
             try {
-                HandleCompletion(req, bytes, error);
+                recycleRequest = HandleCompletion(req, bytes, error);
             } catch (const std::exception &e) {
                 LMNET_LOGE("Exception in IOCP completion handler: %s", e.what());
             } catch (...) {
                 LMNET_LOGE("Unknown exception in IOCP completion handler");
             }
 
-            // Return request to pool
-            PutRequest(req);
-
-            // Update statistics
-            stats_.operations_completed.fetch_add(1);
+            if (recycleRequest) {
+                PutRequest(req);
+                stats_.operations_completed.fetch_add(1);
+            }
         }
 
         // Handle errors without overlapped
@@ -207,14 +207,14 @@ void IocpManager::WorkerLoop()
     LMNET_LOGD("IOCP worker thread exiting");
 }
 
-void IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
+bool IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
 {
     switch (req->type) {
         case IocpRequestType::CONNECT:
             if (req->connect_cb) {
                 req->connect_cb(req->socket, error);
             }
-            break;
+            return true;
 
         case IocpRequestType::ACCEPT:
             if (req->accept_cb) {
@@ -244,7 +244,7 @@ void IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
                     req->accept_cb(req->socket, INVALID_SOCKET, {});
                 }
             }
-            break;
+            return true;
 
         case IocpRequestType::READ:
             if (req->read_cb) {
@@ -253,17 +253,38 @@ void IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
                 }
                 req->read_cb(req->socket, req->buffer, error == 0 ? bytes : error);
             }
-            break;
+            return true;
 
-        case IocpRequestType::WRITE:
-        case IocpRequestType::SENDTO:
-            if (req->write_cb) {
-                req->write_cb(req->socket, bytes, error);
+        case IocpRequestType::WRITE: {
+            if (error == 0 && req->buffer && bytes > 0 && bytes < req->wsaBuf.len) {
+                req->transferredBytes += bytes;
+                req->wsaBuf.buf += bytes;
+                req->wsaBuf.len -= bytes;
+
+                DWORD resubmittedBytes = 0;
+                int result = WSASend(req->socket, &req->wsaBuf, 1, &resubmittedBytes, 0, &req->overlapped, nullptr);
+                if (result == 0 || WSAGetLastError() == WSA_IO_PENDING) {
+                    return false;
+                }
+
+                error = WSAGetLastError();
             }
+
+            if (req->write_cb) {
+                DWORD totalBytes = req->transferredBytes + bytes;
+                if (error == 0 && req->buffer) {
+                    totalBytes = static_cast<DWORD>(req->buffer->Size());
+                }
+                req->write_cb(req->socket, totalBytes, error);
+            }
+            return true;
+        }
+
+        case IocpRequestType::SENDTO:
             if (req->sendto_cb) {
                 req->sendto_cb(req->socket, bytes, error);
             }
-            break;
+            return true;
 
         case IocpRequestType::RECVFROM:
             if (req->recvfrom_cb) {
@@ -272,18 +293,20 @@ void IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
                 }
                 req->recvfrom_cb(req->socket, req->buffer, error == 0 ? bytes : error, req->remoteAddr);
             }
-            break;
+            return true;
 
         case IocpRequestType::CLOSE:
             if (req->close_cb) {
                 req->close_cb(req->socket, error);
             }
-            break;
+            return true;
 
         case IocpRequestType::EXIT:
             // Handled in worker loop
-            break;
+            return true;
     }
+
+    return true;
 }
 
 bool IocpManager::SubmitOperation(IocpRequestType type, SOCKET socket,

@@ -58,6 +58,7 @@ struct IocpRequest {
     OVERLAPPED overlapped{};
     IocpRequestType type;
     SOCKET socket{INVALID_SOCKET};
+    DWORD transferredBytes{0};
 
     // Callback functions
     ConnectCallback connect_cb;
@@ -92,6 +93,7 @@ struct IocpRequest {
         ZeroMemory(&overlapped, sizeof(overlapped));
         type = IocpRequestType::READ;
         socket = INVALID_SOCKET;
+        transferredBytes = 0;
         connect_cb = nullptr;
         accept_cb = nullptr;
         read_cb = nullptr;
@@ -144,7 +146,7 @@ private:
     IocpManager() = default;
 
     void WorkerLoop();
-    void HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error);
+    bool HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error);
 
     // Object pool management
     IocpRequest *GetRequest();
