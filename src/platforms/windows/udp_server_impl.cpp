@@ -285,6 +285,10 @@ bool UdpServerImpl::Send(std::string host, uint16_t port, std::shared_ptr<DataBu
 
     bool success =
         manager.SubmitSendToRequest(socket_, buffer, destAddr, [self](SOCKET socket, DWORD bytesSent, DWORD error) {
+            if (!self->isRunning_.load()) {
+                return;
+            }
+
             if (self->taskQueue_) {
                 auto task = std::make_shared<TaskHandler<void>>(
                     [self, bytesSent, error]() { self->HandleSend(bytesSent, error); });
