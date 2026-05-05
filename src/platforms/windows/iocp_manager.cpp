@@ -237,6 +237,10 @@ void IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
 
                     req->accept_cb(req->socket, req->acceptSocket, clientAddr);
                 } else {
+                    if (req->acceptSocket != INVALID_SOCKET) {
+                        closesocket(req->acceptSocket);
+                        req->acceptSocket = INVALID_SOCKET;
+                    }
                     req->accept_cb(req->socket, INVALID_SOCKET, {});
                 }
             }
