@@ -38,6 +38,7 @@ bool IocpManager::Init(int entries, int workerThreads)
 
     entries_ = entries;
     maxEntries_ = std::max<size_t>(static_cast<size_t>(entries_) * 4, static_cast<size_t>(entries_) + 64);
+    activeRequests_.store(0);
 
     // Create IOCP
     iocp_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
@@ -88,7 +89,7 @@ void IocpManager::Stop()
     // Signal stop
     isRunning_.store(false);
 
-    // Wake up all worker threads
+    // Wake up all worker threads so they can transition into drain mode.
     for (size_t i = 0; i < workerThreads_.size(); ++i) {
         PostQueuedCompletionStatus(iocp_, 0, 0, nullptr);
     }
@@ -142,6 +143,7 @@ IocpRequest *IocpManager::GetRequest()
             IocpRequest *rawRequest = request.get();
             dynamicRequestPool_.push_back(std::move(request));
             rawRequest->Clear();
+            activeRequests_.fetch_add(1);
             stats_.request_pool_expansions.fetch_add(1);
             stats_.request_pool_hits.fetch_add(1);
             return rawRequest;
@@ -154,6 +156,7 @@ IocpRequest *IocpManager::GetRequest()
     IocpRequest *req = freeRequests_.back();
     freeRequests_.pop_back();
     req->Clear();
+    activeRequests_.fetch_add(1);
     stats_.request_pool_hits.fetch_add(1);
     return req;
 }
@@ -163,6 +166,7 @@ void IocpManager::PutRequest(IocpRequest *req)
     if (req) {
         std::lock_guard<std::mutex> lock(poolMutex_);
         freeRequests_.push_back(req);
+        activeRequests_.fetch_sub(1);
         stats_.buffer_reuses.fetch_add(1);
     }
 }
@@ -171,17 +175,22 @@ void IocpManager::WorkerLoop()
 {
     LMNET_LOGD("IOCP worker thread started");
 
-    while (isRunning_.load()) {
+    while (true) {
         DWORD bytes = 0;
         ULONG_PTR key = 0;
         LPOVERLAPPED overlapped = nullptr;
+        DWORD timeout = isRunning_.load() ? INFINITE : 50;
 
-        BOOL success = GetQueuedCompletionStatus(iocp_, &bytes, &key, &overlapped, INFINITE);
+        BOOL success = GetQueuedCompletionStatus(iocp_, &bytes, &key, &overlapped, timeout);
         DWORD error = success ? 0 : GetLastError();
 
-        // Check for shutdown signal
         if (!isRunning_.load() && !overlapped) {
-            break;
+            if (activeRequests_.load(std::memory_order_acquire) == 0) {
+                break;
+            }
+            if (!success && error == WAIT_TIMEOUT) {
+                continue;
+            }
         }
 
         if (overlapped) {

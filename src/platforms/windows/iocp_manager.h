@@ -174,6 +174,7 @@ private:
 
     // Worker threads
     std::atomic<bool> isRunning_{false};
+    std::atomic<uint64_t> activeRequests_{0};
     std::vector<std::thread> workerThreads_;
     int workerThreadCount_{0};
 
