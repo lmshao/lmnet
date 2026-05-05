@@ -557,15 +557,30 @@ bool IocpManager::SubmitSendToRequest(SOCKET socket, std::shared_ptr<DataBuffer>
 
 bool IocpManager::SubmitCloseRequest(SOCKET socket, CloseCallback callback)
 {
-    return SubmitOperation(
-        IocpRequestType::CLOSE, socket, [callback](IocpRequest *req) { req->close_cb = callback; },
-        [](IocpRequest *req) {
-            // For Windows, we can't really make close() asynchronous
-            // So we just call closesocket and complete immediately
-            int result = closesocket(req->socket);
-            req->close_cb(req->socket, result == 0 ? 0 : WSAGetLastError());
-            return false; // Don't submit to IOCP, already completed
-        });
+    if (socket == INVALID_SOCKET) {
+        return false;
+    }
+
+    IocpRequest *req = GetRequest();
+    if (!req) {
+        LMNET_LOGE("Failed to get request from pool for close operation");
+        return false;
+    }
+
+    req->type = IocpRequestType::CLOSE;
+    req->socket = socket;
+    req->close_cb = callback;
+
+    int result = closesocket(req->socket);
+    DWORD closeError = result == 0 ? 0 : static_cast<DWORD>(WSAGetLastError());
+    if (req->close_cb) {
+        req->close_cb(req->socket, closeError);
+    }
+
+    PutRequest(req);
+    stats_.operations_submitted.fetch_add(1);
+    stats_.operations_completed.fetch_add(1);
+    return result == 0;
 }
 
 } // namespace lmshao::lmnet

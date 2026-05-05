@@ -154,6 +154,25 @@ TEST(UdpTest, CloseAfterInitInvalidatesSocket)
     EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
 }
 
+#ifdef _WIN32
+TEST(UdpTest, IocpCloseRequestAllowsNullCallback)
+{
+    auto &manager = lmshao::lmnet::IocpManager::GetInstance();
+    EXPECT_TRUE(manager.Init());
+
+    SOCKET socket = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+    EXPECT_TRUE(socket != INVALID_SOCKET);
+
+    EXPECT_TRUE(manager.SubmitCloseRequest(socket, nullptr));
+
+    int socketType = 0;
+    int optionLength = sizeof(socketType);
+    EXPECT_EQ(SOCKET_ERROR,
+              getsockopt(socket, SOL_SOCKET, SO_TYPE, reinterpret_cast<char *>(&socketType), &optionLength));
+    EXPECT_EQ(WSAENOTSOCK, WSAGetLastError());
+}
+#endif
+
 int main()
 {
     int result = TestRunner::getInstance().runAllTests();
