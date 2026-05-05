@@ -254,10 +254,10 @@ void IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
         case IocpRequestType::WRITE:
         case IocpRequestType::SENDTO:
             if (req->write_cb) {
-                req->write_cb(req->socket, error == 0 ? bytes : error);
+                req->write_cb(req->socket, bytes, error);
             }
             if (req->sendto_cb) {
-                req->sendto_cb(req->socket, error == 0 ? bytes : error);
+                req->sendto_cb(req->socket, bytes, error);
             }
             break;
 

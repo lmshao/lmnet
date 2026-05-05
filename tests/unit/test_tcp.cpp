@@ -6,7 +6,9 @@
  * SPDX-License-Identifier: MIT
  */
 
+#ifndef _WIN32
 #include <sys/socket.h>
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -37,6 +39,16 @@ bool WaitFor(Condition condition, int timeout_ms = 5000, int check_interval_ms =
         std::this_thread::sleep_for(std::chrono::milliseconds(check_interval_ms));
     }
     return false;
+}
+
+int SetSendBufferSize(socket_t socket, int send_buffer_size)
+{
+#ifdef _WIN32
+    return setsockopt(socket, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char *>(&send_buffer_size),
+                      static_cast<int>(sizeof(send_buffer_size)));
+#else
+    return setsockopt(socket, SOL_SOCKET, SO_SNDBUF, &send_buffer_size, sizeof(send_buffer_size));
+#endif
 }
 } // namespace
 
@@ -338,7 +350,7 @@ TEST(TcpTest, LargePayloadSend)
     EXPECT_TRUE(client->Connect());
 
     int send_buffer_size = 4096;
-    EXPECT_EQ(0, setsockopt(client->GetSocketFd(), SOL_SOCKET, SO_SNDBUF, &send_buffer_size, sizeof(send_buffer_size)));
+    EXPECT_EQ(0, SetSendBufferSize(client->GetSocketFd(), send_buffer_size));
 
     EXPECT_TRUE(client->Send(payload.data(), payload.size()));
     EXPECT_TRUE(WaitFor([&] { return server_done.load(); }, 10000));
@@ -486,7 +498,7 @@ TEST(TcpTest, LargeServerReplySend)
         void OnAccept(std::shared_ptr<Session> session) override
         {
             int buffer_size = sendBufferSize_;
-            (void)setsockopt(session->NativeHandle(), SOL_SOCKET, SO_SNDBUF, &buffer_size, sizeof(buffer_size));
+            (void)SetSendBufferSize(session->NativeHandle(), buffer_size);
         }
         void OnClose(std::shared_ptr<Session>) override {}
         void OnError(std::shared_ptr<Session>, const std::string &) override {}

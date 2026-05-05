@@ -48,7 +48,7 @@ private:
     void SubmitRead(SOCKET clientSocket);
     void HandleAccept(SOCKET clientSocket, const sockaddr_in &clientAddr);
     void HandleReceive(SOCKET clientSocket, std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError);
-    void HandleSend(SOCKET clientSocket, DWORD bytesOrError);
+    void HandleSend(SOCKET clientSocket, DWORD bytesSent, DWORD error);
     void HandleClientClose(SOCKET clientSocket, bool isError, const std::string &reason);
 
     // Session management

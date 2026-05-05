@@ -42,7 +42,7 @@ public:
 private:
     void StartReceiving();
     void SubmitReceive();
-    void HandleSend(DWORD bytesOrError);
+    void HandleSend(DWORD bytesSent, DWORD error);
     void HandleClose(bool isError, const std::string &reason);
     void DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_in &fromAddr);
 

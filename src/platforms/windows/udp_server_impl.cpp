@@ -276,12 +276,14 @@ bool UdpServerImpl::Send(std::string host, uint16_t port, std::shared_ptr<DataBu
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
-    bool success = manager.SubmitSendToRequest(socket_, buffer, destAddr, [self](SOCKET socket, DWORD bytesOrError) {
+    bool success = manager.SubmitSendToRequest(socket_, buffer, destAddr, [self](SOCKET socket, DWORD bytesSent, DWORD error) {
         if (self->taskQueue_) {
-            auto task = std::make_shared<TaskHandler<void>>([self, bytesOrError]() { self->HandleSend(bytesOrError); });
+            auto task = std::make_shared<TaskHandler<void>>([self, bytesSent, error]() {
+                self->HandleSend(bytesSent, error);
+            });
             self->taskQueue_->EnqueueTask(task);
         } else {
-            self->HandleSend(bytesOrError);
+            self->HandleSend(bytesSent, error);
         }
     });
 
@@ -301,10 +303,10 @@ bool UdpServerImpl::Send(std::string host, uint16_t port, const std::string &str
     return Send(std::move(host), port, str.data(), str.size());
 }
 
-void UdpServerImpl::HandleSend(DWORD bytesOrError)
+void UdpServerImpl::HandleSend(DWORD bytesSent, DWORD error)
 {
-    if (bytesOrError > 65536) { // Assume it's an error code
-        LMNET_LOGE("UDP send error: %lu", bytesOrError);
+    if (error != 0) {
+        LMNET_LOGE("UDP send error: %lu", error);
     }
     // For successful sends, we don't need to do anything special
 }

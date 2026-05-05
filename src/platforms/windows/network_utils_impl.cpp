@@ -6,9 +6,11 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <iphlpapi.h>
+// clang-format off
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
+// clang-format on
 
 #include "internal_logger.h"
 #include "lmnet/network_utils.h"

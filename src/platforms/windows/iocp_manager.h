@@ -44,11 +44,11 @@ enum class IocpRequestType {
 using ConnectCallback = std::function<void(SOCKET, DWORD)>;                           // socket, error
 using AcceptCallback = std::function<void(SOCKET, SOCKET, const sockaddr_in &)>;      // listen_fd, client_fd, addr
 using ReadCallback = std::function<void(SOCKET, std::shared_ptr<DataBuffer>, DWORD)>; // socket, buffer, bytes/error
-using WriteCallback = std::function<void(SOCKET, DWORD)>;                             // socket, bytes/error
+using WriteCallback = std::function<void(SOCKET, DWORD, DWORD)>;                      // socket, bytes, error
 using CloseCallback = std::function<void(SOCKET, DWORD)>;                             // socket, result
 using RecvFromCallback = std::function<void(SOCKET, std::shared_ptr<DataBuffer>, DWORD,
                                             const sockaddr_in &)>; // socket, buffer, bytes/error, addr
-using SendToCallback = std::function<void(SOCKET, DWORD)>;         // socket, bytes/error
+using SendToCallback = std::function<void(SOCKET, DWORD, DWORD)>;  // socket, bytes, error
 
 /**
  * Self-contained request structure - no external dependencies

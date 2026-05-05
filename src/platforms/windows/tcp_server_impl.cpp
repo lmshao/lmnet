@@ -361,8 +361,8 @@ bool TcpServerImpl::Send(socket_t fd, std::shared_ptr<DataBuffer> buffer)
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
-    bool success = manager.SubmitWriteRequest((SOCKET)fd, buffer, [self, fd](SOCKET socket, DWORD bytesOrError) {
-        self->HandleSend((SOCKET)fd, bytesOrError);
+    bool success = manager.SubmitWriteRequest((SOCKET)fd, buffer, [self, fd](SOCKET socket, DWORD bytesSent, DWORD error) {
+        self->HandleSend((SOCKET)fd, bytesSent, error);
     });
 
     if (!success) {
@@ -383,11 +383,11 @@ bool TcpServerImpl::Send(socket_t fd, const std::string &str)
     return Send(fd, buffer);
 }
 
-void TcpServerImpl::HandleSend(SOCKET clientSocket, DWORD bytesOrError)
+void TcpServerImpl::HandleSend(SOCKET clientSocket, DWORD bytesSent, DWORD error)
 {
-    if (bytesOrError > 65536) { // Assume it's an error code
-        LMNET_LOGE("Send error on socket %llu: %lu", static_cast<unsigned long long>(clientSocket), bytesOrError);
-        HandleClientClose(clientSocket, true, "Send error: " + std::to_string(bytesOrError));
+    if (error != 0) {
+        LMNET_LOGE("Send error on socket %llu: %lu", static_cast<unsigned long long>(clientSocket), error);
+        HandleClientClose(clientSocket, true, "Send error: " + std::to_string(error));
     }
     // For successful sends, we don't need to do anything special
 }
