@@ -59,11 +59,13 @@ private:
 private:
     std::string ip_;
     uint16_t port_;
+    static constexpr int CONCURRENT_ACCEPTS = 4;
 
     SOCKET listenSocket_{INVALID_SOCKET};
     sockaddr_in listenAddr_{};
 
     std::atomic<bool> isRunning_{false};
+    std::atomic<bool> acceptRetryPending_{false};
     std::weak_ptr<IServerListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
 

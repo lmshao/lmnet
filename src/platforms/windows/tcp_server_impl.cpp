@@ -153,9 +153,12 @@ bool TcpServerImpl::Start()
     }
 
     isRunning_.store(true);
+    acceptRetryPending_.store(false);
 
-    // Start accepting connections
-    SubmitAccept();
+    // Keep several AcceptEx requests in flight to avoid a single pending accept bottleneck.
+    for (int index = 0; index < CONCURRENT_ACCEPTS; ++index) {
+        SubmitAccept();
+    }
 
     LMNET_LOGI("TCP server started on %s:%u", ip_.c_str(), port_);
     return true;
@@ -170,6 +173,7 @@ bool TcpServerImpl::Stop()
     LMNET_LOGI("Stopping TCP server");
 
     isRunning_.store(false);
+    acceptRetryPending_.store(false);
 
     // Close all client sessions
     {
@@ -192,7 +196,7 @@ bool TcpServerImpl::Stop()
 
 void TcpServerImpl::SubmitAccept()
 {
-    if (!isRunning_.load()) {
+    if (!isRunning_.load() || listenSocket_ == INVALID_SOCKET) {
         return;
     }
 
@@ -201,6 +205,8 @@ void TcpServerImpl::SubmitAccept()
 
     bool success = manager.SubmitAcceptRequest(
         listenSocket_, [self](SOCKET listenSocket, SOCKET clientSocket, const sockaddr_in &clientAddr) {
+            self->acceptRetryPending_.store(false);
+
             if (clientSocket != INVALID_SOCKET) {
                 if (self->taskQueue_) {
                     auto task = std::make_shared<TaskHandler<void>>(
@@ -216,10 +222,18 @@ void TcpServerImpl::SubmitAccept()
         });
 
     if (!success) {
-        LMNET_LOGE("Failed to submit accept request");
-        // Retry after a short delay
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        SubmitAccept();
+        if (!isRunning_.load() || listenSocket_ == INVALID_SOCKET) {
+            return;
+        }
+
+        if (!acceptRetryPending_.exchange(true) && taskQueue_) {
+            auto self = shared_from_this();
+            auto retryTask = std::make_shared<TaskHandler<void>>([self]() {
+                self->acceptRetryPending_.store(false);
+                self->SubmitAccept();
+            });
+            taskQueue_->EnqueueTask(retryTask);
+        }
     }
 }
 
