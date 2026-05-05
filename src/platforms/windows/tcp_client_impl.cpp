@@ -227,19 +227,25 @@ void TcpClientImpl::HandleConnect(uint64_t generation, DWORD error)
         return;
     }
 
-    const bool success = (error == 0);
+    DWORD connectError = error;
+    if (connectError == 0 && setsockopt(socket_, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, nullptr, 0) == SOCKET_ERROR) {
+        connectError = static_cast<DWORD>(WSAGetLastError());
+        LMNET_LOGE("setsockopt SO_UPDATE_CONNECT_CONTEXT failed: %lu", connectError);
+    }
+
+    const bool success = (connectError == 0);
 
     {
         std::lock_guard<std::mutex> lock(connectMutex_);
         connectPending_ = false;
         connectSuccess_ = success;
-        lastConnectError_ = error;
+        lastConnectError_ = connectError;
         isConnected_.store(success);
     }
     connectCond_.notify_all();
 
     if (!success) {
-        LMNET_LOGE("Connect failed: %lu", error);
+        LMNET_LOGE("Connect failed: %lu", connectError);
         ReInit();
         return;
     }
