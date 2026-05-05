@@ -65,10 +65,7 @@ TcpClientImpl::TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::str
 TcpClientImpl::~TcpClientImpl()
 {
     Close();
-
-    // Give time for pending IOCP callbacks to complete
-    // Keep this minimal to avoid long delays when many clients are destroyed
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    WaitForPendingIo();
 
     if (taskQueue_) {
         taskQueue_->Stop();
@@ -166,6 +163,31 @@ void TcpClientImpl::SetListener(std::shared_ptr<IClientListener> listener)
     listener_ = listener;
 }
 
+void TcpClientImpl::TrackPendingIo()
+{
+    std::lock_guard<std::mutex> lock(pendingIoMutex_);
+    ++pendingIo_;
+}
+
+void TcpClientImpl::CompletePendingIo()
+{
+    std::lock_guard<std::mutex> lock(pendingIoMutex_);
+    if (pendingIo_ == 0) {
+        return;
+    }
+
+    --pendingIo_;
+    if (pendingIo_ == 0) {
+        pendingIoCv_.notify_all();
+    }
+}
+
+void TcpClientImpl::WaitForPendingIo()
+{
+    std::unique_lock<std::mutex> lock(pendingIoMutex_);
+    pendingIoCv_.wait(lock, [this]() { return pendingIo_ == 0; });
+}
+
 bool TcpClientImpl::Connect()
 {
     if (!isRunning_.load()) {
@@ -220,7 +242,18 @@ void TcpClientImpl::SubmitConnect()
     auto self = shared_from_this();
     const uint64_t generation = socketGeneration_.load(std::memory_order_acquire);
 
+    TrackPendingIo();
+
     bool success = manager.SubmitConnectRequest(socket_, serverAddr_, [self, generation](SOCKET socket, DWORD error) {
+        struct PendingIoGuard {
+            TcpClientImpl *owner;
+            ~PendingIoGuard() { owner->CompletePendingIo(); }
+        } pendingIoGuard{self.get()};
+
+        if (!self->IsCurrentGeneration(generation) && !self->isRunning_.load()) {
+            return;
+        }
+
         if (self->taskQueue_) {
             auto task = std::make_shared<TaskHandler<void>>(
                 [self, generation, error]() { self->HandleConnect(generation, error); });
@@ -229,6 +262,7 @@ void TcpClientImpl::SubmitConnect()
     });
 
     if (!success) {
+        CompletePendingIo();
         LMNET_LOGE("Failed to submit connect request");
         {
             std::lock_guard<std::mutex> lock(connectMutex_);
@@ -290,9 +324,16 @@ void TcpClientImpl::SubmitRead()
     auto self = shared_from_this();
     const uint64_t generation = socketGeneration_.load(std::memory_order_acquire);
 
+    TrackPendingIo();
+
     bool success = manager.SubmitReadRequest(
         socket_, buffer,
         [self, generation](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesReceived, DWORD error) {
+            struct PendingIoGuard {
+                TcpClientImpl *owner;
+                ~PendingIoGuard() { owner->CompletePendingIo(); }
+            } pendingIoGuard{self.get()};
+
             if (self->taskQueue_) {
                 auto task = std::make_shared<TaskHandler<void>>([self, generation, buf, bytesReceived, error]() {
                     self->HandleReceive(generation, buf, bytesReceived, error);
@@ -302,6 +343,7 @@ void TcpClientImpl::SubmitRead()
         });
 
     if (!success) {
+        CompletePendingIo();
         const DWORD submitError = static_cast<DWORD>(WSAGetLastError());
         if (!isRunning_.load() || !isConnected_.load() || IsSocketInBenignCloseState(socket_, submitError)) {
             HandleClose(false, "Connection closed while rearming read");
@@ -378,8 +420,19 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
     auto self = shared_from_this();
     const uint64_t generation = socketGeneration_.load(std::memory_order_acquire);
 
+    TrackPendingIo();
+
     bool success =
         manager.SubmitWriteRequest(socket_, data, [self, generation](SOCKET socket, DWORD bytesSent, DWORD error) {
+            struct PendingIoGuard {
+                TcpClientImpl *owner;
+                ~PendingIoGuard() { owner->CompletePendingIo(); }
+            } pendingIoGuard{self.get()};
+
+            if (!self->isRunning_.load()) {
+                return;
+            }
+
             if (self->taskQueue_) {
                 auto task = std::make_shared<TaskHandler<void>>(
                     [self, generation, bytesSent, error]() { self->HandleSend(generation, bytesSent, error); });
@@ -390,6 +443,7 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
         });
 
     if (!success) {
+        CompletePendingIo();
         LMNET_LOGE("Failed to submit write request");
         return false;
     }

@@ -46,6 +46,9 @@ private:
     void ReInit();
     void SubmitConnect();
     void SubmitRead();
+    void TrackPendingIo();
+    void CompletePendingIo();
+    void WaitForPendingIo();
     void HandleConnect(uint64_t generation, DWORD error);
     void HandleReceive(uint64_t generation, std::shared_ptr<DataBuffer> buffer, DWORD bytesReceived, DWORD error);
     void HandleSend(uint64_t generation, DWORD bytesSent, DWORD error);
@@ -74,6 +77,9 @@ private:
     bool connectSuccess_{false};
     DWORD lastConnectError_{0};
     std::atomic<uint64_t> socketGeneration_{0};
+    std::mutex pendingIoMutex_;
+    std::condition_variable pendingIoCv_;
+    size_t pendingIo_{0};
 };
 
 } // namespace lmshao::lmnet

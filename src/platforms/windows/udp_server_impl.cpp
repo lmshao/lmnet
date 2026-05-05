@@ -207,6 +207,8 @@ void UdpServerImpl::SubmitReceive()
     // Assign sequence number at submission time to preserve order
     uint64_t seq = receive_seq_counter_.fetch_add(1, std::memory_order_relaxed);
 
+    TrackPendingIo();
+
     bool success = manager.SubmitRecvFromRequest(socket_, buffer,
                                                  [self, buffer, seq](SOCKET socket, std::shared_ptr<DataBuffer> buf,
                                                                      DWORD bytesReceived, DWORD error,
@@ -233,11 +235,8 @@ void UdpServerImpl::SubmitReceive()
                                                      self->SubmitReceive();
                                                  });
 
-    if (success) {
-        TrackPendingIo();
-    }
-
     if (!success) {
+        CompletePendingIo();
         LMNET_LOGE("Failed to submit UDP receive request");
         if (!isRunning_.load()) {
             return;
@@ -315,6 +314,8 @@ bool UdpServerImpl::Send(std::string host, uint16_t port, std::shared_ptr<DataBu
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
+    TrackPendingIo();
+
     bool success =
         manager.SubmitSendToRequest(socket_, buffer, destAddr, [self](SOCKET socket, DWORD bytesSent, DWORD error) {
             struct PendingIoGuard {
@@ -335,11 +336,8 @@ bool UdpServerImpl::Send(std::string host, uint16_t port, std::shared_ptr<DataBu
             }
         });
 
-    if (success) {
-        TrackPendingIo();
-    }
-
     if (!success) {
+        CompletePendingIo();
         LMNET_LOGE("Failed to submit UDP send request to %s:%u", host.c_str(), port);
         return false;
     }

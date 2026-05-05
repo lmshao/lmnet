@@ -58,9 +58,7 @@ TcpServerImpl::TcpServerImpl(uint16_t listenPort) : TcpServerImpl("0.0.0.0", lis
 TcpServerImpl::~TcpServerImpl()
 {
     Stop();
-
-    // Give time for pending IOCP callbacks to complete
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    WaitForPendingIo();
 
     if (taskQueue_) {
         taskQueue_->Stop();
@@ -140,6 +138,31 @@ void TcpServerImpl::SetListener(std::shared_ptr<IServerListener> listener)
     listener_ = listener;
 }
 
+void TcpServerImpl::TrackPendingIo()
+{
+    std::lock_guard<std::mutex> lock(pendingIoMutex_);
+    ++pendingIo_;
+}
+
+void TcpServerImpl::CompletePendingIo()
+{
+    std::lock_guard<std::mutex> lock(pendingIoMutex_);
+    if (pendingIo_ == 0) {
+        return;
+    }
+
+    --pendingIo_;
+    if (pendingIo_ == 0) {
+        pendingIoCv_.notify_all();
+    }
+}
+
+void TcpServerImpl::WaitForPendingIo()
+{
+    std::unique_lock<std::mutex> lock(pendingIoMutex_);
+    pendingIoCv_.wait(lock, [this]() { return pendingIo_ == 0; });
+}
+
 bool TcpServerImpl::Start()
 {
     if (isRunning_.load()) {
@@ -203,8 +226,15 @@ void TcpServerImpl::SubmitAccept()
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
+    TrackPendingIo();
+
     bool success = manager.SubmitAcceptRequest(
         listenSocket_, [self](SOCKET listenSocket, SOCKET clientSocket, const sockaddr_in &clientAddr) {
+            struct PendingIoGuard {
+                TcpServerImpl *owner;
+                ~PendingIoGuard() { owner->CompletePendingIo(); }
+            } pendingIoGuard{self.get()};
+
             self->acceptRetryPending_.store(false);
 
             if (clientSocket != INVALID_SOCKET) {
@@ -222,6 +252,7 @@ void TcpServerImpl::SubmitAccept()
         });
 
     if (!success) {
+        CompletePendingIo();
         if (!isRunning_.load() || listenSocket_ == INVALID_SOCKET) {
             return;
         }
@@ -300,9 +331,16 @@ void TcpServerImpl::SubmitRead(SOCKET clientSocket)
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
+    TrackPendingIo();
+
     bool success = manager.SubmitReadRequest(
         clientSocket, buffer,
         [self, clientSocket, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesReceived, DWORD error) {
+            struct PendingIoGuard {
+                TcpServerImpl *owner;
+                ~PendingIoGuard() { owner->CompletePendingIo(); }
+            } pendingIoGuard{self.get()};
+
             if (self->taskQueue_) {
                 auto task = std::make_shared<TaskHandler<void>>([self, clientSocket, buf, bytesReceived, error]() {
                     self->HandleReceive(clientSocket, buf, bytesReceived, error);
@@ -314,6 +352,7 @@ void TcpServerImpl::SubmitRead(SOCKET clientSocket)
         });
 
     if (!success) {
+        CompletePendingIo();
         const DWORD submitError = static_cast<DWORD>(WSAGetLastError());
 
         if (!isRunning_.load() || !GetSession(clientSocket) || IsSocketInBenignCloseState(clientSocket, submitError)) {
@@ -423,12 +462,24 @@ bool TcpServerImpl::Send(socket_t fd, std::shared_ptr<DataBuffer> buffer)
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
+    TrackPendingIo();
+
     bool success =
         manager.SubmitWriteRequest((SOCKET)fd, buffer, [self, fd](SOCKET socket, DWORD bytesSent, DWORD error) {
+            struct PendingIoGuard {
+                TcpServerImpl *owner;
+                ~PendingIoGuard() { owner->CompletePendingIo(); }
+            } pendingIoGuard{self.get()};
+
+            if (!self->isRunning_.load()) {
+                return;
+            }
+
             self->HandleSend((SOCKET)fd, bytesSent, error);
         });
 
     if (!success) {
+        CompletePendingIo();
         LMNET_LOGE("Failed to submit write request for socket %d", fd);
         return false;
     }

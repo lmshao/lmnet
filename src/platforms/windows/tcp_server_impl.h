@@ -13,6 +13,7 @@
 #include <lmcore/task_queue.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -46,6 +47,9 @@ public:
 private:
     void SubmitAccept();
     void SubmitRead(SOCKET clientSocket);
+    void TrackPendingIo();
+    void CompletePendingIo();
+    void WaitForPendingIo();
     void HandleAccept(SOCKET clientSocket, const sockaddr_in &clientAddr);
     void HandleReceive(SOCKET clientSocket, std::shared_ptr<DataBuffer> buffer, DWORD bytesReceived, DWORD error);
     void HandleSend(SOCKET clientSocket, DWORD bytesSent, DWORD error);
@@ -68,6 +72,9 @@ private:
     std::atomic<bool> acceptRetryPending_{false};
     std::weak_ptr<IServerListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
+    std::mutex pendingIoMutex_;
+    std::condition_variable pendingIoCv_;
+    size_t pendingIo_{0};
 
     // Session management
     std::mutex sessionMutex_;
