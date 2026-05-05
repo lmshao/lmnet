@@ -241,10 +241,12 @@ void TcpClientImpl::SubmitRead()
     auto self = shared_from_this();
 
     bool success = manager.SubmitReadRequest(
-        socket_, buffer, [self, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesOrError) {
+        socket_, buffer, [self, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesReceived,
+                                        DWORD error) {
             if (self->taskQueue_) {
-                auto task = std::make_shared<TaskHandler<void>>(
-                    [self, buf, bytesOrError]() { self->HandleReceive(buf, bytesOrError); });
+                auto task = std::make_shared<TaskHandler<void>>([self, buf, bytesReceived, error]() {
+                    self->HandleReceive(buf, bytesReceived, error);
+                });
                 self->taskQueue_->EnqueueTask(task);
             }
         });
@@ -255,18 +257,18 @@ void TcpClientImpl::SubmitRead()
     }
 }
 
-void TcpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError)
+void TcpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesReceived, DWORD error)
 {
-    if (bytesOrError == 0) {
-        // Connection closed by peer
-        LMNET_LOGD("Connection closed by peer");
-        HandleClose(false, "Connection closed by peer");
+    if (error != 0) {
+        LMNET_LOGE("Receive error: %lu", error);
+        HandleClose(true, "Receive error: " + std::to_string(error));
         return;
     }
 
-    if (bytesOrError > 65536) { // Assume it's an error code
-        LMNET_LOGE("Receive error: %lu", bytesOrError);
-        HandleClose(true, "Receive error: " + std::to_string(bytesOrError));
+    if (bytesReceived == 0) {
+        // Connection closed by peer
+        LMNET_LOGD("Connection closed by peer");
+        HandleClose(false, "Connection closed by peer");
         return;
     }
 

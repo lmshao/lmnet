@@ -184,18 +184,18 @@ void UdpServerImpl::SubmitReceive()
 
     bool success = manager.SubmitRecvFromRequest(socket_, buffer,
                                                  [self, buffer, seq](SOCKET socket, std::shared_ptr<DataBuffer> buf,
-                                                                     DWORD bytesOrError, const sockaddr_in &fromAddr) {
+                                                                     DWORD bytesReceived, DWORD error,
+                                                                     const sockaddr_in &fromAddr) {
                                                      // This callback may be invoked from multiple IOCP worker threads
                                                      // in non-deterministic order Submit to PacketOrderer for
                                                      // reordering
                                                      if (self->isRunning_.load() && self->packet_orderer_) {
-                                                         if (bytesOrError > 0 && bytesOrError <= 65536) {
+                                                         if (error == 0 && bytesReceived > 0) {
                                                              // Valid data packet - submit for ordering
-                                                             buf->SetSize(bytesOrError);
                                                              self->packet_orderer_->SubmitPacket(seq, buf, fromAddr);
-                                                         } else if (bytesOrError > 65536) {
+                                                         } else if (error != 0) {
                                                              // Error code
-                                                             LMNET_LOGE("UDP receive error: %lu", bytesOrError);
+                                                             LMNET_LOGE("UDP receive error: %lu", error);
                                                          }
                                                      }
 

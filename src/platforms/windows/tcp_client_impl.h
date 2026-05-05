@@ -45,7 +45,7 @@ private:
     void SubmitConnect();
     void SubmitRead();
     void HandleConnect(DWORD error);
-    void HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError);
+    void HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesReceived, DWORD error);
     void HandleSend(DWORD bytesSent, DWORD error);
     void HandleClose(bool isError, const std::string &reason);
     void NotifyClose(socket_t fd, bool isError, const std::string &reason);

@@ -47,7 +47,7 @@ private:
     void SubmitAccept();
     void SubmitRead(SOCKET clientSocket);
     void HandleAccept(SOCKET clientSocket, const sockaddr_in &clientAddr);
-    void HandleReceive(SOCKET clientSocket, std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError);
+    void HandleReceive(SOCKET clientSocket, std::shared_ptr<DataBuffer> buffer, DWORD bytesReceived, DWORD error);
     void HandleSend(SOCKET clientSocket, DWORD bytesSent, DWORD error);
     void HandleClientClose(SOCKET clientSocket, bool isError, const std::string &reason);
 

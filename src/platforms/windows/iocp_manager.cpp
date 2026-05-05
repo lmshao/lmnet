@@ -251,7 +251,7 @@ bool IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
                 if (error == 0 && bytes > 0 && req->buffer) {
                     req->buffer->SetSize(bytes);
                 }
-                req->read_cb(req->socket, req->buffer, error == 0 ? bytes : error);
+                req->read_cb(req->socket, req->buffer, bytes, error);
             }
             return true;
 
@@ -291,7 +291,7 @@ bool IocpManager::HandleCompletion(IocpRequest *req, DWORD bytes, DWORD error)
                 if (error == 0 && bytes > 0 && req->buffer) {
                     req->buffer->SetSize(bytes);
                 }
-                req->recvfrom_cb(req->socket, req->buffer, error == 0 ? bytes : error, req->remoteAddr);
+                req->recvfrom_cb(req->socket, req->buffer, bytes, error, req->remoteAddr);
             }
             return true;
 

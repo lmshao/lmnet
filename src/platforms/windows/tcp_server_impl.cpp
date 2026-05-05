@@ -261,14 +261,15 @@ void TcpServerImpl::SubmitRead(SOCKET clientSocket)
 
     bool success = manager.SubmitReadRequest(
         clientSocket, buffer,
-        [self, clientSocket, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesOrError) {
+        [self, clientSocket, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesReceived,
+                                     DWORD error) {
             if (self->taskQueue_) {
-                auto task = std::make_shared<TaskHandler<void>>([self, clientSocket, buf, bytesOrError]() {
-                    self->HandleReceive(clientSocket, buf, bytesOrError);
+                auto task = std::make_shared<TaskHandler<void>>([self, clientSocket, buf, bytesReceived, error]() {
+                    self->HandleReceive(clientSocket, buf, bytesReceived, error);
                 });
                 self->taskQueue_->EnqueueTask(task);
             } else {
-                self->HandleReceive(clientSocket, buf, bytesOrError);
+                self->HandleReceive(clientSocket, buf, bytesReceived, error);
             }
         });
 
@@ -286,18 +287,19 @@ void TcpServerImpl::SubmitRead(SOCKET clientSocket)
     }
 }
 
-void TcpServerImpl::HandleReceive(SOCKET clientSocket, std::shared_ptr<DataBuffer> buffer, DWORD bytesOrError)
+void TcpServerImpl::HandleReceive(SOCKET clientSocket, std::shared_ptr<DataBuffer> buffer, DWORD bytesReceived,
+                                  DWORD error)
 {
-    if (bytesOrError == 0) {
-        // Connection closed by peer
-        LMNET_LOGD("Client socket %llu closed connection", static_cast<unsigned long long>(clientSocket));
-        HandleClientClose(clientSocket, false, "Connection closed by peer");
+    if (error != 0) {
+        LMNET_LOGE("Receive error on socket %llu: %lu", static_cast<unsigned long long>(clientSocket), error);
+        HandleClientClose(clientSocket, true, "Receive error: " + std::to_string(error));
         return;
     }
 
-    if (bytesOrError > 65536) { // Assume it's an error code
-        LMNET_LOGE("Receive error on socket %llu: %lu", static_cast<unsigned long long>(clientSocket), bytesOrError);
-        HandleClientClose(clientSocket, true, "Receive error: " + std::to_string(bytesOrError));
+    if (bytesReceived == 0) {
+        // Connection closed by peer
+        LMNET_LOGD("Client socket %llu closed connection", static_cast<unsigned long long>(clientSocket));
+        HandleClientClose(clientSocket, false, "Connection closed by peer");
         return;
     }
 
