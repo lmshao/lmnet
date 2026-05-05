@@ -188,9 +188,8 @@ void UdpClientImpl::SubmitReceive()
                     // Error code
                     LMNET_LOGE("UDP receive error: %lu", error);
                     if (self->taskQueue_) {
-                        auto task = std::make_shared<TaskHandler<void>>([self, error]() {
-                            self->HandleClose(true, "Receive error: " + std::to_string(error));
-                        });
+                        auto task = std::make_shared<TaskHandler<void>>(
+                            [self, error]() { self->HandleClose(true, "Receive error: " + std::to_string(error)); });
                         self->taskQueue_->EnqueueTask(task);
                     }
                 }
@@ -254,16 +253,16 @@ bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
-    bool success = manager.SubmitSendToRequest(socket_, data, remoteAddr_, [self](SOCKET socket, DWORD bytesSent, DWORD error) {
-        if (self->taskQueue_) {
-            auto task = std::make_shared<TaskHandler<void>>([self, bytesSent, error]() {
+    bool success =
+        manager.SubmitSendToRequest(socket_, data, remoteAddr_, [self](SOCKET socket, DWORD bytesSent, DWORD error) {
+            if (self->taskQueue_) {
+                auto task = std::make_shared<TaskHandler<void>>(
+                    [self, bytesSent, error]() { self->HandleSend(bytesSent, error); });
+                self->taskQueue_->EnqueueTask(task);
+            } else {
                 self->HandleSend(bytesSent, error);
-            });
-            self->taskQueue_->EnqueueTask(task);
-        } else {
-            self->HandleSend(bytesSent, error);
-        }
-    });
+            }
+        });
 
     if (!success) {
         LMNET_LOGE("Failed to submit UDP send request");
@@ -305,18 +304,25 @@ void UdpClientImpl::Close()
 
 void UdpClientImpl::HandleClose(bool isError, const std::string &reason)
 {
-    if (!isRunning_.load()) {
+    bool wasRunning = isRunning_.exchange(false);
+    if (!wasRunning) {
         return;
     }
 
     LMNET_LOGD("Handling UDP client close: error=%d, reason=%s", isError, reason.c_str());
 
+    SOCKET socketToClose = socket_;
+    if (socket_ != INVALID_SOCKET) {
+        closesocket(socket_);
+        socket_ = INVALID_SOCKET;
+    }
+
     // Notify listener
     if (auto listener = listener_.lock()) {
         if (isError) {
-            listener->OnError(socket_, reason);
+            listener->OnError(socketToClose, reason);
         }
-        listener->OnClose(socket_);
+        listener->OnClose(socketToClose);
     }
 }
 
