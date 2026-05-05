@@ -23,6 +23,16 @@ namespace lmshao::lmnet {
 
 using lmshao::lmcore::TaskHandler;
 
+uint64_t TcpClientImpl::AdvanceGeneration()
+{
+    return socketGeneration_.fetch_add(1, std::memory_order_acq_rel) + 1;
+}
+
+bool TcpClientImpl::IsCurrentGeneration(uint64_t generation) const
+{
+    return socketGeneration_.load(std::memory_order_acquire) == generation;
+}
+
 TcpClientImpl::TcpClientImpl(std::string remoteIp, uint16_t remotePort, std::string localIp, uint16_t localPort)
     : remoteIp_(std::move(remoteIp)), remotePort_(remotePort), localIp_(std::move(localIp)), localPort_(localPort)
 {
@@ -69,6 +79,8 @@ bool TcpClientImpl::Init()
 
 void TcpClientImpl::ReInit()
 {
+    AdvanceGeneration();
+
     // Close existing socket if any
     if (socket_ != INVALID_SOCKET) {
         closesocket(socket_);
@@ -183,10 +195,12 @@ void TcpClientImpl::SubmitConnect()
 {
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
+    const uint64_t generation = socketGeneration_.load(std::memory_order_acquire);
 
-    bool success = manager.SubmitConnectRequest(socket_, serverAddr_, [self](SOCKET socket, DWORD error) {
+    bool success = manager.SubmitConnectRequest(socket_, serverAddr_, [self, generation](SOCKET socket, DWORD error) {
         if (self->taskQueue_) {
-            auto task = std::make_shared<TaskHandler<void>>([self, error]() { self->HandleConnect(error); });
+            auto task = std::make_shared<TaskHandler<void>>(
+                [self, generation, error]() { self->HandleConnect(generation, error); });
             self->taskQueue_->EnqueueTask(task);
         }
     });
@@ -205,8 +219,14 @@ void TcpClientImpl::SubmitConnect()
     }
 }
 
-void TcpClientImpl::HandleConnect(DWORD error)
+void TcpClientImpl::HandleConnect(uint64_t generation, DWORD error)
 {
+    if (!IsCurrentGeneration(generation)) {
+        LMNET_LOGD("Ignoring stale connect completion for generation %llu",
+                   static_cast<unsigned long long>(generation));
+        return;
+    }
+
     const bool success = (error == 0);
 
     {
@@ -239,13 +259,14 @@ void TcpClientImpl::SubmitRead()
     auto buffer = DataBuffer::Create(8192);
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
+    const uint64_t generation = socketGeneration_.load(std::memory_order_acquire);
 
     bool success = manager.SubmitReadRequest(
-        socket_, buffer, [self, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesReceived,
-                                        DWORD error) {
+        socket_, buffer,
+        [self, generation](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesReceived, DWORD error) {
             if (self->taskQueue_) {
-                auto task = std::make_shared<TaskHandler<void>>([self, buf, bytesReceived, error]() {
-                    self->HandleReceive(buf, bytesReceived, error);
+                auto task = std::make_shared<TaskHandler<void>>([self, generation, buf, bytesReceived, error]() {
+                    self->HandleReceive(generation, buf, bytesReceived, error);
                 });
                 self->taskQueue_->EnqueueTask(task);
             }
@@ -257,8 +278,13 @@ void TcpClientImpl::SubmitRead()
     }
 }
 
-void TcpClientImpl::HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesReceived, DWORD error)
+void TcpClientImpl::HandleReceive(uint64_t generation, std::shared_ptr<DataBuffer> buffer, DWORD bytesReceived,
+                                  DWORD error)
 {
+    if (!IsCurrentGeneration(generation)) {
+        return;
+    }
+
     if (error != 0) {
         LMNET_LOGE("Receive error: %lu", error);
         HandleClose(true, "Receive error: " + std::to_string(error));
@@ -310,17 +336,18 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
+    const uint64_t generation = socketGeneration_.load(std::memory_order_acquire);
 
-    bool success = manager.SubmitWriteRequest(socket_, data, [self](SOCKET socket, DWORD bytesSent, DWORD error) {
-        if (self->taskQueue_) {
-            auto task = std::make_shared<TaskHandler<void>>([self, bytesSent, error]() {
-                self->HandleSend(bytesSent, error);
-            });
-            self->taskQueue_->EnqueueTask(task);
-        } else {
-            self->HandleSend(bytesSent, error);
-        }
-    });
+    bool success =
+        manager.SubmitWriteRequest(socket_, data, [self, generation](SOCKET socket, DWORD bytesSent, DWORD error) {
+            if (self->taskQueue_) {
+                auto task = std::make_shared<TaskHandler<void>>(
+                    [self, generation, bytesSent, error]() { self->HandleSend(generation, bytesSent, error); });
+                self->taskQueue_->EnqueueTask(task);
+            } else {
+                self->HandleSend(generation, bytesSent, error);
+            }
+        });
 
     if (!success) {
         LMNET_LOGE("Failed to submit write request");
@@ -330,8 +357,12 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
     return true;
 }
 
-void TcpClientImpl::HandleSend(DWORD bytesSent, DWORD error)
+void TcpClientImpl::HandleSend(uint64_t generation, DWORD bytesSent, DWORD error)
 {
+    if (!IsCurrentGeneration(generation)) {
+        return;
+    }
+
     if (error != 0) {
         LMNET_LOGE("Send error: %lu", error);
         HandleClose(true, "Send error: " + std::to_string(error));
@@ -350,6 +381,7 @@ void TcpClientImpl::Close()
     SOCKET socketToClose = socket_;
     bool wasConnected = isConnected_.exchange(false);
     isRunning_.store(false);
+    AdvanceGeneration();
 
     if (socket_ != INVALID_SOCKET) {
         closesocket(socket_);
@@ -383,6 +415,7 @@ void TcpClientImpl::HandleClose(bool isError, const std::string &reason)
     SOCKET socketToClose = socket_;
     bool wasConnected = isConnected_.exchange(false);
     isRunning_.store(false);
+    AdvanceGeneration();
 
     if (socket_ != INVALID_SOCKET) {
         closesocket(socket_);

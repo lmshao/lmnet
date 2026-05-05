@@ -41,12 +41,14 @@ public:
     socket_t GetSocketFd() const override;
 
 private:
+    uint64_t AdvanceGeneration();
+    bool IsCurrentGeneration(uint64_t generation) const;
     void ReInit();
     void SubmitConnect();
     void SubmitRead();
-    void HandleConnect(DWORD error);
-    void HandleReceive(std::shared_ptr<DataBuffer> buffer, DWORD bytesReceived, DWORD error);
-    void HandleSend(DWORD bytesSent, DWORD error);
+    void HandleConnect(uint64_t generation, DWORD error);
+    void HandleReceive(uint64_t generation, std::shared_ptr<DataBuffer> buffer, DWORD bytesReceived, DWORD error);
+    void HandleSend(uint64_t generation, DWORD bytesSent, DWORD error);
     void HandleClose(bool isError, const std::string &reason);
     void NotifyClose(socket_t fd, bool isError, const std::string &reason);
 
@@ -71,6 +73,7 @@ private:
     bool connectPending_{false};
     bool connectSuccess_{false};
     DWORD lastConnectError_{0};
+    std::atomic<uint64_t> socketGeneration_{0};
 };
 
 } // namespace lmshao::lmnet
