@@ -140,6 +140,18 @@ TEST(TcpTest, CloseAfterInitInvalidatesSocket)
     EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
 }
 
+TEST(TcpTest, StopAfterInitInvalidatesServerSocket)
+{
+    auto server = TcpServer::Create("127.0.0.1", 12347);
+
+    EXPECT_TRUE(server->Init());
+    EXPECT_TRUE(server->GetSocketFd() != INVALID_SOCKET);
+
+    EXPECT_TRUE(server->Stop());
+
+    EXPECT_EQ(INVALID_SOCKET, server->GetSocketFd());
+}
+
 TEST(TcpTest, ConnectFailureDoesNotNotifyListener)
 {
     const uint16_t port = 65432;

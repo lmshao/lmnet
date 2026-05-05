@@ -141,13 +141,13 @@ bool UdpServerImpl::Start()
 
 bool UdpServerImpl::Stop()
 {
-    if (!isRunning_.load()) {
+    const bool wasRunning = isRunning_.exchange(false);
+    if (!wasRunning && socket_ == INVALID_SOCKET) {
         return true;
     }
 
     LMNET_LOGI("Stopping UDP server");
 
-    isRunning_.store(false);
     receiveRetryPending_.store(false);
 
     // Close socket (this will cause pending I/O to complete with errors)

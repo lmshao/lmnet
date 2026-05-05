@@ -154,6 +154,18 @@ TEST(UdpTest, CloseAfterInitInvalidatesSocket)
     EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
 }
 
+TEST(UdpTest, StopAfterInitInvalidatesServerSocket)
+{
+    auto server = UdpServer::Create("127.0.0.1", UdpServer::GetIdlePort());
+
+    EXPECT_TRUE(server->Init());
+    EXPECT_TRUE(server->GetSocketFd() != INVALID_SOCKET);
+
+    EXPECT_TRUE(server->Stop());
+
+    EXPECT_EQ(INVALID_SOCKET, server->GetSocketFd());
+}
+
 #ifdef _WIN32
 TEST(UdpTest, IocpCloseRequestAllowsNullCallback)
 {

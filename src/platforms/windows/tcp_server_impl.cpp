@@ -166,13 +166,13 @@ bool TcpServerImpl::Start()
 
 bool TcpServerImpl::Stop()
 {
-    if (!isRunning_.load()) {
+    const bool wasRunning = isRunning_.exchange(false);
+    if (!wasRunning && listenSocket_ == INVALID_SOCKET) {
         return true;
     }
 
     LMNET_LOGI("Stopping TCP server");
 
-    isRunning_.store(false);
     acceptRetryPending_.store(false);
 
     // Close all client sessions
