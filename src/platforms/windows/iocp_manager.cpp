@@ -37,6 +37,7 @@ bool IocpManager::Init(int entries, int workerThreads)
     }
 
     entries_ = entries;
+    maxEntries_ = std::max<size_t>(static_cast<size_t>(entries_) * 4, static_cast<size_t>(entries_) + 64);
 
     // Create IOCP
     iocp_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
@@ -47,7 +48,8 @@ bool IocpManager::Init(int entries, int workerThreads)
 
     // Initialize request pool
     requestPool_.resize(entries_);
-    freeRequests_.reserve(entries_);
+    dynamicRequestPool_.clear();
+    freeRequests_.reserve(maxEntries_);
     for (int i = 0; i < entries_; ++i) {
         freeRequests_.push_back(&requestPool_[i]);
     }
@@ -110,7 +112,9 @@ void IocpManager::Stop()
     {
         std::lock_guard<std::mutex> lock(poolMutex_);
         freeRequests_.clear();
+        dynamicRequestPool_.clear();
         requestPool_.clear();
+        maxEntries_ = 0;
     }
 
     LMNET_LOGI("IOCP Manager stopped");
@@ -132,6 +136,17 @@ IocpRequest *IocpManager::GetRequest()
 {
     std::lock_guard<std::mutex> lock(poolMutex_);
     if (freeRequests_.empty()) {
+        size_t currentPoolSize = requestPool_.size() + dynamicRequestPool_.size();
+        if (currentPoolSize < maxEntries_) {
+            auto request = std::make_unique<IocpRequest>();
+            IocpRequest *rawRequest = request.get();
+            dynamicRequestPool_.push_back(std::move(request));
+            rawRequest->Clear();
+            stats_.request_pool_expansions.fetch_add(1);
+            stats_.request_pool_hits.fetch_add(1);
+            return rawRequest;
+        }
+
         stats_.request_pool_misses.fetch_add(1);
         return nullptr;
     }

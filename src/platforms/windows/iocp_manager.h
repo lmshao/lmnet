@@ -41,11 +41,12 @@ enum class IocpRequestType {
     EXIT
 };
 
-using ConnectCallback = std::function<void(SOCKET, DWORD)>;                           // socket, error
-using AcceptCallback = std::function<void(SOCKET, SOCKET, const sockaddr_in &)>;      // listen_fd, client_fd, addr
-using ReadCallback = std::function<void(SOCKET, std::shared_ptr<DataBuffer>, DWORD, DWORD)>; // socket, buffer, bytes, error
-using WriteCallback = std::function<void(SOCKET, DWORD, DWORD)>;                      // socket, bytes, error
-using CloseCallback = std::function<void(SOCKET, DWORD)>;                             // socket, result
+using ConnectCallback = std::function<void(SOCKET, DWORD)>;                      // socket, error
+using AcceptCallback = std::function<void(SOCKET, SOCKET, const sockaddr_in &)>; // listen_fd, client_fd, addr
+using ReadCallback =
+    std::function<void(SOCKET, std::shared_ptr<DataBuffer>, DWORD, DWORD)>; // socket, buffer, bytes, error
+using WriteCallback = std::function<void(SOCKET, DWORD, DWORD)>;            // socket, bytes, error
+using CloseCallback = std::function<void(SOCKET, DWORD)>;                   // socket, result
 using RecvFromCallback = std::function<void(SOCKET, std::shared_ptr<DataBuffer>, DWORD, DWORD,
                                             const sockaddr_in &)>; // socket, buffer, bytes, error, addr
 using SendToCallback = std::function<void(SOCKET, DWORD, DWORD)>;  // socket, bytes, error
@@ -124,6 +125,7 @@ public:
         std::atomic<uint64_t> operations_completed{0};
         std::atomic<uint64_t> buffer_reuses{0};
         std::atomic<uint64_t> request_pool_hits{0};
+        std::atomic<uint64_t> request_pool_expansions{0};
         std::atomic<uint64_t> request_pool_misses{0};
     };
     const IocpStats &GetStats() const { return stats_; }
@@ -162,9 +164,11 @@ private:
 private:
     HANDLE iocp_{nullptr};
     int entries_{0};
+    size_t maxEntries_{0};
 
     // Object pool for requests
     std::vector<IocpRequest> requestPool_;
+    std::vector<std::unique_ptr<IocpRequest>> dynamicRequestPool_;
     std::vector<IocpRequest *> freeRequests_;
     std::mutex poolMutex_;
 
