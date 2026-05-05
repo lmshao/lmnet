@@ -132,6 +132,7 @@ bool UdpServerImpl::Start()
     }
 
     isRunning_.store(true);
+    receiveRetryPending_.store(false);
     StartReceiving();
 
     LMNET_LOGI("UDP server started on %s:%u", ip_.c_str(), port_);
@@ -147,6 +148,7 @@ bool UdpServerImpl::Stop()
     LMNET_LOGI("Stopping UDP server");
 
     isRunning_.store(false);
+    receiveRetryPending_.store(false);
 
     // Close socket (this will cause pending I/O to complete with errors)
     if (socket_ != INVALID_SOCKET) {
@@ -205,15 +207,20 @@ void UdpServerImpl::SubmitReceive()
 
     if (!success) {
         LMNET_LOGE("Failed to submit UDP receive request");
-        // Retry after a short delay in case of temporary issues
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        if (isRunning_.load()) {
-            if (taskQueue_) {
-                auto task = std::make_shared<TaskHandler<void>>([self]() { self->SubmitReceive(); });
+        if (!isRunning_.load()) {
+            return;
+        }
+
+        if (taskQueue_) {
+            if (!receiveRetryPending_.exchange(true)) {
+                auto task = std::make_shared<TaskHandler<void>>([self]() {
+                    self->receiveRetryPending_.store(false);
+                    self->SubmitReceive();
+                });
                 taskQueue_->EnqueueTask(task);
-            } else {
-                SubmitReceive();
             }
+        } else {
+            SubmitReceive();
         }
     }
 }
@@ -276,16 +283,16 @@ bool UdpServerImpl::Send(std::string host, uint16_t port, std::shared_ptr<DataBu
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
-    bool success = manager.SubmitSendToRequest(socket_, buffer, destAddr, [self](SOCKET socket, DWORD bytesSent, DWORD error) {
-        if (self->taskQueue_) {
-            auto task = std::make_shared<TaskHandler<void>>([self, bytesSent, error]() {
+    bool success =
+        manager.SubmitSendToRequest(socket_, buffer, destAddr, [self](SOCKET socket, DWORD bytesSent, DWORD error) {
+            if (self->taskQueue_) {
+                auto task = std::make_shared<TaskHandler<void>>(
+                    [self, bytesSent, error]() { self->HandleSend(bytesSent, error); });
+                self->taskQueue_->EnqueueTask(task);
+            } else {
                 self->HandleSend(bytesSent, error);
-            });
-            self->taskQueue_->EnqueueTask(task);
-        } else {
-            self->HandleSend(bytesSent, error);
-        }
-    });
+            }
+        });
 
     if (!success) {
         LMNET_LOGE("Failed to submit UDP send request to %s:%u", host.c_str(), port);

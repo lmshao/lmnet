@@ -61,6 +61,7 @@ private:
     // Packet ordering for IOCP
     std::unique_ptr<PacketOrderer> packet_orderer_;
     std::atomic<uint64_t> receive_seq_counter_{0};
+    std::atomic<bool> receiveRetryPending_{false};
 
     // Number of concurrent receive operations (restored for performance)
     static constexpr int CONCURRENT_RECEIVES = 4;
