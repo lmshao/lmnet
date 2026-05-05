@@ -25,6 +25,29 @@ namespace lmshao::lmnet {
 
 using lmshao::lmcore::TaskHandler;
 
+namespace {
+bool IsExpectedSocketShutdownError(DWORD error)
+{
+    return error == WSA_OPERATION_ABORTED || error == ERROR_OPERATION_ABORTED || error == ERROR_NETNAME_DELETED ||
+           error == ERROR_CONNECTION_ABORTED || error == WSAESHUTDOWN || error == WSAENOTSOCK;
+}
+
+bool IsSocketInBenignCloseState(SOCKET socket, DWORD submitError)
+{
+    if (IsExpectedSocketShutdownError(submitError)) {
+        return true;
+    }
+
+    int socketError = 0;
+    int optionLength = sizeof(socketError);
+    if (getsockopt(socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&socketError), &optionLength) == 0) {
+        return IsExpectedSocketShutdownError(static_cast<DWORD>(socketError));
+    }
+
+    return IsExpectedSocketShutdownError(static_cast<DWORD>(WSAGetLastError()));
+}
+} // namespace
+
 TcpServerImpl::TcpServerImpl(std::string listenIp, uint16_t listenPort) : ip_(std::move(listenIp)), port_(listenPort)
 {
     taskQueue_ = std::make_unique<TaskQueue>("TcpServer");
@@ -255,14 +278,17 @@ void TcpServerImpl::SubmitRead(SOCKET clientSocket)
         return;
     }
 
+    if (!GetSession(clientSocket)) {
+        return;
+    }
+
     auto buffer = DataBuffer::Create(8192);
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
     bool success = manager.SubmitReadRequest(
         clientSocket, buffer,
-        [self, clientSocket, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesReceived,
-                                     DWORD error) {
+        [self, clientSocket, buffer](SOCKET socket, std::shared_ptr<DataBuffer> buf, DWORD bytesReceived, DWORD error) {
             if (self->taskQueue_) {
                 auto task = std::make_shared<TaskHandler<void>>([self, clientSocket, buf, bytesReceived, error]() {
                     self->HandleReceive(clientSocket, buf, bytesReceived, error);
@@ -274,6 +300,13 @@ void TcpServerImpl::SubmitRead(SOCKET clientSocket)
         });
 
     if (!success) {
+        const DWORD submitError = static_cast<DWORD>(WSAGetLastError());
+
+        if (!isRunning_.load() || !GetSession(clientSocket) || IsSocketInBenignCloseState(clientSocket, submitError)) {
+            HandleClientClose(clientSocket, false, "Connection closed while rearming read");
+            return;
+        }
+
         LMNET_LOGE("Failed to submit read request for client socket %llu",
                    static_cast<unsigned long long>(clientSocket));
         if (taskQueue_) {
@@ -291,6 +324,11 @@ void TcpServerImpl::HandleReceive(SOCKET clientSocket, std::shared_ptr<DataBuffe
                                   DWORD error)
 {
     if (error != 0) {
+        if (IsExpectedSocketShutdownError(error)) {
+            HandleClientClose(clientSocket, false, "Connection closed during shutdown");
+            return;
+        }
+
         LMNET_LOGE("Receive error on socket %llu: %lu", static_cast<unsigned long long>(clientSocket), error);
         HandleClientClose(clientSocket, true, "Receive error: " + std::to_string(error));
         return;
@@ -309,6 +347,10 @@ void TcpServerImpl::HandleReceive(SOCKET clientSocket, std::shared_ptr<DataBuffe
         if (auto listener = listener_.lock()) {
             listener->OnReceive(session, buffer);
         }
+    }
+
+    if (!isRunning_.load() || !GetSession(clientSocket)) {
+        return;
     }
 
     // Continue reading
@@ -332,6 +374,10 @@ void TcpServerImpl::HandleClientClose(SOCKET clientSocket, bool isError, const s
 
         // Remove session
         RemoveSession(clientSocket);
+    }
+
+    if (!session) {
+        return;
     }
 
     // Close socket
@@ -363,9 +409,10 @@ bool TcpServerImpl::Send(socket_t fd, std::shared_ptr<DataBuffer> buffer)
     auto &manager = IocpManager::GetInstance();
     auto self = shared_from_this();
 
-    bool success = manager.SubmitWriteRequest((SOCKET)fd, buffer, [self, fd](SOCKET socket, DWORD bytesSent, DWORD error) {
-        self->HandleSend((SOCKET)fd, bytesSent, error);
-    });
+    bool success =
+        manager.SubmitWriteRequest((SOCKET)fd, buffer, [self, fd](SOCKET socket, DWORD bytesSent, DWORD error) {
+            self->HandleSend((SOCKET)fd, bytesSent, error);
+        });
 
     if (!success) {
         LMNET_LOGE("Failed to submit write request for socket %d", fd);
@@ -388,6 +435,10 @@ bool TcpServerImpl::Send(socket_t fd, const std::string &str)
 void TcpServerImpl::HandleSend(SOCKET clientSocket, DWORD bytesSent, DWORD error)
 {
     if (error != 0) {
+        if (!isRunning_.load() || !GetSession(clientSocket) || IsExpectedSocketShutdownError(error)) {
+            return;
+        }
+
         LMNET_LOGE("Send error on socket %llu: %lu", static_cast<unsigned long long>(clientSocket), error);
         HandleClientClose(clientSocket, true, "Send error: " + std::to_string(error));
     }

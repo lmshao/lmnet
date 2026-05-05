@@ -23,6 +23,29 @@ namespace lmshao::lmnet {
 
 using lmshao::lmcore::TaskHandler;
 
+namespace {
+bool IsExpectedSocketShutdownError(DWORD error)
+{
+    return error == WSA_OPERATION_ABORTED || error == ERROR_OPERATION_ABORTED || error == ERROR_NETNAME_DELETED ||
+           error == ERROR_CONNECTION_ABORTED || error == WSAESHUTDOWN || error == WSAENOTSOCK;
+}
+
+bool IsSocketInBenignCloseState(SOCKET socket, DWORD submitError)
+{
+    if (IsExpectedSocketShutdownError(submitError)) {
+        return true;
+    }
+
+    int socketError = 0;
+    int optionLength = sizeof(socketError);
+    if (getsockopt(socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&socketError), &optionLength) == 0) {
+        return IsExpectedSocketShutdownError(static_cast<DWORD>(socketError));
+    }
+
+    return IsExpectedSocketShutdownError(static_cast<DWORD>(WSAGetLastError()));
+}
+} // namespace
+
 uint64_t TcpClientImpl::AdvanceGeneration()
 {
     return socketGeneration_.fetch_add(1, std::memory_order_acq_rel) + 1;
@@ -279,6 +302,12 @@ void TcpClientImpl::SubmitRead()
         });
 
     if (!success) {
+        const DWORD submitError = static_cast<DWORD>(WSAGetLastError());
+        if (!isRunning_.load() || !isConnected_.load() || IsSocketInBenignCloseState(socket_, submitError)) {
+            HandleClose(false, "Connection closed while rearming read");
+            return;
+        }
+
         LMNET_LOGE("Failed to submit read request");
         HandleClose(true, "Failed to submit read request");
     }
@@ -292,6 +321,11 @@ void TcpClientImpl::HandleReceive(uint64_t generation, std::shared_ptr<DataBuffe
     }
 
     if (error != 0) {
+        if (IsExpectedSocketShutdownError(error)) {
+            HandleClose(false, "Connection closed during shutdown");
+            return;
+        }
+
         LMNET_LOGE("Receive error: %lu", error);
         HandleClose(true, "Receive error: " + std::to_string(error));
         return;
