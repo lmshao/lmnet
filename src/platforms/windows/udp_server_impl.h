@@ -13,8 +13,10 @@
 #include <lmcore/task_queue.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "base_server.h"
@@ -46,6 +48,9 @@ private:
     void SubmitReceive();
     void HandleSend(DWORD bytesSent, DWORD error);
     void DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_in &fromAddr);
+    void TrackPendingIo();
+    void CompletePendingIo();
+    void WaitForPendingIo();
 
 private:
     std::string ip_;
@@ -62,6 +67,9 @@ private:
     std::unique_ptr<PacketOrderer> packet_orderer_;
     std::atomic<uint64_t> receive_seq_counter_{0};
     std::atomic<bool> receiveRetryPending_{false};
+    std::mutex pendingIoMutex_;
+    std::condition_variable pendingIoCv_;
+    size_t pendingIo_{0};
 
     // Number of concurrent receive operations (restored for performance)
     static constexpr int CONCURRENT_RECEIVES = 4;

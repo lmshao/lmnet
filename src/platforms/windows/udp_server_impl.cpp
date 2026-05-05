@@ -33,9 +33,7 @@ UdpServerImpl::UdpServerImpl(uint16_t listenPort) : UdpServerImpl("0.0.0.0", lis
 UdpServerImpl::~UdpServerImpl()
 {
     Stop();
-
-    // Give time for pending IOCP callbacks to complete
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    WaitForPendingIo();
 
     if (taskQueue_) {
         taskQueue_->Stop();
@@ -119,6 +117,31 @@ void UdpServerImpl::SetListener(std::shared_ptr<IServerListener> listener)
     listener_ = listener;
 }
 
+void UdpServerImpl::TrackPendingIo()
+{
+    std::lock_guard<std::mutex> lock(pendingIoMutex_);
+    ++pendingIo_;
+}
+
+void UdpServerImpl::CompletePendingIo()
+{
+    std::lock_guard<std::mutex> lock(pendingIoMutex_);
+    if (pendingIo_ == 0) {
+        return;
+    }
+
+    --pendingIo_;
+    if (pendingIo_ == 0) {
+        pendingIoCv_.notify_all();
+    }
+}
+
+void UdpServerImpl::WaitForPendingIo()
+{
+    std::unique_lock<std::mutex> lock(pendingIoMutex_);
+    pendingIoCv_.wait(lock, [this]() { return pendingIo_ == 0; });
+}
+
 bool UdpServerImpl::Start()
 {
     if (isRunning_.load()) {
@@ -188,6 +211,11 @@ void UdpServerImpl::SubmitReceive()
                                                  [self, buffer, seq](SOCKET socket, std::shared_ptr<DataBuffer> buf,
                                                                      DWORD bytesReceived, DWORD error,
                                                                      const sockaddr_in &fromAddr) {
+                                                     struct PendingIoGuard {
+                                                         UdpServerImpl *owner;
+                                                         ~PendingIoGuard() { owner->CompletePendingIo(); }
+                                                     } pendingIoGuard{self.get()};
+
                                                      // This callback may be invoked from multiple IOCP worker threads
                                                      // in non-deterministic order Submit to PacketOrderer for
                                                      // reordering
@@ -204,6 +232,10 @@ void UdpServerImpl::SubmitReceive()
                                                      // Continue receiving
                                                      self->SubmitReceive();
                                                  });
+
+    if (success) {
+        TrackPendingIo();
+    }
 
     if (!success) {
         LMNET_LOGE("Failed to submit UDP receive request");
@@ -285,6 +317,11 @@ bool UdpServerImpl::Send(std::string host, uint16_t port, std::shared_ptr<DataBu
 
     bool success =
         manager.SubmitSendToRequest(socket_, buffer, destAddr, [self](SOCKET socket, DWORD bytesSent, DWORD error) {
+            struct PendingIoGuard {
+                UdpServerImpl *owner;
+                ~PendingIoGuard() { owner->CompletePendingIo(); }
+            } pendingIoGuard{self.get()};
+
             if (!self->isRunning_.load()) {
                 return;
             }
@@ -297,6 +334,10 @@ bool UdpServerImpl::Send(std::string host, uint16_t port, std::shared_ptr<DataBu
                 self->HandleSend(bytesSent, error);
             }
         });
+
+    if (success) {
+        TrackPendingIo();
+    }
 
     if (!success) {
         LMNET_LOGE("Failed to submit UDP send request to %s:%u", host.c_str(), port);

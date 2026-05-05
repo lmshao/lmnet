@@ -13,8 +13,10 @@
 #include <lmcore/task_queue.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "iudp_client.h"
@@ -45,6 +47,9 @@ private:
     void HandleSend(DWORD bytesSent, DWORD error);
     void HandleClose(bool isError, const std::string &reason);
     void DeliverOrdered(std::shared_ptr<DataBuffer> buffer, const sockaddr_in &fromAddr);
+    void TrackPendingIo();
+    void CompletePendingIo();
+    void WaitForPendingIo();
 
 private:
     std::string remoteIp_;
@@ -63,6 +68,9 @@ private:
     // Packet ordering for IOCP
     std::unique_ptr<PacketOrderer> packet_orderer_;
     std::atomic<uint64_t> receive_seq_counter_{0};
+    std::mutex pendingIoMutex_;
+    std::condition_variable pendingIoCv_;
+    size_t pendingIo_{0};
 
     // Number of concurrent receive operations (restored for performance)
     static constexpr int CONCURRENT_RECEIVES = 4;
