@@ -12,6 +12,7 @@ concurrency:
 env:
   BUILD_TYPE: Release
   LMCORE_REPOSITORY: lmshao/lmcore
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-and-test:
@@ -76,13 +77,24 @@ jobs:
           }
 
       - name: Fetch sibling lmcore
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           rm -rf ../lmcore
           git clone --depth 1 "https://github.com/${LMCORE_REPOSITORY}.git" ../lmcore
 
+      - name: Fetch sibling lmcore on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path ../lmcore) {
+            Remove-Item ../lmcore -Recurse -Force
+          }
+          git clone --depth 1 "https://github.com/$env:LMCORE_REPOSITORY.git" ../lmcore
+
       - name: Configure
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
@@ -99,17 +111,46 @@ jobs:
           fi
           cmake "${cmake_args[@]}"
 
+      - name: Configure on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cmakeArgs = @(
+            '-S', '.',
+            '-B', 'build',
+            '-G', 'Ninja',
+            "-DCMAKE_BUILD_TYPE=$env:BUILD_TYPE",
+            '-DBUILD_TESTS=ON',
+            '-DBUILD_EXAMPLES=OFF',
+            '-DBUILD_SHARED_LIBS=OFF'
+          )
+          cmake @cmakeArgs
+
       - name: Build
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           cmake --build build --parallel
 
+      - name: Build on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake --build build --parallel
+
       - name: Test
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          ctest --test-dir build --output-on-failure --parallel 2
+          ctest --test-dir build --output-on-failure --parallel 1
+
+      - name: Test on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ctest --test-dir build --output-on-failure --parallel 1
 
       - name: Upload CTest logs
         if: failure()
