@@ -137,6 +137,7 @@ bool UdpServerImpl::Start()
         LMNET_LOGE("Failed to start task queue");
         EventReactor::GetInstance().RemoveHandler(socket_);
         serverHandler_.reset();
+        taskQueue_->Stop();
         return false;
     }
 

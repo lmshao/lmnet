@@ -141,6 +141,9 @@ bool UdpClientImpl::Init()
 
     if (taskQueue_->Start() != 0) {
         LMNET_LOGE("Failed to start UDP client task queue");
+        if (taskQueue_) {
+            taskQueue_->Stop();
+        }
         Close();
         return false;
     }
