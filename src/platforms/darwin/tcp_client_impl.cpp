@@ -313,13 +313,19 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
         return false;
     }
 
-    if (socket_ == INVALID_SOCKET) {
-        LMNET_LOGE("socket not initialized");
-        return false;
+    std::shared_ptr<TcpClientHandler> handler;
+    {
+        std::lock_guard<std::mutex> lock(closeMutex_);
+        if (socket_ == INVALID_SOCKET) {
+            LMNET_LOGE("socket not initialized");
+            return false;
+        }
+
+        handler = clientHandler_;
     }
 
-    if (clientHandler_) {
-        clientHandler_->QueueSend(data);
+    if (handler) {
+        handler->QueueSend(data);
         return true;
     }
     LMNET_LOGE("Client handler not found");
@@ -328,27 +334,16 @@ bool TcpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 
 void TcpClientImpl::Close()
 {
-    socket_t fd = socket_;
-    bool wasConnected = isConnected_.exchange(false);
-
-    if (socket_ != INVALID_SOCKET) {
-        if (clientHandler_) {
-            EventReactor::GetInstance().RemoveHandler(socket_);
-            clientHandler_.reset();
-        }
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-    }
-
-    if (wasConnected) {
-        NotifyClose(fd, false, "Closed by client");
-    }
+    CloseInternal(socket_, false, "Closed by client", true);
 }
 
 void TcpClientImpl::HandleReceive(socket_t fd)
 {
-    if (socket_ != fd) {
-        return;
+    {
+        std::lock_guard<std::mutex> lock(closeMutex_);
+        if (socket_ != fd) {
+            return;
+        }
     }
 
     LMNET_LOGD("fd: %d", fd);
@@ -397,18 +392,39 @@ void TcpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
     LMNET_LOGD("Closing client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
                isError ? "true" : "false");
 
-    if (socket_ != fd) {
-        LMNET_LOGD("Connection fd: %d already cleaned up", fd);
-        return;
+    CloseInternal(fd, isError, reason, true);
+}
+
+void TcpClientImpl::CloseInternal(socket_t fd, bool isError, const std::string &reason, bool notifyListener)
+{
+    std::shared_ptr<TcpClientHandler> handler;
+    socket_t socketToClose = INVALID_SOCKET;
+    bool wasConnected = false;
+
+    {
+        std::lock_guard<std::mutex> lock(closeMutex_);
+        if (socket_ == INVALID_SOCKET) {
+            return;
+        }
+
+        if (fd != INVALID_SOCKET && socket_ != fd) {
+            LMNET_LOGD("Connection fd: %d already cleaned up", fd);
+            return;
+        }
+
+        socketToClose = socket_;
+        socket_ = INVALID_SOCKET;
+        handler = std::move(clientHandler_);
+        wasConnected = isConnected_.exchange(false);
     }
 
-    EventReactor::GetInstance().RemoveHandler(fd);
-    close(fd);
-    socket_ = INVALID_SOCKET;
-    clientHandler_.reset();
+    if (handler) {
+        EventReactor::GetInstance().RemoveHandler(socketToClose);
+    }
+    close(socketToClose);
 
-    if (isConnected_.exchange(false)) {
-        NotifyClose(fd, isError, reason);
+    if (notifyListener && wasConnected) {
+        NotifyClose(socketToClose, isError, reason);
     }
 }
 

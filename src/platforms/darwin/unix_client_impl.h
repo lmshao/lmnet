@@ -12,8 +12,8 @@
 #include <lmcore/task_queue.h>
 #include <sys/un.h>
 
-#include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -51,18 +51,20 @@ public:
 private:
     void HandleReceive(socket_t fd);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+    void CloseInternal(socket_t fd, bool isError, const std::string &reason, bool notifyListener);
     void ReInit();
 
 private:
     std::string socketPath_;
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_un serverAddr_ {};
+    struct sockaddr_un serverAddr_{};
 
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<UnixClientHandler> clientHandler_;
+    std::mutex closeMutex_;
 };
 
 } // namespace lmshao::lmnet

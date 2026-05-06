@@ -15,6 +15,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "itcp_client.h"
@@ -48,6 +49,7 @@ public:
 private:
     void HandleReceive(socket_t fd);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+    void CloseInternal(socket_t fd, bool isError, const std::string &reason, bool notifyListener);
     void NotifyClose(socket_t fd, bool isError, const std::string &reason);
     void ReInit();
 
@@ -59,13 +61,14 @@ private:
     uint16_t localPort_;
 
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_in serverAddr_ {};
+    struct sockaddr_in serverAddr_{};
 
     std::weak_ptr<IClientListener> listener_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<TcpClientHandler> clientHandler_;
+    std::mutex closeMutex_;
     std::atomic_bool isConnected_{false};
 };
 
