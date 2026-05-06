@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <mutex>
 #include <queue>
 #include <vector>
 
@@ -116,6 +117,7 @@ public:
 
     int GetEvents() const override
     {
+        std::lock_guard<std::mutex> lock(sendMutex_);
         int events =
             static_cast<int>(EventType::READ) | static_cast<int>(EventType::ERROR) | static_cast<int>(EventType::CLOSE);
 
@@ -131,34 +133,49 @@ public:
         if (!buffer || buffer->Size() == 0) {
             return;
         }
-        sendQueue_.push(buffer);
-        EnableWriteEvents();
+
+        bool shouldModify = false;
+        {
+            std::lock_guard<std::mutex> lock(sendMutex_);
+            sendQueue_.push(buffer);
+            if (!writeEventsEnabled_) {
+                writeEventsEnabled_ = true;
+                shouldModify = true;
+            }
+        }
+
+        if (shouldModify) {
+            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
+        }
     }
 
 private:
-    void EnableWriteEvents()
-    {
-        if (!writeEventsEnabled_) {
-            writeEventsEnabled_ = true;
-            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
-        }
-    }
-
-    void DisableWriteEvents()
-    {
-        if (writeEventsEnabled_) {
-            writeEventsEnabled_ = false;
-            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
-        }
-    }
-
     void ProcessSendQueue()
     {
-        while (!sendQueue_.empty()) {
-            auto &buf = sendQueue_.front();
+        bool shouldModify = false;
+
+        while (true) {
+            std::shared_ptr<DataBuffer> buf;
+            {
+                std::lock_guard<std::mutex> lock(sendMutex_);
+                if (sendQueue_.empty()) {
+                    if (writeEventsEnabled_) {
+                        writeEventsEnabled_ = false;
+                        shouldModify = true;
+                    }
+                    break;
+                }
+                buf = sendQueue_.front();
+            }
+
             ssize_t bytesSent = send(fd_, buf->Data(), buf->Size(), 0);
 
             if (bytesSent > 0) {
+                std::lock_guard<std::mutex> lock(sendMutex_);
+                if (sendQueue_.empty()) {
+                    continue;
+                }
+
                 if (static_cast<size_t>(bytesSent) == buf->Size()) {
                     sendQueue_.pop();
                 } else {
@@ -176,14 +193,15 @@ private:
             }
         }
 
-        if (sendQueue_.empty()) {
-            DisableWriteEvents();
+        if (shouldModify) {
+            EventReactor::GetInstance().ModifyHandler(fd_, GetEvents());
         }
     }
 
 private:
     socket_t fd_;
     std::weak_ptr<TcpServerImpl> server_;
+    mutable std::mutex sendMutex_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
 };
@@ -267,12 +285,14 @@ bool TcpServerImpl::Stop()
     }
     sessions_.clear();
 
-    if (socket_ != INVALID_SOCKET && serverHandler_) {
+    if (socket_ != INVALID_SOCKET) {
         LMNET_LOGD("close server fd: %d", socket_);
-        reactor.RemoveHandler(socket_);
+        if (serverHandler_) {
+            reactor.RemoveHandler(socket_);
+            serverHandler_.reset();
+        }
         close(socket_);
         socket_ = INVALID_SOCKET;
-        serverHandler_.reset();
     }
 
     if (taskQueue_) {
