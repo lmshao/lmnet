@@ -271,19 +271,14 @@ bool TcpServerImpl::Stop()
 {
     auto &reactor = EventReactor::GetInstance();
 
-    std::vector<int> clientFds;
-    clientFds.reserve(sessions_.size());
-    for (const auto &pair : sessions_) {
-        clientFds.push_back(pair.first);
-    }
+    std::vector<int> clientFds = GetConnectionFds();
 
     for (int clientFd : clientFds) {
         LMNET_LOGD("close client fd: %d", clientFd);
         reactor.RemoveHandler(clientFd);
         close(clientFd);
-        connectionHandlers_.erase(clientFd);
+        RemoveConnection(clientFd);
     }
-    sessions_.clear();
 
     if (socket_ != INVALID_SOCKET) {
         LMNET_LOGD("close server fd: %d", socket_);
@@ -373,19 +368,17 @@ void TcpServerImpl::HandleAccept(socket_t fd)
         return;
     }
 
-    connectionHandlers_[clientSocket] = connectionHandler;
-
     std::string host = inet_ntoa(clientAddr.sin_addr);
     uint16_t port = ntohs(clientAddr.sin_port);
 
     LMNET_LOGD("New client connections client[%d] %s:%d", clientSocket, host.c_str(), port);
 
     auto session = std::make_shared<TcpSessionImpl>(clientSocket, host, port, shared_from_this());
-    sessions_.emplace(clientSocket, session);
+    AddConnection(clientSocket, session, connectionHandler);
 
     if (!listener_.expired()) {
         auto listenerWeak = listener_;
-        auto sessionPtr = sessions_[clientSocket];
+        auto sessionPtr = GetSession(clientSocket);
         auto task = std::make_shared<TaskHandler<void>>([listenerWeak, sessionPtr]() {
             LMNET_LOGD("invoke OnAccept callback");
             auto listener = listenerWeak.lock();
@@ -423,11 +416,7 @@ void TcpServerImpl::HandleReceive(socket_t fd)
                 auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
 
-                std::shared_ptr<Session> session;
-                auto it = sessions_.find(fd);
-                if (it != sessions_.end()) {
-                    session = it->second;
-                }
+                std::shared_ptr<Session> session = GetSession(fd);
 
                 if (session) {
                     auto listenerWeak = listener_;
@@ -474,9 +463,8 @@ void TcpServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std::
     EventReactor::GetInstance().RemoveHandler(fd);
     close(fd);
 
-    connectionHandlers_.erase(fd);
     auto session = sessionIt->second;
-    sessions_.erase(sessionIt);
+    RemoveConnection(fd);
 
     if (!listener_.expired()) {
         auto listenerWeak = listener_;
@@ -507,6 +495,46 @@ void TcpServerImpl::EnableKeepAlive(socket_t fd)
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &idle, sizeof(idle)) == -1) {
         LMNET_LOGW("setsockopt TCP_KEEPALIVE failed: %s", strerror(errno));
     }
+}
+
+void TcpServerImpl::AddConnection(socket_t fd, std::shared_ptr<Session> session,
+                                  std::shared_ptr<TcpConnectionHandler> handler)
+{
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    sessions_[fd] = std::move(session);
+    connectionHandlers_[fd] = std::move(handler);
+}
+
+void TcpServerImpl::RemoveConnection(socket_t fd)
+{
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    sessions_.erase(fd);
+    connectionHandlers_.erase(fd);
+}
+
+std::shared_ptr<Session> TcpServerImpl::GetSession(socket_t fd)
+{
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    auto it = sessions_.find(fd);
+    return it != sessions_.end() ? it->second : nullptr;
+}
+
+std::shared_ptr<TcpConnectionHandler> TcpServerImpl::GetConnectionHandler(socket_t fd)
+{
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    auto it = connectionHandlers_.find(fd);
+    return it != connectionHandlers_.end() ? it->second : nullptr;
+}
+
+std::vector<socket_t> TcpServerImpl::GetConnectionFds()
+{
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::vector<socket_t> fds;
+    fds.reserve(sessions_.size());
+    for (const auto &entry : sessions_) {
+        fds.push_back(entry.first);
+    }
+    return fds;
 }
 
 } // namespace lmshao::lmnet

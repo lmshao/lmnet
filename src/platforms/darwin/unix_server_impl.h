@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -52,6 +53,13 @@ public:
     socket_t GetSocketFd() const override { return socket_; }
 
 private:
+    void AddConnection(socket_t fd, std::shared_ptr<Session> session, std::shared_ptr<UnixConnectionHandler> handler);
+    void RemoveConnection(socket_t fd);
+    std::shared_ptr<Session> GetSession(socket_t fd);
+    std::shared_ptr<UnixConnectionHandler> GetConnectionHandler(socket_t fd);
+    std::vector<socket_t> GetConnectionFds();
+
+private:
     void HandleAccept(socket_t fd);
     void HandleReceive(socket_t fd);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
@@ -59,9 +67,10 @@ private:
 private:
     std::string socketPath_;
     socket_t socket_ = INVALID_SOCKET;
-    struct sockaddr_un serverAddr_ {};
+    struct sockaddr_un serverAddr_{};
 
     std::weak_ptr<IServerListener> listener_;
+    std::mutex stateMutex_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::shared_ptr<DataBuffer> readBuffer_;

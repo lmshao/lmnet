@@ -264,19 +264,14 @@ bool UnixServerImpl::Stop()
 {
     auto &reactor = EventReactor::GetInstance();
 
-    std::vector<int> clientFds;
-    clientFds.reserve(sessions_.size());
-    for (const auto &pair : sessions_) {
-        clientFds.push_back(pair.first);
-    }
+    std::vector<int> clientFds = GetConnectionFds();
 
     for (int clientFd : clientFds) {
         LMNET_LOGD("close client fd: %d", clientFd);
         reactor.RemoveHandler(clientFd);
         close(clientFd);
-        connectionHandlers_.erase(clientFd);
+        RemoveConnection(clientFd);
     }
-    sessions_.clear();
 
     if (socket_ != INVALID_SOCKET) {
         LMNET_LOGD("close server fd: %d", socket_);
@@ -387,17 +382,15 @@ void UnixServerImpl::HandleAccept(socket_t fd)
         return;
     }
 
-    connectionHandlers_[clientSocket] = connectionHandler;
-
     LMNET_LOGD("New Unix client connection client[%d]", clientSocket);
 
     // Unix domain socket uses empty host and port
     auto session = std::make_shared<UnixSessionImpl>(clientSocket, socketPath_, shared_from_this());
-    sessions_.emplace(clientSocket, session);
+    AddConnection(clientSocket, session, connectionHandler);
 
     if (!listener_.expired()) {
         auto listenerWeak = listener_;
-        auto sessionPtr = sessions_[clientSocket];
+        auto sessionPtr = GetSession(clientSocket);
         auto task = std::make_shared<TaskHandler<void>>([listenerWeak, sessionPtr]() {
             auto listener = listenerWeak.lock();
             if (listener) {
@@ -432,11 +425,7 @@ void UnixServerImpl::HandleReceive(socket_t fd)
                 auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);
 
-                std::shared_ptr<Session> session;
-                auto it = sessions_.find(fd);
-                if (it != sessions_.end()) {
-                    session = it->second;
-                }
+                std::shared_ptr<Session> session = GetSession(fd);
 
                 if (session) {
                     auto listenerWeak = listener_;
@@ -490,9 +479,7 @@ void UnixServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std:
     close(fd);
 
     std::shared_ptr<Session> session = sessionIt->second;
-    sessions_.erase(sessionIt);
-
-    connectionHandlers_.erase(fd);
+    RemoveConnection(fd);
 
     if (!listener_.expired() && session) {
         auto listenerWeak = listener_;
@@ -509,6 +496,46 @@ void UnixServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std:
             taskQueue_->EnqueueTask(task);
         }
     }
+}
+
+void UnixServerImpl::AddConnection(socket_t fd, std::shared_ptr<Session> session,
+                                   std::shared_ptr<UnixConnectionHandler> handler)
+{
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    sessions_[fd] = std::move(session);
+    connectionHandlers_[fd] = std::move(handler);
+}
+
+void UnixServerImpl::RemoveConnection(socket_t fd)
+{
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    sessions_.erase(fd);
+    connectionHandlers_.erase(fd);
+}
+
+std::shared_ptr<Session> UnixServerImpl::GetSession(socket_t fd)
+{
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    auto it = sessions_.find(fd);
+    return it != sessions_.end() ? it->second : nullptr;
+}
+
+std::shared_ptr<UnixConnectionHandler> UnixServerImpl::GetConnectionHandler(socket_t fd)
+{
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    auto it = connectionHandlers_.find(fd);
+    return it != connectionHandlers_.end() ? it->second : nullptr;
+}
+
+std::vector<socket_t> UnixServerImpl::GetConnectionFds()
+{
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::vector<socket_t> fds;
+    fds.reserve(sessions_.size());
+    for (const auto &entry : sessions_) {
+        fds.push_back(entry.first);
+    }
+    return fds;
 }
 
 } // namespace lmshao::lmnet

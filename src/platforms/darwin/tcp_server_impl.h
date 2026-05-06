@@ -14,7 +14,9 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include "base_server.h"
 #include "lmnet/common.h"
@@ -47,6 +49,13 @@ public:
     socket_t GetSocketFd() const override { return socket_; }
 
 private:
+    void AddConnection(socket_t fd, std::shared_ptr<Session> session, std::shared_ptr<TcpConnectionHandler> handler);
+    void RemoveConnection(socket_t fd);
+    std::shared_ptr<Session> GetSession(socket_t fd);
+    std::shared_ptr<TcpConnectionHandler> GetConnectionHandler(socket_t fd);
+    std::vector<socket_t> GetConnectionFds();
+
+private:
     void HandleAccept(socket_t fd);
     void HandleReceive(socket_t fd);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
@@ -56,9 +65,10 @@ private:
     uint16_t localPort_;
     int socket_ = INVALID_SOCKET;
     std::string localIp_ = "0.0.0.0";
-    struct sockaddr_in serverAddr_ {};
+    struct sockaddr_in serverAddr_{};
 
     std::weak_ptr<IServerListener> listener_;
+    std::mutex stateMutex_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
     std::unique_ptr<TaskQueue> taskQueue_;
     std::unique_ptr<DataBuffer> readBuffer_;
