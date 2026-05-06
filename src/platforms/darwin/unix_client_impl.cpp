@@ -166,11 +166,12 @@ UnixClientImpl::UnixClientImpl(const std::string &socketPath) : socketPath_(sock
 
 UnixClientImpl::~UnixClientImpl()
 {
+    Close();
+
     if (taskQueue_) {
         taskQueue_->Stop();
         taskQueue_.reset();
     }
-    Close();
 }
 
 bool UnixClientImpl::Init()

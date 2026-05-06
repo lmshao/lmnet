@@ -210,6 +210,11 @@ TcpServerImpl::~TcpServerImpl()
 {
     LMNET_LOGD("fd:%d", socket_);
     Stop();
+
+    if (taskQueue_) {
+        taskQueue_->Stop();
+        taskQueue_.reset();
+    }
 }
 
 bool TcpServerImpl::Init()
@@ -292,7 +297,6 @@ bool TcpServerImpl::Stop()
 
     if (taskQueue_) {
         taskQueue_->Stop();
-        taskQueue_.reset();
     }
 
     LMNET_LOGD("TcpServerImpl stopped");

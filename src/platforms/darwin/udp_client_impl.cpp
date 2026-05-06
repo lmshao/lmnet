@@ -79,11 +79,12 @@ UdpClientImpl::UdpClientImpl(std::string remoteIp, uint16_t remotePort, std::str
 
 UdpClientImpl::~UdpClientImpl()
 {
+    Close();
+
     if (taskQueue_) {
         taskQueue_->Stop();
         taskQueue_.reset();
     }
-    Close();
 }
 
 bool UdpClientImpl::Init()
@@ -102,7 +103,7 @@ bool UdpClientImpl::Init()
 
     DisableSigpipe(socket_);
 
-    struct sockaddr_in remoteAddr {};
+    struct sockaddr_in remoteAddr{};
     remoteAddr.sin_family = AF_INET;
     remoteAddr.sin_port = htons(remotePort_);
     if (inet_pton(AF_INET, remoteIp_.c_str(), &remoteAddr.sin_addr) <= 0) {
@@ -112,7 +113,7 @@ bool UdpClientImpl::Init()
     }
 
     if (!localIp_.empty() || localPort_ != 0) {
-        struct sockaddr_in localAddr {};
+        struct sockaddr_in localAddr{};
         localAddr.sin_family = AF_INET;
         localAddr.sin_port = htons(localPort_);
         if (localIp_.empty()) {

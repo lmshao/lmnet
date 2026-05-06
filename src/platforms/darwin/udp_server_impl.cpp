@@ -66,9 +66,10 @@ UdpServerImpl::UdpServerImpl(std::string ip, uint16_t port)
 UdpServerImpl::~UdpServerImpl()
 {
     Stop();
-    if (socket_ != INVALID_SOCKET) {
-        close(socket_);
-        socket_ = INVALID_SOCKET;
+
+    if (taskQueue_) {
+        taskQueue_->Stop();
+        taskQueue_.reset();
     }
 }
 

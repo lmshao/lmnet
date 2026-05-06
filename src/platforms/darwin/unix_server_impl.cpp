@@ -200,6 +200,11 @@ UnixServerImpl::~UnixServerImpl()
 {
     LMNET_LOGD("fd:%d", socket_);
     Stop();
+
+    if (taskQueue_) {
+        taskQueue_->Stop();
+        taskQueue_.reset();
+    }
 }
 
 bool UnixServerImpl::Init()
@@ -285,7 +290,6 @@ bool UnixServerImpl::Stop()
 
     if (taskQueue_) {
         taskQueue_->Stop();
-        taskQueue_.reset();
     }
 
     // Remove socket file
