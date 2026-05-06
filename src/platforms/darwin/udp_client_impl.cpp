@@ -217,14 +217,7 @@ bool UdpClientImpl::Send(std::shared_ptr<DataBuffer> data)
 
 void UdpClientImpl::Close()
 {
-    if (socket_ != INVALID_SOCKET) {
-        if (clientHandler_) {
-            EventReactor::GetInstance().RemoveHandler(socket_);
-            clientHandler_.reset();
-        }
-        close(socket_);
-        socket_ = INVALID_SOCKET;
-    }
+    CloseInternal(socket_, false, "Connection closed", false);
 }
 
 void UdpClientImpl::HandleReceive(socket_t fd)
@@ -269,25 +262,46 @@ void UdpClientImpl::HandleReceive(socket_t fd)
 
 void UdpClientImpl::HandleConnectionClose(socket_t fd, bool isError, const std::string &reason)
 {
-    LMNET_LOGD("Closing UDP client fd %d reason %s isError %s", fd, reason.c_str(), isError ? "true" : "false");
+    LMNET_LOGD("Closing UDP client connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(),
+               isError ? "true" : "false");
 
-    if (socket_ != fd) {
-        return;
+    CloseInternal(fd, isError, reason, true);
+}
+
+void UdpClientImpl::CloseInternal(socket_t fd, bool isError, const std::string &reason, bool notifyListener)
+{
+    std::shared_ptr<EventHandler> handler;
+    socket_t socketToClose = INVALID_SOCKET;
+
+    {
+        std::lock_guard<std::mutex> lock(closeMutex_);
+        if (socket_ == INVALID_SOCKET) {
+            return;
+        }
+
+        if (fd != INVALID_SOCKET && socket_ != fd) {
+            LMNET_LOGD("Connection fd: %d already cleaned up", fd);
+            return;
+        }
+
+        socketToClose = socket_;
+        socket_ = INVALID_SOCKET;
+        handler = std::move(clientHandler_);
     }
 
-    EventReactor::GetInstance().RemoveHandler(fd);
-    close(fd);
-    socket_ = INVALID_SOCKET;
-    clientHandler_.reset();
+    if (handler) {
+        EventReactor::GetInstance().RemoveHandler(socketToClose);
+    }
+    close(socketToClose);
 
-    if (!listener_.expired()) {
+    if (notifyListener && !listener_.expired()) {
         auto listenerWeak = listener_;
-        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, reason, isError, fd]() {
+        auto task = std::make_shared<TaskHandler<void>>([listenerWeak, reason, isError, socketToClose]() {
             if (auto listener = listenerWeak.lock()) {
                 if (isError) {
-                    listener->OnError(fd, reason);
+                    listener->OnError(socketToClose, reason);
                 }
-                listener->OnClose(fd);
+                listener->OnClose(socketToClose);
             }
         });
         if (taskQueue_) {

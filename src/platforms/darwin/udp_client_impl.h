@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "iudp_client.h"
@@ -44,6 +45,7 @@ public:
 private:
     void HandleReceive(socket_t fd);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
+    void CloseInternal(socket_t fd, bool isError, const std::string &reason, bool notifyListener);
 
 private:
     std::string remoteIp_;
@@ -59,6 +61,7 @@ private:
     std::shared_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<EventHandler> clientHandler_;
+    std::mutex closeMutex_;
 };
 
 } // namespace lmshao::lmnet
