@@ -18,6 +18,7 @@
 #include <set>
 #include <sstream>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "../test_framework.h"
@@ -35,11 +36,11 @@
 using namespace lmshao::lmnet;
 
 namespace {
-uint16_t GetIdleTcpPort()
+std::pair<socket_t, uint16_t> ReserveTcpPort()
 {
     socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == INVALID_SOCKET) {
-        return 0;
+    return {INVALID_SOCKET, 0};
     }
 
     sockaddr_in addr{};
@@ -53,7 +54,7 @@ uint16_t GetIdleTcpPort()
 #else
         close(fd);
 #endif
-        return 0;
+    return {INVALID_SOCKET, 0};
     }
 
     socklen_t len = sizeof(addr);
@@ -63,16 +64,10 @@ uint16_t GetIdleTcpPort()
 #else
         close(fd);
 #endif
-        return 0;
+        return {INVALID_SOCKET, 0};
     }
 
-#ifdef _WIN32
-    closesocket(fd);
-#else
-    close(fd);
-#endif
-
-    return ntohs(addr.sin_port);
+    return {fd, ntohs(addr.sin_port)};
 }
 
 template <typename Condition>
@@ -205,19 +200,21 @@ TEST(TcpTest, CloseAfterInitInvalidatesSocket)
 
 TEST(TcpTest, InitBindFailureInvalidatesClientSocket)
 {
-    uint16_t localPort = GetIdleTcpPort();
+    auto [portHolder, localPort] = ReserveTcpPort();
+    EXPECT_TRUE(portHolder != INVALID_SOCKET);
     EXPECT_TRUE(localPort != 0);
 
-    auto firstClient = TcpClient::Create("127.0.0.1", 6553, "127.0.0.1", localPort);
-    EXPECT_TRUE(firstClient->Init());
-    EXPECT_TRUE(firstClient->GetSocketFd() != INVALID_SOCKET);
+    auto client = TcpClient::Create("127.0.0.1", 6553, "127.0.0.1", localPort);
+    EXPECT_TRUE(!client->Init());
+    EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
 
-    auto secondClient = TcpClient::Create("127.0.0.1", 6553, "127.0.0.1", localPort);
-    EXPECT_TRUE(!secondClient->Init());
-    EXPECT_EQ(INVALID_SOCKET, secondClient->GetSocketFd());
+    client->Close();
 
-    firstClient->Close();
-    secondClient->Close();
+#ifdef _WIN32
+    closesocket(portHolder);
+#else
+    close(portHolder);
+#endif
 }
 
 TEST(TcpTest, StopAfterInitInvalidatesServerSocket)
@@ -234,19 +231,21 @@ TEST(TcpTest, StopAfterInitInvalidatesServerSocket)
 
 TEST(TcpTest, InitBindFailureInvalidatesServerSocket)
 {
-    uint16_t port = GetIdleTcpPort();
+    auto [portHolder, port] = ReserveTcpPort();
+    EXPECT_TRUE(portHolder != INVALID_SOCKET);
     EXPECT_TRUE(port != 0);
 
-    auto firstServer = TcpServer::Create("127.0.0.1", port);
-    EXPECT_TRUE(firstServer->Init());
-    EXPECT_TRUE(firstServer->GetSocketFd() != INVALID_SOCKET);
+    auto server = TcpServer::Create("127.0.0.1", port);
+    EXPECT_TRUE(!server->Init());
+    EXPECT_EQ(INVALID_SOCKET, server->GetSocketFd());
 
-    auto secondServer = TcpServer::Create("127.0.0.1", port);
-    EXPECT_TRUE(!secondServer->Init());
-    EXPECT_EQ(INVALID_SOCKET, secondServer->GetSocketFd());
+    EXPECT_TRUE(server->Stop());
 
-    EXPECT_TRUE(firstServer->Stop());
-    EXPECT_TRUE(secondServer->Stop());
+#ifdef _WIN32
+    closesocket(portHolder);
+#else
+    close(portHolder);
+#endif
 }
 
 TEST(TcpTest, InitInvalidIpInvalidatesServerSocket)
