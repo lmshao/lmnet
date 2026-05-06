@@ -154,6 +154,22 @@ TEST(UdpTest, CloseAfterInitInvalidatesSocket)
     EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
 }
 
+TEST(UdpTest, InitBindFailureInvalidatesClientSocket)
+{
+    uint16_t localPort = UdpServer::GetIdlePort();
+
+    auto firstClient = UdpClient::Create("127.0.0.1", 6553, "127.0.0.1", localPort);
+    EXPECT_TRUE(firstClient->Init());
+    EXPECT_TRUE(firstClient->GetSocketFd() != INVALID_SOCKET);
+
+    auto secondClient = UdpClient::Create("127.0.0.1", 6553, "127.0.0.1", localPort);
+    EXPECT_TRUE(!secondClient->Init());
+    EXPECT_EQ(INVALID_SOCKET, secondClient->GetSocketFd());
+
+    firstClient->Close();
+    secondClient->Close();
+}
+
 TEST(UdpTest, StopAfterInitInvalidatesServerSocket)
 {
     auto server = UdpServer::Create("127.0.0.1", UdpServer::GetIdlePort());
