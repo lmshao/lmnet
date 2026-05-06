@@ -72,6 +72,8 @@ private:
     std::shared_mutex mutex_;
     std::mutex signalMutex_;
     std::condition_variable runningSignal_;
+    bool startupComplete_ = false;
+    bool startupSucceeded_ = false;
 
     std::unordered_map<int, std::shared_ptr<EventHandler>> handlers_;
     std::unordered_map<int, int> handlerEvents_;

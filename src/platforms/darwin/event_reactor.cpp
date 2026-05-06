@@ -14,7 +14,6 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#include <chrono>
 #include <cstring>
 #include <vector>
 
@@ -23,7 +22,13 @@
 namespace {
 constexpr int KQUEUE_EVENT_MAX = 1024;
 constexpr intptr_t WAKE_EVENT_IDENT = 1;
-constexpr std::chrono::milliseconds RUNNING_WAIT_TIMEOUT(5);
+
+int NormalizeEventsForKqueue(int events)
+{
+    constexpr int supportedEvents =
+        static_cast<int>(lmshao::lmnet::EventType::READ) | static_cast<int>(lmshao::lmnet::EventType::WRITE);
+    return events & supportedEvents;
+}
 } // namespace
 
 namespace lmshao::lmnet {
@@ -32,7 +37,7 @@ EventReactor::EventReactor()
 {
     reactorThread_ = std::make_unique<std::thread>([this]() { this->Run(); });
     std::unique_lock<std::mutex> lock(signalMutex_);
-    runningSignal_.wait_for(lock, RUNNING_WAIT_TIMEOUT, [this]() { return running_.load(std::memory_order_acquire); });
+    runningSignal_.wait(lock, [this] { return startupComplete_; });
 }
 
 EventReactor::~EventReactor()
@@ -49,6 +54,10 @@ EventReactor::~EventReactor()
         close(kqueueFd_);
         kqueueFd_ = -1;
     }
+
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+    handlers_.clear();
+    handlerEvents_.clear();
 }
 
 void EventReactor::Run()
@@ -56,6 +65,12 @@ void EventReactor::Run()
     kqueueFd_ = kqueue();
     if (kqueueFd_ == -1) {
         LMNET_LOGE("kqueue create failed: %s", strerror(errno));
+        {
+            std::lock_guard<std::mutex> signalLock(signalMutex_);
+            startupSucceeded_ = false;
+            startupComplete_ = true;
+        }
+        runningSignal_.notify_all();
         return;
     }
 
@@ -63,6 +78,12 @@ void EventReactor::Run()
     EV_SET(&change, WAKE_EVENT_IDENT, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, nullptr);
     if (kevent(kqueueFd_, &change, 1, nullptr, 0, nullptr) == -1) {
         LMNET_LOGE("kqueue register wake event failed: %s", strerror(errno));
+        {
+            std::lock_guard<std::mutex> signalLock(signalMutex_);
+            startupSucceeded_ = false;
+            startupComplete_ = true;
+        }
+        runningSignal_.notify_all();
         return;
     }
 
@@ -74,7 +95,12 @@ void EventReactor::Run()
         pthread_setname_np(name.c_str());
     }
 
-    running_.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> signalLock(signalMutex_);
+        running_.store(true, std::memory_order_release);
+        startupSucceeded_ = true;
+        startupComplete_ = true;
+    }
     runningSignal_.notify_all();
 
     std::vector<struct kevent> events(KQUEUE_EVENT_MAX);
@@ -169,16 +195,22 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
     }
 
     socket_t fd = handler->GetHandle();
-    int events = handler->GetEvents();
-
-    if (!ApplyEvents(fd, events, 0)) {
-        return false;
-    }
+    int events = NormalizeEventsForKqueue(handler->GetEvents());
 
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        handlers_[fd] = handler;
+        auto [it, inserted] = handlers_.emplace(fd, handler);
+        if (!inserted) {
+            LMNET_LOGE("Handler already exists for fd:%d", fd);
+            return false;
+        }
         handlerEvents_[fd] = events;
+
+        if (!ApplyEvents(fd, events, 0)) {
+            handlers_.erase(it);
+            handlerEvents_.erase(fd);
+            return false;
+        }
     }
 
     LMNET_LOGD("Handler registered for fd:%d", fd);
@@ -187,52 +219,55 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
 
 bool EventReactor::RemoveHandler(socket_t fd)
 {
-    std::shared_ptr<EventHandler> handler;
     int oldEvents = 0;
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
         auto it = handlers_.find(fd);
         if (it == handlers_.end()) {
+            LMNET_LOGW("Handler not found for fd:%d", fd);
             return false;
         }
-        handler = it->second;
-        handlers_.erase(it);
 
         auto evIt = handlerEvents_.find(fd);
         if (evIt != handlerEvents_.end()) {
             oldEvents = evIt->second;
+        }
+
+        if (running_.load(std::memory_order_acquire) && !ApplyEvents(fd, 0, oldEvents)) {
+            return false;
+        }
+
+        handlers_.erase(it);
+        if (evIt != handlerEvents_.end()) {
             handlerEvents_.erase(evIt);
         }
     }
 
-    if (!running_.load(std::memory_order_acquire)) {
-        LMNET_LOGE("Reactor not running");
-        return false;
-    }
-
-    return ApplyEvents(fd, 0, oldEvents);
+    return true;
 }
 
 bool EventReactor::ModifyHandler(socket_t fd, int events)
 {
-    int oldEvents = 0;
-    {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
-        auto it = handlerEvents_.find(fd);
-        if (it == handlerEvents_.end()) {
-            LMNET_LOGE("Handler not found for fd:%d during modify", fd);
-            return false;
-        }
-        oldEvents = it->second;
-    }
-
-    if (!ApplyEvents(fd, events, oldEvents)) {
-        return false;
-    }
+    const int normalizedEvents = NormalizeEventsForKqueue(events);
 
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        handlerEvents_[fd] = events;
+        auto it = handlerEvents_.find(fd);
+        if (it == handlerEvents_.end()) {
+            LMNET_LOGW("Handler not found for fd:%d during modify", fd);
+            return false;
+        }
+
+        const int oldEvents = it->second;
+        if (oldEvents == normalizedEvents) {
+            return true;
+        }
+
+        if (!ApplyEvents(fd, normalizedEvents, oldEvents)) {
+            return false;
+        }
+
+        it->second = normalizedEvents;
     }
 
     return true;
@@ -278,6 +313,10 @@ bool EventReactor::ApplyEvents(socket_t fd, int newEvents, int oldEvents)
     }
 
     if (kevent(kqueueFd_, changes.data(), static_cast<int>(changes.size()), nullptr, 0, nullptr) == -1) {
+        if (newEvents == 0 && (errno == ENOENT || errno == EBADF)) {
+            LMNET_LOGW("Ignore kevent delete race for fd %d: %s", fd, strerror(errno));
+            return true;
+        }
         LMNET_LOGE("kevent apply events failed for fd %d: %s", fd, strerror(errno));
         return false;
     }
