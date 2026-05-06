@@ -347,6 +347,10 @@ void TcpClientImpl::Close()
 
 void TcpClientImpl::HandleReceive(socket_t fd)
 {
+    if (socket_ != fd) {
+        return;
+    }
+
     LMNET_LOGD("fd: %d", fd);
     if (!readBuffer_) {
         readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);

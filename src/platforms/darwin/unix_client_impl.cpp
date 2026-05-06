@@ -332,6 +332,10 @@ void UnixClientImpl::Close()
 
 void UnixClientImpl::HandleReceive(socket_t fd)
 {
+    if (socket_ != fd) {
+        return;
+    }
+
     LMNET_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
         readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);

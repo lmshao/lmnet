@@ -273,9 +273,9 @@ bool UnixServerImpl::Stop()
 
     for (int clientFd : clientFds) {
         LMNET_LOGD("close client fd: %d", clientFd);
+        RemoveConnection(clientFd);
         reactor.RemoveHandler(clientFd);
         close(clientFd);
-        RemoveConnection(clientFd);
     }
 
     if (socket_ != INVALID_SOCKET) {
@@ -411,6 +411,10 @@ void UnixServerImpl::HandleAccept(socket_t fd)
 
 void UnixServerImpl::HandleReceive(socket_t fd)
 {
+    if (!GetSession(fd)) {
+        return;
+    }
+
     LMNET_LOGD("fd: %d", fd);
     if (readBuffer_ == nullptr) {
         readBuffer_ = DataBuffer::PoolAlloc(RECV_BUFFER_MAX_SIZE);
@@ -453,6 +457,11 @@ void UnixServerImpl::HandleReceive(socket_t fd)
                 break;
             }
 
+            if (errno == EBADF || errno == ENOTCONN) {
+                HandleConnectionClose(fd, false, "Connection closed");
+                break;
+            }
+
             std::string info = strerror(errno);
             LMNET_LOGE("recv error: %s(%d)", info.c_str(), errno);
 
@@ -472,18 +481,17 @@ void UnixServerImpl::HandleConnectionClose(socket_t fd, bool isError, const std:
 {
     LMNET_LOGD("Closing connection fd: %d, reason: %s, isError: %s", fd, reason.c_str(), isError ? "true" : "false");
 
-    auto sessionIt = sessions_.find(fd);
-    if (sessionIt == sessions_.end()) {
+    auto session = GetSession(fd);
+    if (!session) {
         LMNET_LOGD("Connection fd: %d already cleaned up", fd);
         return;
     }
 
+    RemoveConnection(fd);
+
     EventReactor::GetInstance().RemoveHandler(fd);
 
     close(fd);
-
-    std::shared_ptr<Session> session = sessionIt->second;
-    RemoveConnection(fd);
 
     if (!listener_.expired() && session) {
         auto listenerWeak = listener_;
