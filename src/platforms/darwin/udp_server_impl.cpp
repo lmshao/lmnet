@@ -100,8 +100,13 @@ bool UdpServerImpl::Init()
     serverAddr_.sin_family = AF_INET;
     serverAddr_.sin_port = htons(port_);
 
-    if (inet_pton(AF_INET, ip_.c_str(), &serverAddr_.sin_addr) <= 0) {
-        LMNET_LOGE("inet_pton failed: %s", strerror(errno));
+    int ipResult = inet_pton(AF_INET, ip_.c_str(), &serverAddr_.sin_addr);
+    if (ipResult != 1) {
+        if (ipResult == 0) {
+            LMNET_LOGE("invalid listen IP address: %s", ip_.c_str());
+        } else {
+            LMNET_LOGE("inet_pton failed for %s: %s", ip_.c_str(), strerror(errno));
+        }
         close(socket_);
         socket_ = INVALID_SOCKET;
         return false;

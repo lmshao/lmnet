@@ -106,8 +106,13 @@ bool UdpClientImpl::Init()
     struct sockaddr_in remoteAddr{};
     remoteAddr.sin_family = AF_INET;
     remoteAddr.sin_port = htons(remotePort_);
-    if (inet_pton(AF_INET, remoteIp_.c_str(), &remoteAddr.sin_addr) <= 0) {
-        LMNET_LOGE("inet_pton failed for %s", remoteIp_.c_str());
+    int remoteIpResult = inet_pton(AF_INET, remoteIp_.c_str(), &remoteAddr.sin_addr);
+    if (remoteIpResult != 1) {
+        if (remoteIpResult == 0) {
+            LMNET_LOGE("invalid remote IP address: %s", remoteIp_.c_str());
+        } else {
+            LMNET_LOGE("inet_pton failed for %s: %s", remoteIp_.c_str(), strerror(errno));
+        }
         Close();
         return false;
     }
@@ -119,8 +124,13 @@ bool UdpClientImpl::Init()
         if (localIp_.empty()) {
             localIp_ = "0.0.0.0";
         }
-        if (inet_pton(AF_INET, localIp_.c_str(), &localAddr.sin_addr) <= 0) {
-            LMNET_LOGE("inet_pton failed for local IP %s", localIp_.c_str());
+        int localIpResult = inet_pton(AF_INET, localIp_.c_str(), &localAddr.sin_addr);
+        if (localIpResult != 1) {
+            if (localIpResult == 0) {
+                LMNET_LOGE("invalid local IP address: %s", localIp_.c_str());
+            } else {
+                LMNET_LOGE("inet_pton failed for local IP %s: %s", localIp_.c_str(), strerror(errno));
+            }
             Close();
             return false;
         }
