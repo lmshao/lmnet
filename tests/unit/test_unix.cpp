@@ -207,6 +207,19 @@ TEST(UnixTest, ConnectFailureAllowsRetry)
     std::remove(socket_path.c_str());
 }
 
+TEST(UnixTest, InitBindFailureInvalidatesServerSocket)
+{
+    const std::string socket_path = "/tmp/lmnet_missing_dir/test_unix_server.sock";
+    std::remove(socket_path.c_str());
+
+    auto server = UnixServer::Create(socket_path);
+    EXPECT_TRUE(!server->Init());
+    EXPECT_EQ(INVALID_SOCKET, server->GetSocketFd());
+
+    EXPECT_TRUE(server->Stop());
+    std::remove(socket_path.c_str());
+}
+
 TEST(UnixTest, LargeClientSend)
 {
     const std::string socket_path = "/tmp/test_unix_large_send";

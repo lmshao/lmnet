@@ -240,11 +240,15 @@ bool TcpServerImpl::Init()
 
     if (bind(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
         LMNET_LOGE("bind error: %s", strerror(errno));
+        close(socket_);
+        socket_ = INVALID_SOCKET;
         return false;
     }
 
     if (listen(socket_, TCP_BACKLOG) < 0) {
         LMNET_LOGE("listen error: %s", strerror(errno));
+        close(socket_);
+        socket_ = INVALID_SOCKET;
         return false;
     }
 

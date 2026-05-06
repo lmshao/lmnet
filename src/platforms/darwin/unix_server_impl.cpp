@@ -232,11 +232,15 @@ bool UnixServerImpl::Init()
 
     if (bind(socket_, reinterpret_cast<struct sockaddr *>(&serverAddr_), sizeof(serverAddr_)) < 0) {
         LMNET_LOGE("bind error: %s", strerror(errno));
+        close(socket_);
+        socket_ = INVALID_SOCKET;
         return false;
     }
 
     if (listen(socket_, 10) < 0) {
         LMNET_LOGE("listen error: %s", strerror(errno));
+        close(socket_);
+        socket_ = INVALID_SOCKET;
         return false;
     }
 

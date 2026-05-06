@@ -195,11 +195,15 @@ bool TcpClientImpl::Init()
         int optval = 1;
         if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
             LMNET_LOGE("setsockopt SO_REUSEADDR error: %s", strerror(errno));
+            close(socket_);
+            socket_ = INVALID_SOCKET;
             return false;
         }
 
         if (bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr)) != 0) {
             LMNET_LOGE("bind error: %s", strerror(errno));
+            close(socket_);
+            socket_ = INVALID_SOCKET;
             return false;
         }
     }

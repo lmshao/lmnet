@@ -7,7 +7,9 @@
  */
 
 #ifndef _WIN32
+#include <netinet/in.h>
 #include <sys/socket.h>
+#include <unistd.h>
 #endif
 
 #include <atomic>
@@ -29,6 +31,46 @@
 using namespace lmshao::lmnet;
 
 namespace {
+uint16_t GetIdleTcpPort()
+{
+    socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd == INVALID_SOCKET) {
+        return 0;
+    }
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+
+    if (bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0) {
+#ifdef _WIN32
+        closesocket(fd);
+#else
+        close(fd);
+#endif
+        return 0;
+    }
+
+    socklen_t len = sizeof(addr);
+    if (getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &len) != 0) {
+#ifdef _WIN32
+        closesocket(fd);
+#else
+        close(fd);
+#endif
+        return 0;
+    }
+
+#ifdef _WIN32
+    closesocket(fd);
+#else
+    close(fd);
+#endif
+
+    return ntohs(addr.sin_port);
+}
+
 template <typename Condition>
 bool WaitFor(Condition condition, int timeout_ms = 5000, int check_interval_ms = 25)
 {
@@ -140,6 +182,23 @@ TEST(TcpTest, CloseAfterInitInvalidatesSocket)
     EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
 }
 
+TEST(TcpTest, InitBindFailureInvalidatesClientSocket)
+{
+    uint16_t localPort = GetIdleTcpPort();
+    EXPECT_TRUE(localPort != 0);
+
+    auto firstClient = TcpClient::Create("127.0.0.1", 6553, "127.0.0.1", localPort);
+    EXPECT_TRUE(firstClient->Init());
+    EXPECT_TRUE(firstClient->GetSocketFd() != INVALID_SOCKET);
+
+    auto secondClient = TcpClient::Create("127.0.0.1", 6553, "127.0.0.1", localPort);
+    EXPECT_TRUE(!secondClient->Init());
+    EXPECT_EQ(INVALID_SOCKET, secondClient->GetSocketFd());
+
+    firstClient->Close();
+    secondClient->Close();
+}
+
 TEST(TcpTest, StopAfterInitInvalidatesServerSocket)
 {
     auto server = TcpServer::Create("127.0.0.1", 12347);
@@ -150,6 +209,23 @@ TEST(TcpTest, StopAfterInitInvalidatesServerSocket)
     EXPECT_TRUE(server->Stop());
 
     EXPECT_EQ(INVALID_SOCKET, server->GetSocketFd());
+}
+
+TEST(TcpTest, InitBindFailureInvalidatesServerSocket)
+{
+    uint16_t port = GetIdleTcpPort();
+    EXPECT_TRUE(port != 0);
+
+    auto firstServer = TcpServer::Create("127.0.0.1", port);
+    EXPECT_TRUE(firstServer->Init());
+    EXPECT_TRUE(firstServer->GetSocketFd() != INVALID_SOCKET);
+
+    auto secondServer = TcpServer::Create("127.0.0.1", port);
+    EXPECT_TRUE(!secondServer->Init());
+    EXPECT_EQ(INVALID_SOCKET, secondServer->GetSocketFd());
+
+    EXPECT_TRUE(firstServer->Stop());
+    EXPECT_TRUE(secondServer->Stop());
 }
 
 TEST(TcpTest, ConnectFailureDoesNotNotifyListener)
