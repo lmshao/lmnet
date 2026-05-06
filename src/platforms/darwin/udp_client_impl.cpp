@@ -148,7 +148,12 @@ bool UdpClientImpl::Init()
     clientHandler_ = std::make_shared<UdpClientHandler>(socket_, shared_from_this());
     if (!EventReactor::GetInstance().RegisterHandler(clientHandler_)) {
         LMNET_LOGE("Failed to register UDP client handler");
-        Close();
+        clientHandler_.reset();
+        if (taskQueue_) {
+            taskQueue_->Stop();
+        }
+        close(socket_);
+        socket_ = INVALID_SOCKET;
         return false;
     }
 
