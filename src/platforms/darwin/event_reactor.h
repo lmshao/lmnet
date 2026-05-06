@@ -11,6 +11,7 @@
 
 #include <lmcore/singleton.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <shared_mutex>
@@ -66,7 +67,7 @@ private:
 
 private:
     int kqueueFd_ = -1;
-    bool running_ = false;
+    std::atomic_bool running_{false};
 
     std::shared_mutex mutex_;
     std::mutex signalMutex_;

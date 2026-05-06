@@ -32,13 +32,13 @@ EventReactor::EventReactor()
 {
     reactorThread_ = std::make_unique<std::thread>([this]() { this->Run(); });
     std::unique_lock<std::mutex> lock(signalMutex_);
-    runningSignal_.wait_for(lock, RUNNING_WAIT_TIMEOUT, [this]() { return this->running_; });
+    runningSignal_.wait_for(lock, RUNNING_WAIT_TIMEOUT, [this]() { return running_.load(std::memory_order_acquire); });
 }
 
 EventReactor::~EventReactor()
 {
     LMNET_LOGD("enter");
-    running_ = false;
+    running_.store(false, std::memory_order_release);
     Wakeup();
 
     if (reactorThread_ && reactorThread_->joinable()) {
@@ -74,12 +74,12 @@ void EventReactor::Run()
         pthread_setname_np(name.c_str());
     }
 
-    running_ = true;
+    running_.store(true, std::memory_order_release);
     runningSignal_.notify_all();
 
     std::vector<struct kevent> events(KQUEUE_EVENT_MAX);
 
-    while (running_) {
+    while (running_.load(std::memory_order_acquire)) {
         struct timespec timeout;
         timeout.tv_sec = 0;
         timeout.tv_nsec = 100 * 1000 * 1000; // 100ms
@@ -163,7 +163,7 @@ bool EventReactor::RegisterHandler(std::shared_ptr<EventHandler> handler)
         return false;
     }
 
-    if (!running_) {
+    if (!running_.load(std::memory_order_acquire)) {
         LMNET_LOGE("Reactor not running");
         return false;
     }
@@ -205,7 +205,7 @@ bool EventReactor::RemoveHandler(socket_t fd)
         }
     }
 
-    if (!running_) {
+    if (!running_.load(std::memory_order_acquire)) {
         LMNET_LOGE("Reactor not running");
         return false;
     }
