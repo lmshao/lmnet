@@ -253,7 +253,7 @@ void UdpClientImpl::HandleReceive(socket_t fd)
         }
 
         if (nbytes == 0) {
-            HandleConnectionClose(fd, false, "Peer closed");
+            LMNET_LOGW("Disconnect fd[%d]", fd);
             break;
         }
 
