@@ -61,7 +61,7 @@ public:
 
 private:
     void Run();
-    void DispatchEvent(const struct kevent &event);
+    void DispatchEvent(std::shared_ptr<EventHandler> handler, const struct kevent &event);
     bool ApplyEvents(socket_t fd, int newEvents, int oldEvents);
     void Wakeup();
 

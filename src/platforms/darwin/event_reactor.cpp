@@ -137,7 +137,7 @@ void EventReactor::Run()
 
             if (handler) {
                 try {
-                    DispatchEvent(kev);
+                    DispatchEvent(std::move(handler), kev);
                 } catch (const std::exception &e) {
                     LMNET_LOGE("Exception in event handler for fd %lld: %s", static_cast<long long>(kev.ident),
                                e.what());
@@ -149,31 +149,24 @@ void EventReactor::Run()
     }
 }
 
-void EventReactor::DispatchEvent(const struct kevent &event)
+void EventReactor::DispatchEvent(std::shared_ptr<EventHandler> handler, const struct kevent &event)
 {
-    socket_t fd = static_cast<socket_t>(event.ident);
-
-    std::shared_ptr<EventHandler> handler;
-    {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
-        auto it = handlers_.find(fd);
-        if (it == handlers_.end()) {
-            return;
-        }
-        handler = it->second;
+    if (!handler) {
+        return;
     }
+
+    socket_t fd = static_cast<socket_t>(event.ident);
 
     if (event.flags & EV_ERROR) {
         LMNET_LOGE("kqueue event error on fd %d: %s", fd, strerror(static_cast<int>(event.data)));
         handler->HandleError(fd);
-        return;
     }
 
-    if (event.filter == EVFILT_READ) {
+    if ((event.flags & EV_ERROR) == 0 && event.filter == EVFILT_READ) {
         handler->HandleRead(fd);
     }
 
-    if (event.filter == EVFILT_WRITE) {
+    if ((event.flags & EV_ERROR) == 0 && event.filter == EVFILT_WRITE) {
         handler->HandleWrite(fd);
     }
 
