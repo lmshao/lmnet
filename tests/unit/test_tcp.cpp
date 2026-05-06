@@ -24,6 +24,10 @@
 #include "lmnet/tcp_client.h"
 #include "lmnet/tcp_server.h"
 
+#ifdef __APPLE__
+#include "../../src/platforms/darwin/event_reactor.h"
+#endif
+
 #ifdef _WIN32
 #include "../../src/platforms/windows/iocp_manager.h"
 #endif
@@ -92,6 +96,23 @@ int SetSendBufferSize(socket_t socket, int send_buffer_size)
     return setsockopt(socket, SOL_SOCKET, SO_SNDBUF, &send_buffer_size, sizeof(send_buffer_size));
 #endif
 }
+
+#ifdef __APPLE__
+class BlockingEventHandler final : public EventHandler {
+public:
+    explicit BlockingEventHandler(socket_t fd) : fd_(fd) {}
+
+    void HandleRead(socket_t) override {}
+    void HandleWrite(socket_t) override {}
+    void HandleError(socket_t) override {}
+    void HandleClose(socket_t) override {}
+    int GetHandle() const override { return fd_; }
+    int GetEvents() const override { return static_cast<int>(EventType::READ); }
+
+private:
+    socket_t fd_;
+};
+#endif
 } // namespace
 
 // Simple TCP server-client test
@@ -321,6 +342,32 @@ TEST(TcpTest, ConnectFailureAllowsRetry)
     client->Close();
     server->Stop();
 }
+
+#ifdef __APPLE__
+TEST(TcpTest, ConnectRegisterFailureInvalidatesSocket)
+{
+    const uint16_t port = 12349;
+
+    auto server = TcpServer::Create("127.0.0.1", port);
+    EXPECT_TRUE(server->Init());
+    EXPECT_TRUE(server->Start());
+
+    auto client = TcpClient::Create("127.0.0.1", port);
+    EXPECT_TRUE(client->Init());
+    EXPECT_TRUE(client->GetSocketFd() != INVALID_SOCKET);
+
+    auto blocker = std::make_shared<BlockingEventHandler>(client->GetSocketFd());
+    EXPECT_TRUE(EventReactor::GetInstance().RegisterHandler(blocker));
+
+    EXPECT_FALSE(client->Connect());
+    EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
+
+    EXPECT_TRUE(EventReactor::GetInstance().RemoveHandler(blocker->GetHandle()));
+
+    client->Close();
+    server->Stop();
+}
+#endif
 
 TEST(TcpTest, ExplicitCloseNotifiesOnceWithoutError)
 {

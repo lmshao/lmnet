@@ -256,12 +256,19 @@ bool UnixServerImpl::Start()
     }
 
     if (taskQueue_) {
-        taskQueue_->Start();
+        if (taskQueue_->Start() != 0) {
+            LMNET_LOGE("Failed to start task queue");
+            return false;
+        }
     }
 
     serverHandler_ = std::make_shared<UnixServerHandler>(shared_from_this());
     if (!EventReactor::GetInstance().RegisterHandler(serverHandler_)) {
         LMNET_LOGE("Failed to register server handler");
+        serverHandler_.reset();
+        if (taskQueue_) {
+            taskQueue_->Stop();
+        }
         return false;
     }
 

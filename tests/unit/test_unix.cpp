@@ -23,6 +23,10 @@
 #include "lmnet/unix_client.h"
 #include "lmnet/unix_server.h"
 
+#ifdef __APPLE__
+#include "../../src/platforms/darwin/event_reactor.h"
+#endif
+
 using namespace lmshao::lmnet;
 
 namespace {
@@ -37,6 +41,23 @@ bool WaitFor(Condition condition, int timeout_ms = 5000, int check_interval_ms =
     }
     return false;
 }
+
+#ifdef __APPLE__
+class BlockingEventHandler final : public EventHandler {
+public:
+    explicit BlockingEventHandler(socket_t fd) : fd_(fd) {}
+
+    void HandleRead(socket_t) override {}
+    void HandleWrite(socket_t) override {}
+    void HandleError(socket_t) override {}
+    void HandleClose(socket_t) override {}
+    int GetHandle() const override { return fd_; }
+    int GetEvents() const override { return static_cast<int>(EventType::READ); }
+
+private:
+    socket_t fd_;
+};
+#endif
 } // namespace
 
 #if defined(__linux__) || defined(__APPLE__)
@@ -206,6 +227,34 @@ TEST(UnixTest, ConnectFailureAllowsRetry)
     server->Stop();
     std::remove(socket_path.c_str());
 }
+
+#ifdef __APPLE__
+TEST(UnixTest, ConnectRegisterFailureInvalidatesSocket)
+{
+    const std::string socket_path = "/tmp/lmnet_register_fail.sock";
+    std::remove(socket_path.c_str());
+
+    auto server = UnixServer::Create(socket_path);
+    EXPECT_TRUE(server->Init());
+    EXPECT_TRUE(server->Start());
+
+    auto client = UnixClient::Create(socket_path);
+    EXPECT_TRUE(client->Init());
+    EXPECT_TRUE(client->GetSocketFd() != INVALID_SOCKET);
+
+    auto blocker = std::make_shared<BlockingEventHandler>(client->GetSocketFd());
+    EXPECT_TRUE(EventReactor::GetInstance().RegisterHandler(blocker));
+
+    EXPECT_FALSE(client->Connect());
+    EXPECT_EQ(INVALID_SOCKET, client->GetSocketFd());
+
+    EXPECT_TRUE(EventReactor::GetInstance().RemoveHandler(blocker->GetHandle()));
+
+    client->Close();
+    server->Stop();
+    std::remove(socket_path.c_str());
+}
+#endif
 
 TEST(UnixTest, InitBindFailureInvalidatesServerSocket)
 {

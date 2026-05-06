@@ -281,11 +281,20 @@ bool TcpClientImpl::Connect()
         return false;
     }
 
-    taskQueue_->Start();
+    if (taskQueue_ && taskQueue_->Start() != 0) {
+        LMNET_LOGE("Failed to start task queue");
+        Close();
+        return false;
+    }
 
     clientHandler_ = std::make_shared<TcpClientHandler>(socket_, shared_from_this());
     if (!EventReactor::GetInstance().RegisterHandler(clientHandler_)) {
         LMNET_LOGE("Failed to register client handler");
+        clientHandler_.reset();
+        if (taskQueue_) {
+            taskQueue_->Stop();
+        }
+        Close();
         return false;
     }
 
