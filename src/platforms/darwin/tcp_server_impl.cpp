@@ -320,19 +320,17 @@ bool TcpServerImpl::Send(socket_t fd, std::shared_ptr<DataBuffer> buffer)
         return false;
     }
 
-    if (sessions_.find(fd) == sessions_.end()) {
+    if (!GetSession(fd)) {
         LMNET_LOGE("invalid session fd");
         return false;
     }
 
-    auto handlerIt = connectionHandlers_.find(fd);
-    if (handlerIt != connectionHandlers_.end()) {
-        auto tcpHandler = handlerIt->second;
-        if (tcpHandler) {
-            tcpHandler->QueueSend(buffer);
-            return true;
-        }
+    auto tcpHandler = GetConnectionHandler(fd);
+    if (tcpHandler) {
+        tcpHandler->QueueSend(buffer);
+        return true;
     }
+
     LMNET_LOGE("Connection handler not found for fd: %d", fd);
     return false;
 }
