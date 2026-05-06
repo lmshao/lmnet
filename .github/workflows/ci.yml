@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+  LMCORE_REPOSITORY: lmshao/lmcore
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-epoll
+            os: ubuntu-latest
+            linux_backend: EPOLL
+            install_liburing: false
+          - name: linux-io_uring
+            os: ubuntu-latest
+            linux_backend: IOURING
+            install_liburing: true
+          - name: macos-kqueue
+            os: macos-latest
+            linux_backend: ""
+            install_liburing: false
+          - name: windows-iocp
+            os: windows-latest
+            linux_backend: ""
+            install_liburing: false
+
+    steps:
+      - name: Checkout lmnet
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          packages=(ninja-build)
+          if [[ "${{ matrix.install_liburing }}" == "true" ]]; then
+            packages+=(liburing-dev)
+          fi
+          sudo apt-get install -y "${packages[@]}"
+
+      - name: Ensure Ninja on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ninja >/dev/null 2>&1; then
+            brew install ninja
+          fi
+
+      - name: Ensure Ninja on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            choco install ninja -y
+          }
+
+      - name: Fetch sibling lmcore
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ../lmcore
+          git clone --depth 1 "https://github.com/${LMCORE_REPOSITORY}.git" ../lmcore
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake_args=(
+            -S .
+            -B build
+            -G Ninja
+            -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
+            -DBUILD_TESTS=ON
+            -DBUILD_EXAMPLES=OFF
+          )
+          if [[ -n "${{ matrix.linux_backend }}" ]]; then
+            cmake_args+=(-DLMNET_LINUX_BACKEND=${{ matrix.linux_backend }})
+          fi
+          cmake "${cmake_args[@]}"
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build --parallel
+
+      - name: Test
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure --parallel 2
+
+      - name: Upload CTest logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-ctest-logs
+          path: |
+            build/Testing/Temporary/**
+            build/CMakeCache.txt
+          if-no-files-found: ignore
