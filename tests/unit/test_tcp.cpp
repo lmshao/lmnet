@@ -228,6 +228,16 @@ TEST(TcpTest, InitBindFailureInvalidatesServerSocket)
     EXPECT_TRUE(secondServer->Stop());
 }
 
+TEST(TcpTest, InitInvalidIpInvalidatesServerSocket)
+{
+    auto server = TcpServer::Create("invalid-ip", 12348);
+
+    EXPECT_TRUE(!server->Init());
+    EXPECT_EQ(INVALID_SOCKET, server->GetSocketFd());
+
+    EXPECT_TRUE(server->Stop());
+}
+
 TEST(TcpTest, ConnectFailureDoesNotNotifyListener)
 {
     const uint16_t port = 65432;

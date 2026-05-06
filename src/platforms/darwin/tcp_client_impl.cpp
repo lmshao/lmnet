@@ -190,7 +190,12 @@ bool TcpClientImpl::Init()
         if (localIp_.empty()) {
             localIp_ = "0.0.0.0";
         }
-        inet_aton(localIp_.c_str(), &localAddr.sin_addr);
+        if (inet_pton(AF_INET, localIp_.c_str(), &localAddr.sin_addr) != 1) {
+            LMNET_LOGE("invalid local IPv4 address: %s", localIp_.c_str());
+            close(socket_);
+            socket_ = INVALID_SOCKET;
+            return false;
+        }
 
         int optval = 1;
         if (setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
@@ -234,7 +239,11 @@ bool TcpClientImpl::Connect()
         remoteIp_ = "127.0.0.1";
     }
 
-    inet_aton(remoteIp_.c_str(), &serverAddr_.sin_addr);
+    if (inet_pton(AF_INET, remoteIp_.c_str(), &serverAddr_.sin_addr) != 1) {
+        LMNET_LOGE("invalid remote IPv4 address: %s", remoteIp_.c_str());
+        ReInit();
+        return false;
+    }
 
     int ret = connect(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_));
     if (ret < 0 && errno != EINPROGRESS) {

@@ -236,7 +236,15 @@ bool TcpServerImpl::Init()
     memset(&serverAddr_, 0, sizeof(serverAddr_));
     serverAddr_.sin_family = AF_INET;
     serverAddr_.sin_port = htons(localPort_);
-    inet_aton(localIp_.c_str(), &serverAddr_.sin_addr);
+    if (localIp_.empty()) {
+        localIp_ = "0.0.0.0";
+    }
+    if (inet_pton(AF_INET, localIp_.c_str(), &serverAddr_.sin_addr) != 1) {
+        LMNET_LOGE("invalid listen IPv4 address: %s", localIp_.c_str());
+        close(socket_);
+        socket_ = INVALID_SOCKET;
+        return false;
+    }
 
     if (bind(socket_, (struct sockaddr *)&serverAddr_, sizeof(serverAddr_)) < 0) {
         LMNET_LOGE("bind error: %s", strerror(errno));
