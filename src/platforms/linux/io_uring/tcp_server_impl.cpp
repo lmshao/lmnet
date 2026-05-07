@@ -65,11 +65,9 @@ bool TcpServerImpl::Init()
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(localPort_);
-    if (localIp_.empty()) {
-        localIp_ = "0.0.0.0";
-    }
-    if (inet_pton(AF_INET, localIp_.c_str(), &server_addr.sin_addr) != 1) {
-        LMNET_LOGE("Invalid listen IPv4 address: %s", localIp_.c_str());
+    const std::string bindIp = localIp_.empty() ? std::string("0.0.0.0") : localIp_;
+    if (inet_pton(AF_INET, bindIp.c_str(), &server_addr.sin_addr) != 1) {
+        LMNET_LOGE("Invalid listen IPv4 address: %s", bindIp.c_str());
         close(socket_);
         socket_ = INVALID_SOCKET;
         return false;
