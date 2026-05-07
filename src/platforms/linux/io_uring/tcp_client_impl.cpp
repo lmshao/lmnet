@@ -29,8 +29,13 @@ TcpClientImpl::~TcpClientImpl()
 bool TcpClientImpl::Init()
 {
     ReInit();
+    if (socket_ == INVALID_SOCKET) {
+        return false;
+    }
     if (!IoUringManager::GetInstance().Init()) {
         LMNET_LOGE("Failed to initialize IoUringManager");
+        close(socket_);
+        socket_ = INVALID_SOCKET;
         return false;
     }
     isRunning_ = true;
