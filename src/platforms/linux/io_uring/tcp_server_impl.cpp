@@ -65,7 +65,15 @@ bool TcpServerImpl::Init()
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(localPort_);
-    server_addr.sin_addr.s_addr = inet_addr(localIp_.c_str());
+    if (localIp_.empty()) {
+        localIp_ = "0.0.0.0";
+    }
+    if (inet_pton(AF_INET, localIp_.c_str(), &server_addr.sin_addr) != 1) {
+        LMNET_LOGE("Invalid listen IPv4 address: %s", localIp_.c_str());
+        close(socket_);
+        socket_ = INVALID_SOCKET;
+        return false;
+    }
 
     if (bind(socket_, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         LMNET_LOGE("Failed to bind socket: %s", strerror(errno));
