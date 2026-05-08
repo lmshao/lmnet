@@ -24,8 +24,6 @@
 
 namespace lmshao::lmnet {
 
-using lmshao::lmcore::TaskHandler;
-
 // UDP Server Handler
 class UdpServerHandler : public EventHandler {
 public:
@@ -205,35 +203,48 @@ void UdpServerImpl::CloseSocket()
 
 void UdpServerImpl::HandleReceive(socket_t fd)
 {
-    struct sockaddr_in clientAddr;
-    socklen_t clientAddrLen = sizeof(clientAddr);
+    while (true) {
+        struct sockaddr_in clientAddr{};
+        socklen_t clientAddrLen = sizeof(clientAddr);
 
-    readBuffer_->Clear();
-    readBuffer_->SetCapacity(RECV_BUFFER_MAX_SIZE);
+        readBuffer_->Clear();
+        readBuffer_->SetCapacity(RECV_BUFFER_MAX_SIZE);
 
-    ssize_t bytesRead = recvfrom(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0,
-                                 reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen);
+        ssize_t bytesRead = recvfrom(fd, readBuffer_->Data(), readBuffer_->Capacity(), 0,
+                                     reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen);
 
-    if (bytesRead > 0) {
-        readBuffer_->SetSize(bytesRead);
+        if (bytesRead > 0) {
+            readBuffer_->SetSize(bytesRead);
 
-        char clientIP[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
-        uint16_t clientPort = ntohs(clientAddr.sin_port);
+            char clientIP[INET_ADDRSTRLEN] = {};
+            inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
+            uint16_t clientPort = ntohs(clientAddr.sin_port);
 
-        // Create session info
-        auto session = std::make_shared<UdpSessionImpl>(fd, clientIP, clientPort, shared_from_this());
+            // Create session info
+            auto session = std::make_shared<UdpSessionImpl>(fd, clientIP, clientPort, shared_from_this());
 
-        if (auto listener = listener_.lock()) {
-            auto dataBuffer = std::make_shared<DataBuffer>(*readBuffer_);
-            listener->OnReceive(session, dataBuffer);
+            if (auto listener = listener_.lock()) {
+                auto dataBuffer = std::make_shared<DataBuffer>(*readBuffer_);
+                listener->OnReceive(session, dataBuffer);
+            }
+            continue;
         }
-    } else if (bytesRead == 0) {
-        LMNET_LOGD("UDP peer closed connection");
-    } else {
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LMNET_LOGE("recvfrom failed: %s", strerror(errno));
+
+        if (bytesRead == 0) {
+            LMNET_LOGD("UDP peer closed connection");
+            break;
         }
+
+        if (errno == EINTR) {
+            continue;
+        }
+
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            break;
+        }
+
+        LMNET_LOGE("recvfrom failed: %s", strerror(errno));
+        break;
     }
 }
 
