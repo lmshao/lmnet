@@ -27,7 +27,6 @@
 namespace lmshao::lmnet {
 using lmshao::lmcore::TaskHandler;
 
-const int TCP_BACKLOG = 10;
 const int RECV_BUFFER_MAX_SIZE = 4096;
 
 class TcpServerHandler : public EventHandler {
@@ -268,7 +267,7 @@ bool TcpServerImpl::Init()
         return false;
     }
 
-    if (listen(socket_, TCP_BACKLOG) < 0) {
+    if (listen(socket_, SOMAXCONN) < 0) {
         LMNET_LOGE("listen error: %s", strerror(errno));
         close(socket_);
         socket_ = INVALID_SOCKET;
