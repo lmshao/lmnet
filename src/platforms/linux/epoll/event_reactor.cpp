@@ -276,26 +276,20 @@ void EventReactor::DispatchEvent(std::shared_ptr<EventHandler> handler, socket_t
         return;
     }
 
-    try {
-        if (events & EPOLLIN) {
-            handler->HandleRead(fd);
-        }
+    if (events & EPOLLIN) {
+        handler->HandleRead(fd);
+    }
 
-        if (events & EPOLLOUT) {
-            handler->HandleWrite(fd);
-        }
+    if (events & EPOLLOUT) {
+        handler->HandleWrite(fd);
+    }
 
-        if (events & EPOLLERR) {
-            handler->HandleError(fd);
-        }
+    if (events & EPOLLERR) {
+        handler->HandleError(fd);
+    }
 
-        if (events & (EPOLLHUP | EPOLLRDHUP)) {
-            handler->HandleClose(fd);
-        }
-    } catch (const std::exception &e) {
-        LMNET_LOGE("Exception in event handler for fd %d: %s", fd, e.what());
-    } catch (...) {
-        LMNET_LOGE("Unknown exception in event handler for fd %d", fd);
+    if (events & (EPOLLHUP | EPOLLRDHUP)) {
+        handler->HandleClose(fd);
     }
 }
 } // namespace lmshao::lmnet
