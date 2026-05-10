@@ -91,6 +91,11 @@ bool TcpClientImpl::Init()
     }
 
     ReInit();
+    if (socket_ == INVALID_SOCKET) {
+        LMNET_LOGE("Failed to initialize socket");
+        taskQueue_->Stop();
+        return false;
+    }
     isRunning_.store(true);
 
     LMNET_LOGD("TCP client initialized for %s:%u", remoteIp_.c_str(), remotePort_);
@@ -124,6 +129,8 @@ void TcpClientImpl::ReInit()
 
         if (bind(socket_, (sockaddr *)&localAddr_, sizeof(localAddr_)) != 0) {
             LMNET_LOGE("bind failed: %d", WSAGetLastError());
+            closesocket(socket_);
+            socket_ = INVALID_SOCKET;
             return;
         }
     } else {
@@ -134,6 +141,8 @@ void TcpClientImpl::ReInit()
 
         if (bind(socket_, (sockaddr *)&localAddr_, sizeof(localAddr_)) != 0) {
             LMNET_LOGE("Auto-bind for ConnectEx failed: %d", WSAGetLastError());
+            closesocket(socket_);
+            socket_ = INVALID_SOCKET;
             return;
         }
     }
@@ -152,6 +161,8 @@ void TcpClientImpl::ReInit()
     serverAddr_.sin_port = htons(remotePort_);
     if (inet_pton(AF_INET, remoteIp_.c_str(), &serverAddr_.sin_addr) != 1) {
         LMNET_LOGE("inet_pton remote failed");
+        closesocket(socket_);
+        socket_ = INVALID_SOCKET;
         return;
     }
 
