@@ -239,7 +239,6 @@ private:
                     updatedPending.offset = 1;
                 }
 
-                bool shouldContinue = false;
                 {
                     std::lock_guard<std::mutex> lock(sendMutex_);
                     if (sendQueue_.empty() || sendQueue_.front().data != pending.data ||
@@ -252,15 +251,10 @@ private:
                         sendQueue_.pop();
                     } else {
                         sendQueue_.front() = std::move(updatedPending);
-                        shouldContinue = true;
                     }
                 }
 
-                if (shouldContinue) {
-                    continue;
-                } else {
-                    continue;
-                }
+                continue;
             } else if (bytesSent == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     break;

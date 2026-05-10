@@ -13,20 +13,22 @@
 #include <unistd.h>
 
 #include <cstring>
+#include <mutex>
 
 #include "internal_logger.h"
 
 namespace lmshao::lmnet {
 
-uint16_t PortUtils::nextPort_ = PortUtils::UDP_PORT_START;
+namespace {
+std::mutex g_portMutex;
 
-uint16_t PortUtils::GetIdleUdpPort()
+uint16_t GetIdleUdpPortUnlocked(uint16_t &nextPort)
 {
     int sock;
     struct sockaddr_in addr;
 
     uint16_t i;
-    for (i = nextPort_; i < nextPort_ + 100; i++) {
+    for (i = nextPort; i < nextPort + 100; i++) {
         sock = socket(AF_INET, SOCK_DGRAM, 0);
         if (sock < 0) {
             LMNET_LOGE("socket creation failed");
@@ -47,27 +49,38 @@ uint16_t PortUtils::GetIdleUdpPort()
         break;
     }
 
-    if (i == nextPort_ + 100) {
+    if (i == nextPort + 100) {
         LMNET_LOGE("Can't find idle port");
         return 0;
     }
 
-    nextPort_ = i + 1;
+    nextPort = i + 1;
     return i;
+}
+} // namespace
+
+uint16_t PortUtils::nextPort_ = PortUtils::UDP_PORT_START;
+
+uint16_t PortUtils::GetIdleUdpPort()
+{
+    std::lock_guard<std::mutex> lock(g_portMutex);
+    return GetIdleUdpPortUnlocked(nextPort_);
 }
 
 uint16_t PortUtils::GetIdleUdpPortPair()
 {
+    std::lock_guard<std::mutex> lock(g_portMutex);
+
     uint16_t firstPort;
     uint16_t secondPort;
-    firstPort = GetIdleUdpPort();
+    firstPort = GetIdleUdpPortUnlocked(nextPort_);
 
     if (firstPort == 0) {
         return 0;
     }
 
     while (true) {
-        secondPort = GetIdleUdpPort();
+        secondPort = GetIdleUdpPortUnlocked(nextPort_);
         if (secondPort == 0) {
             return 0;
         }

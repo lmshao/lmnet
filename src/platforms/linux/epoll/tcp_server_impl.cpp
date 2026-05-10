@@ -461,11 +461,6 @@ void TcpServerImpl::HandleReceive(socket_t fd)
         ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
 
         if (nbytes > 0) {
-            if (nbytes > RECV_BUFFER_MAX_SIZE) {
-                LMNET_LOGD("recv %zd bytes", nbytes);
-                break;
-            }
-
             if (!listener_.expired()) {
                 auto dataBuffer = std::make_shared<DataBuffer>(nbytes);
                 dataBuffer->Assign(readBuffer_->Data(), nbytes);

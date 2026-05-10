@@ -91,7 +91,12 @@ bool UdpClientImpl::Init()
     memset(&serverAddr_, 0, sizeof(serverAddr_));
     serverAddr_.sin_family = AF_INET;
     serverAddr_.sin_port = htons(remotePort_);
-    inet_aton(remoteIp_.c_str(), &serverAddr_.sin_addr);
+    if (inet_aton(remoteIp_.c_str(), &serverAddr_.sin_addr) == 0) {
+        LMNET_LOGE("invalid remote IPv4 address: %s", remoteIp_.c_str());
+        close(socket_);
+        socket_ = INVALID_SOCKET;
+        return false;
+    }
 
     if (!localIp_.empty() || localPort_ != 0) {
         struct sockaddr_in localAddr;
@@ -101,7 +106,12 @@ bool UdpClientImpl::Init()
         if (localIp_.empty()) {
             localIp_ = "0.0.0.0";
         }
-        inet_aton(localIp_.c_str(), &localAddr.sin_addr);
+        if (inet_aton(localIp_.c_str(), &localAddr.sin_addr) == 0) {
+            LMNET_LOGE("invalid local IPv4 address: %s", localIp_.c_str());
+            close(socket_);
+            socket_ = INVALID_SOCKET;
+            return false;
+        }
 
         int ret = bind(socket_, (struct sockaddr *)&localAddr, (socklen_t)sizeof(localAddr));
         if (ret != 0) {
