@@ -1,355 +1,204 @@
 # Lmnet
 
-A modern C++ cross-platform asynchronous lmnet library with high performance. It provides TCP, UDP, and UNIX domain socket support across Linux, macOS, and Windows platforms, focusing on event-driven programming, resource management, and scalable network applications. 
+[![English](https://img.shields.io/badge/Language-English-blue)](README.md)
+[![简体中文](https://img.shields.io/badge/语言-简体中文-red)](README.zh-CN.md)
 
-Suitable for learning, prototyping, and building real-world network services.
+Cross-platform asynchronous networking library for C++17.
 
-## Features
+Lmnet provides a unified API for TCP, UDP, and Unix domain socket communication while using the native I/O model of each platform:
 
-- **Cross-platform support**: Linux (epoll/io_uring), macOS (kqueue), and Windows (IOCP)
-- **High-performance I/O**: Event-driven asynchronous I/O with platform-optimized implementations
-- **Multiple Linux backends**: Choose between traditional epoll or modern io_uring for optimal performance
-- **Comprehensive socket support**: TCP/UDP client & server, UNIX domain sockets (Linux/macOS)
-- **Centralized resource management**: Unified IOCP manager on Windows for optimal resource utilization
-- **Thread pool integration**: Efficient task queue and worker thread management
-- **Session management**: Advanced connection lifecycle handling
-- **Customizable event handlers**: Flexible callbacks for read/write/error/close events
-- **Resource-safe shutdown**: Graceful exit mechanisms with proper resource cleanup
-- **Production-ready**: Comprehensive unit tests and real-world examples
+- Linux: epoll or io_uring
+- macOS: kqueue
+- Windows: IOCP
 
-## Installation
+It is intended for learning, prototypes, and application-level network components that need the same API across platforms.
 
-### Prerequisites
+## Overview
 
-Lmnet depends on the [lmcore library](https://github.com/lmshao/lmcore). You have two options to satisfy this dependency:
+- TCP client and server APIs
+- UDP client and server APIs
+- Unix domain socket client and server APIs on Linux and macOS
+- Platform-specific backends selected by CMake
+- Callback-based session and buffer handling
+- Examples and unit tests in the repository
 
-#### Option 1: System Installation (Recommended)
+## Platform Support
 
-Install lmcore to your system first:
+| Capability | Linux | macOS | Windows | Notes |
+| --- | --- | --- | --- | --- |
+| TCP client/server | Yes | Yes | Yes | Uses the platform backend selected at build time |
+| UDP client/server | Yes | Yes | Yes | Datagram APIs share the same listener model |
+| Unix domain sockets | Yes | Yes | No | Exposed through `UnixClient` and `UnixServer` |
+| Linux backend selection | epoll / io_uring | N/A | N/A | `LMNET_LINUX_BACKEND=AUTO|EPOLL|IOURING` |
+
+## Requirements
+
+- C++17 compiler
+- CMake 3.10 or later
+- [lmcore](https://github.com/lmshao/lmcore)
+- On Linux, `liburing` is required only when building with the io_uring backend
+- On Windows, Visual Studio 2019 or later is recommended
+
+## Getting Started
+
+### 1. Provide `lmcore`
+
+Lmnet first tries `find_package(lmcore)`. If that fails, it looks for a sibling directory named `../lmcore`.
+
+Recommended local layout:
+
+```text
+workspace/
+|- lmcore/
+`- lmnet/
+```
+
+Example:
 
 ```bash
-# Clone and install lmcore
 git clone https://github.com/lmshao/lmcore.git
-cd lmcore
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
-sudo make install  # Install to /usr/local
-```
-
-Then build lmnet:
-
-```bash
 git clone https://github.com/lmshao/lmnet.git
-cd lmnet
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
 ```
 
-#### Option 2: Local Development Setup
+### 2. Configure and build
 
-Place lmcore and lmnet in the same parent directory:
+Linux and macOS:
 
 ```bash
-# Directory structure should be:
-# parent_directory/
-# ├── lmcore/     (clone lmcore here)
-# └── lmnet/      (clone lmnet here)
-
-git clone https://github.com/lmshao/lmcore.git
-git clone https://github.com/lmshao/lmnet.git
-
-cd lmnet
-mkdir build && cd build
-cmake ..  # Will automatically find lmcore in sibling directory
-make -j$(nproc)
+cmake -S . -B build
+cmake --build build --parallel
 ```
 
-### Build Configuration
-
-The CMake build system will automatically:
-1. First try to find system-installed lmcore (`find_package(lmcore)`)
-2. If not found, look for lmcore in the sibling directory `../lmcore`
-3. If neither is found, display helpful error messages with installation instructions
-
-### Linux Backend Selection
-
-Lmnet supports two high-performance I/O backends on Linux:
-
-- **io_uring** (default when available): Linux's modern asynchronous I/O interface for maximum performance
-- **epoll** (fallback): Traditional Linux event notification using epoll + eventfd
-
-The build system automatically detects system capabilities:
-- If Linux kernel 5.1+ and liburing are available, io_uring is used by default
-- Otherwise, falls back to epoll backend
-
-To explicitly force epoll backend:
-
-```bash
-cmake .. -DLMNET_LINUX_BACKEND_IOURING=OFF
-make -j$(nproc)
-```
-
-**io_uring advantages:**
-- Zero-copy I/O operations
-- Reduced system call overhead  
-- Better performance for high-throughput applications
-- Completion-based notifications vs event-based
-
-**Requirements for io_uring:**
-- Linux kernel 5.1+ (recommended 5.6+)
-- liburing library installed
-
-### Linux & macOS
-
-Build with CMake:
-
-```bash
-cd lmnet  # After setting up lmcore dependency as described above
-mkdir build && cd build
-cmake ..
-cmake --build . --parallel
-```
-
-### Windows
-
-**Prerequisites:**
-- Visual Studio 2019 or later (with C++17 support)
-- CMake 3.16 or later
-
-**Build steps:**
+Windows:
 
 ```powershell
-cd lmnet  # After setting up lmcore dependency as described above
-mkdir build
-cd build
-cmake .. -G "Visual Studio 16 2019" -A x64
-cmake --build . --config Debug
-# or
-cmake --build . --config Release
+cmake -S . -B build -G "Visual Studio 16 2019" -A x64
+cmake --build build --config Debug
 ```
 
-### Platform-Specific Features
+Useful CMake options:
 
-**Linux**: 
+- `-DBUILD_EXAMPLES=OFF`
+- `-DBUILD_TESTS=OFF`
+- `-DBUILD_STATIC_LIBS=OFF`
+- `-DBUILD_SHARED_LIBS=OFF`
 
-Choose between two high-performance backends (auto-detected):
-- **io_uring**: Uses Linux's modern asynchronous I/O interface for maximum performance (default when available)
-- **epoll**: Uses `epoll` for event-driven I/O with `eventfd` for graceful shutdown (fallback)
+### 3. Select the Linux backend
 
-**macOS**: Uses native `kqueue` for efficient event notification:
-- Single kqueue-driven reactor shared by all Darwin network components
-- Integrates with lmcore task queues for callback execution
-- Supports TCP/UDP/Unix domain sockets with consistent APIs
+Linux builds accept these values:
 
-**Windows**: Uses `IOCP` (I/O Completion Ports) with a centralized manager for optimal resource utilization:
-- Single IOCP instance shared across all network components
-- Configurable worker thread pool (defaults to CPU core count)
-- Automatic socket registration/deregistration
-- Efficient completion event handling
+- `AUTO`: prefer io_uring when `liburing` is available, otherwise fall back to epoll
+- `EPOLL`: force the epoll backend
+- `IOURING`: require io_uring and fail configuration if `liburing` is unavailable
+
+Examples:
+
+```bash
+cmake -S . -B build -DLMNET_LINUX_BACKEND=AUTO
+cmake -S . -B build -DLMNET_LINUX_BACKEND=EPOLL
+cmake -S . -B build -DLMNET_LINUX_BACKEND=IOURING
+```
+
+### 4. Install
+
+Install and CMake package export targets are generated on Unix-like platforms:
+
+```bash
+cmake --install build
+```
+
+Windows does not currently provide install or uninstall targets; use the build output directly.
 
 ## Quick Start
 
-Create a simple TCP echo server:
+Minimal TCP echo server:
 
 ```cpp
+#include <chrono>
 #include <lmnet/tcp_server.h>
 
 #include <iostream>
 #include <memory>
 #include <thread>
 
+using namespace lmshao::lmnet;
+
 class MyListener : public IServerListener {
 public:
-    void OnError(std::shared_ptr<Session> clientSession, const std::string &errorInfo) override {}
-    void OnClose(std::shared_ptr<Session> clientSession) override {}
-    void OnAccept(std::shared_ptr<Session> clientSession) override
+    void OnAccept(std::shared_ptr<Session> session) override
     {
-        std::cout << "OnAccept: from " << clientSession->ClientInfo() << std::endl;
+        std::cout << "accepted: " << session->ClientInfo() << std::endl;
     }
-    void OnReceive(std::shared_ptr<Session> clientSession, std::shared_ptr<DataBuffer> buffer) override
+
+    void OnReceive(std::shared_ptr<Session> session, std::shared_ptr<DataBuffer> buffer) override
     {
-        if (clientSession->Send(buffer)) {
-            std::cout << "send echo data ok." << std::endl;
-        }
+        session->Send(buffer);
     }
+
+    void OnClose(std::shared_ptr<Session>) override {}
+    void OnError(std::shared_ptr<Session>, const std::string &) override {}
 };
 
-int main(int argc, char **argv)
+int main()
 {
     uint16_t port = 7777;
     auto tcp_server = TcpServer::Create("0.0.0.0", port);
     auto listener = std::make_shared<MyListener>();
+
     tcp_server->SetListener(listener);
-    tcp_server->Init();
-    tcp_server->Start();
-    std::cout << "Listen on port 0.0.0.0:" << port << std::endl;
+    if (!tcp_server->Init() || !tcp_server->Start()) {
+        return 1;
+    }
+
+    std::cout << "listening on 0.0.0.0:" << port << std::endl;
     while (true) {
         std::this_thread::sleep_for(std::chrono::hours(24));
     }
-    return 0;
 }
 ```
 
-More examples can be found in the [`examples/`](examples/) directory.
+## Examples
 
-## API Reference
+The repository includes runnable examples in [examples](examples):
 
-- See header files in [`include/lmnet/`](include/lmnet/) for detailed API documentation.
-- Key classes: `TcpServer`, `TcpClient`, `UdpServer`, `UdpClient`, `EventReactor`, `Session`, etc.
+- `tcp_echo_server`
+- `tcp_client`
+- `tcp_benchmark`
+- `udp_echo_server`
+- `udp_client`
+- `udp_stream`
+- `unix_echo_server`
+- `unix_client`
+- `network_utils_demo`
+
+The public headers are under [include/lmnet](include/lmnet).
 
 ## Testing
 
-Run unit tests after building:
+Builds enable tests by default. Run them after building:
 
-### Linux Testing
+Unix-like platforms:
 
 ```bash
-cd build
-ctest
+ctest --test-dir build --output-on-failure
 ```
 
-### Windows Testing
+Windows:
 
 ```powershell
-cd build
-# Run all tests
-ctest -C Debug
-# or run specific tests
-.\tests\unit\Debug\test_tcp.exe
-.\tests\unit\Debug\test_udp.exe
+ctest --test-dir build -C Debug --output-on-failure
 ```
 
-## Development & Debugging
+## Repository Layout
 
-### Windows Development
-
-For development on Windows, you can use Visual Studio IDE:
-
-1. Open Visual Studio
-2. Select "Open a local folder" and choose the project root directory
-3. Visual Studio will automatically detect CMake and configure the project
-4. Set startup project to one of the test executables or examples
-5. Use F5 to run with debugging
-
-**Debugging Tips:**
-- Set breakpoints in your event handlers (`OnAccept`, `OnReceive`, etc.)
-- Monitor IOCP worker threads in the debugger
-- Use Visual Studio's diagnostic tools to analyze performance
-- Check the Output window for lmnet library logs
-
-**Windows-specific considerations:**
-- IOCP manager automatically initializes when the first network component starts
-- All network components share the same IOCP instance for efficiency
-- Worker thread count is automatically set to CPU core count (configurable)
-- Use Windows Event Viewer for system-level network debugging
-
-## Architecture
-
-```mermaid
-graph TB
-    subgraph "User Application"
-        YourApp[Your Application]
-    end
-    
-    subgraph "Lmnet Library"
-        TcpServer[TCP Server]
-        TcpClient[TCP Client]
-        UdpServer[UDP Server]
-        UdpClient[UDP Client]
-        UnixServer[Unix Server]
-        UnixClient[Unix Client]
-        
-        subgraph "I/O Backend Layer"
-            subgraph "Linux"
-                LinuxEpoll[epoll + eventfd]
-                LinuxIoUring[io_uring]
-            end
-            subgraph "macOS"
-                MacOSKqueue[kqueue]
-            end
-            subgraph "Windows"
-                WindowsIOCP[IOCP + Worker Threads]
-            end
-        end
-        
-        TaskQueue[Task Queue]
-        ThreadPool[Thread Pool]
-        Session[Session Management]
-        DataBuffer[Data Buffer]
-        
-        TcpServer --> LinuxEpoll
-        TcpClient --> LinuxEpoll
-        UdpServer --> LinuxEpoll
-        UdpClient --> LinuxEpoll
-        UnixServer --> LinuxEpoll
-        UnixClient --> LinuxEpoll
-        
-        TcpServer --> LinuxIoUring
-        TcpClient --> LinuxIoUring
-        UdpServer --> LinuxIoUring
-        UdpClient --> LinuxIoUring
-        UnixServer --> LinuxIoUring
-        UnixClient --> LinuxIoUring
-        
-    TcpServer --> MacOSKqueue
-    TcpClient --> MacOSKqueue
-    UdpServer --> MacOSKqueue
-    UdpClient --> MacOSKqueue
-    UnixServer --> MacOSKqueue
-    UnixClient --> MacOSKqueue
-
-        TcpServer --> WindowsIOCP
-        TcpClient --> WindowsIOCP
-        UdpServer --> WindowsIOCP
-        UdpClient --> WindowsIOCP
-        
-        LinuxEpoll --> TaskQueue
-        LinuxIoUring --> TaskQueue
-    MacOSKqueue --> TaskQueue
-        WindowsIOCP --> TaskQueue
-        
-        LinuxEpoll --> ThreadPool
-        LinuxIoUring --> ThreadPool
-    MacOSKqueue --> ThreadPool
-        WindowsIOCP --> ThreadPool
-        
-        LinuxEpoll --> Session
-        LinuxIoUring --> Session
-    MacOSKqueue --> Session
-        WindowsIOCP --> Session
-        
-        Session --> DataBuffer
-    end
-    
-    YourApp -.-> TcpServer
-    YourApp -.-> TcpClient
-    YourApp -.-> UdpServer
-    YourApp -.-> UdpClient
-    YourApp -.-> UnixServer
-    YourApp -.-> UnixClient
-    
-    classDef userApp fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    classDef networkComp fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
-    classDef linuxBackend fill:#e8f5e8,stroke:#1b5e20,stroke-width:3px
-    classDef macBackend fill:#e8eaf6,stroke:#283593,stroke-width:3px
-    classDef windowsBackend fill:#fff3e0,stroke:#e65100,stroke-width:3px
-    classDef coreComp fill:#fce4ec,stroke:#880e4f,stroke-width:2px
-    
-    class YourApp userApp
-    class TcpServer,TcpClient,UdpServer,UdpClient,UnixServer,UnixClient networkComp
-    class LinuxEpoll,LinuxIoUring linuxBackend
-    class MacOSKqueue macBackend
-    class WindowsIOCP windowsBackend
-    class TaskQueue,ThreadPool,Session,DataBuffer coreComp
+```text
+include/lmnet/      Public headers
+src/                Common implementation
+src/platforms/      Platform backends
+examples/           Sample programs
+tests/              Unit tests
+cmake/              Package config and uninstall helpers
 ```
-
-**Platform-specific I/O Backends:**
-- **Linux**: Choose between **epoll** (traditional) or **io_uring** (modern) - auto-detected
-- **macOS**: Native **kqueue** reactor with shared event loop
-- **Windows**: **IOCP** (I/O Completion Ports) with Worker Threads
-- **Cross-platform**: Unified abstraction layer for seamless development
 
 ## Contributing
 
