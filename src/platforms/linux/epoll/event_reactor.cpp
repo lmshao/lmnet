@@ -27,10 +27,18 @@ namespace lmshao::lmnet {
 EventReactor::EventReactor() : wakeupFd_(INVALID_WAKEUP_FD)
 {
     wakeupFd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (wakeupFd_ == INVALID_WAKEUP_FD) {
+        LMNET_LOGE("eventfd create failed: %s", strerror(errno));
+    }
+
     epollThread_ = std::make_unique<std::thread>([&]() { this->Run(); });
     SetThreadName("EventReactor");
     std::unique_lock<std::mutex> taskLock(signalMutex_);
     runningSignal_.wait(taskLock, [this] { return startupComplete_; });
+
+    if (!startupSucceeded_) {
+        LMNET_LOGE("EventReactor startup failed");
+    }
 }
 
 EventReactor::~EventReactor()
@@ -81,7 +89,11 @@ void EventReactor::Run()
         struct epoll_event ev;
         ev.events = EPOLLIN;
         ev.data.fd = wakeupFd_;
-        epoll_ctl(epollFd_, EPOLL_CTL_ADD, wakeupFd_, &ev);
+        if (epoll_ctl(epollFd_, EPOLL_CTL_ADD, wakeupFd_, &ev) == -1) {
+            LMNET_LOGE("epoll_ctl ADD wakeup fd failed: %s", strerror(errno));
+            close(wakeupFd_);
+            wakeupFd_ = INVALID_WAKEUP_FD;
+        }
     }
 
     int nfds = 0;
