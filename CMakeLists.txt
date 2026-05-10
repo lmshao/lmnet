@@ -175,12 +175,14 @@ else()
     set(LMCORE_LOCAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../lmcore")
     if(EXISTS "${LMCORE_LOCAL_DIR}/CMakeLists.txt")
         if(NOT TARGET lmcore)
-            # Temporarily disable tests so lmcore's own test suite is not added
-            # to lmnet's CTest registry when lmcore is used as a dependency.
-            set(_lmnet_build_tests_saved ${BUILD_TESTS})
-            set(BUILD_TESTS OFF CACHE BOOL "Build tests" FORCE)
+            # Temporarily shadow BUILD_TESTS with a regular (non-cache) variable so
+            # that lmcore's option() sees it as OFF and skips registering its own
+            # tests in lmnet's CTest registry.  The child scope created by
+            # add_subdirectory inherits this regular variable, which takes
+            # precedence over the cache entry without requiring CACHE FORCE.
+            set(BUILD_TESTS OFF)
             add_subdirectory(../lmcore lmcore_build)
-            set(BUILD_TESTS ${_lmnet_build_tests_saved} CACHE BOOL "Build tests" FORCE)
+            unset(BUILD_TESTS)  # restore: cache value (e.g. -DBUILD_TESTS=ON) takes effect again
         endif()
         message(STATUS "Using local lmcore from sibling directory")
         set(LMCORE_SOURCE "local")
