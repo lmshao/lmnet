@@ -136,14 +136,7 @@ void EventReactor::Run()
             }
 
             if (handler) {
-                try {
-                    DispatchEvent(std::move(handler), kev);
-                } catch (const std::exception &e) {
-                    LMNET_LOGE("Exception in event handler for fd %lld: %s", static_cast<long long>(kev.ident),
-                               e.what());
-                } catch (...) {
-                    LMNET_LOGE("Unknown exception in event handler for fd %lld", static_cast<long long>(kev.ident));
-                }
+                DispatchEvent(std::move(handler), kev);
             }
         }
     }
