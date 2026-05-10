@@ -38,6 +38,7 @@ bool IocpManager::Init(int entries, int workerThreads)
 
     entries_ = entries;
     maxEntries_ = std::max<size_t>(static_cast<size_t>(entries_) * 4, static_cast<size_t>(entries_) + 64);
+    forceStop_.store(false);
     activeRequests_.store(0);
 
     // Create IOCP
@@ -123,13 +124,7 @@ void IocpManager::Stop()
 
 void IocpManager::Exit()
 {
-    // Submit exit request
-    IocpRequest *req = GetRequest();
-    if (req) {
-        req->type = IocpRequestType::EXIT;
-        PostQueuedCompletionStatus(iocp_, 0, 0, &req->overlapped);
-    }
-
+    forceStop_.store(true);
     Stop();
 }
 
@@ -185,6 +180,9 @@ void IocpManager::WorkerLoop()
         DWORD error = success ? 0 : GetLastError();
 
         if (!isRunning_.load() && !overlapped) {
+            if (forceStop_.load(std::memory_order_acquire)) {
+                break;
+            }
             if (activeRequests_.load(std::memory_order_acquire) == 0) {
                 break;
             }

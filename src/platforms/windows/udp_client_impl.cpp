@@ -326,13 +326,12 @@ void UdpClientImpl::HandleSend(DWORD bytesSent, DWORD error)
 
 void UdpClientImpl::Close()
 {
-    if (!isRunning_.load()) {
+    const bool wasRunning = isRunning_.exchange(false);
+    if (!wasRunning && socket_ == INVALID_SOCKET) {
         return;
     }
 
     LMNET_LOGD("Closing UDP client");
-
-    isRunning_.store(false);
 
     if (socket_ != INVALID_SOCKET) {
         closesocket(socket_);
