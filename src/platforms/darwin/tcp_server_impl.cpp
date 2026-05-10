@@ -84,14 +84,15 @@ private:
 class TcpConnectionHandler : public EventHandler {
 public:
     TcpConnectionHandler(socket_t fd, std::weak_ptr<TcpServerImpl> server)
-        : fd_(fd), server_(server), writeEventsEnabled_(false)
+        : fd_(fd), server_(server), readBuffer_(std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE)),
+          writeEventsEnabled_(false)
     {
     }
 
     void HandleRead(socket_t fd) override
     {
-        if (auto server = server_.lock()) {
-            server->HandleReceive(fd);
+        if (auto server = server_.lock(); server && readBuffer_) {
+            server->HandleReceive(fd, *readBuffer_);
         }
     }
 
@@ -201,6 +202,7 @@ private:
 private:
     socket_t fd_;
     std::weak_ptr<TcpServerImpl> server_;
+    std::unique_ptr<DataBuffer> readBuffer_;
     mutable std::mutex sendMutex_;
     std::queue<std::shared_ptr<DataBuffer>> sendQueue_;
     bool writeEventsEnabled_;
@@ -417,29 +419,21 @@ void TcpServerImpl::HandleAccept(socket_t fd)
     }
 }
 
-void TcpServerImpl::HandleReceive(socket_t fd)
+void TcpServerImpl::HandleReceive(socket_t fd, DataBuffer &readBuffer)
 {
     if (!GetSession(fd)) {
         return;
     }
 
     LMNET_LOGD("fd: %d", fd);
-    if (readBuffer_ == nullptr) {
-        readBuffer_ = std::make_unique<DataBuffer>(RECV_BUFFER_MAX_SIZE);
-    }
 
     while (true) {
-        ssize_t nbytes = recv(fd, readBuffer_->Data(), readBuffer_->Capacity(), MSG_DONTWAIT);
+        ssize_t nbytes = recv(fd, readBuffer.Data(), readBuffer.Capacity(), MSG_DONTWAIT);
 
         if (nbytes > 0) {
-            if (nbytes > RECV_BUFFER_MAX_SIZE) {
-                LMNET_LOGE("recv %zd bytes", nbytes);
-                break;
-            }
-
             if (!listener_.expired()) {
                 auto dataBuffer = DataBuffer::PoolAlloc(nbytes);
-                dataBuffer->Assign(readBuffer_->Data(), nbytes);
+                dataBuffer->Assign(readBuffer.Data(), nbytes);
 
                 std::shared_ptr<Session> session = GetSession(fd);
 

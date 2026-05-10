@@ -57,7 +57,7 @@ private:
 
 private:
     void HandleAccept(socket_t fd);
-    void HandleReceive(socket_t fd);
+    void HandleReceive(socket_t fd, DataBuffer &readBuffer);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
     void EnableKeepAlive(socket_t fd);
 
@@ -71,7 +71,6 @@ private:
     std::mutex stateMutex_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
     std::unique_ptr<TaskQueue> taskQueue_;
-    std::unique_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<EventHandler> serverHandler_;
     std::unordered_map<int, std::shared_ptr<TcpConnectionHandler>> connectionHandlers_;

@@ -48,7 +48,7 @@ public:
 
 private:
     void HandleAccept(socket_t fd);
-    void HandleReceive(socket_t fd);
+    void HandleReceive(socket_t fd, DataBuffer &readBuffer);
     void HandleConnectionClose(socket_t fd, bool isError, const std::string &reason);
     void EnableKeepAlive(socket_t fd);
 
@@ -56,13 +56,12 @@ private:
     uint16_t localPort_;
     int socket_ = INVALID_SOCKET;
     std::string localIp_ = "0.0.0.0";
-    struct sockaddr_in serverAddr_ {};
+    struct sockaddr_in serverAddr_{};
 
     std::weak_ptr<IServerListener> listener_;
     std::unordered_map<int, std::shared_ptr<Session>> sessions_;
     std::mutex sessionMutex_;
     std::unique_ptr<TaskQueue> taskQueue_;
-    std::unique_ptr<DataBuffer> readBuffer_;
 
     std::shared_ptr<EventHandler> serverHandler_;
     bool serverHandlerRegistered_ = false;
