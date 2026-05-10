@@ -201,14 +201,7 @@ void IocpManager::WorkerLoop()
             }
 
             // Handle completion
-            bool recycleRequest = true;
-            try {
-                recycleRequest = HandleCompletion(req, bytes, error);
-            } catch (const std::exception &e) {
-                LMNET_LOGE("Exception in IOCP completion handler: %s", e.what());
-            } catch (...) {
-                LMNET_LOGE("Unknown exception in IOCP completion handler");
-            }
+            bool recycleRequest = HandleCompletion(req, bytes, error);
 
             if (recycleRequest) {
                 PutRequest(req);
